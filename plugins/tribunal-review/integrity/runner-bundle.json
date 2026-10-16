@@ -10,7 +10,7 @@
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "643a6c5338e6ff8a01edfbe464a5dcdf8b50be424102d31b14ea6a5a5a9a549f"
+      "sha256": "d92d880bb4f473f1d84dc0278e25871e34d9786661d91a778f8780a75c940e4c"
     },
     {
       "path": "scripts/generate-runner-bundle.sh",

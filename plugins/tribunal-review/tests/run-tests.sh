@@ -4824,6 +4824,17 @@ ulimit -c > "${FIXTURE_STATE:?}/$1.core-limit"
 base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"; head="$(git rev-parse --verify 'HEAD^{commit}')"
 if [ "${FIXTURE_MUTATOR:-}" = "$1" ]; then
   case "${FIXTURE_MUTATION:-dirty}" in
+    root-gitfile|root-commondir)
+      if [ "$1" = codex ]; then
+        read -r ready < "$FIXTURE_STATE/claude.ready"
+        rm "$FIXTURE_STATE/claude.ready"
+      fi
+      touch "$FIXTURE_STATE/git.watch"
+      if [ "$FIXTURE_MUTATION" = root-gitfile ]; then
+        printf 'gitdir: /missing-tribunal-admin\n' > "$FIXTURE_ROOT/.git"
+      else
+        printf '/missing-tribunal-common\n' > "$FIXTURE_ROOT_GITDIR/commondir"
+      fi ;;
     dirty) printf 'scratch\n' > scratch.txt ;;
     commit)
       printf 'scratch\n' > scratch.txt
@@ -4903,7 +4914,8 @@ HOOK
       rm "$config"
       ln -s "$FIXTURE_STATE/config.target" "$config" ;;
     config-token)
-      git config remote.origin.url https://fixture-secret-token@github.com/example/fixture.git ;;
+      git config remote.origin.url https://fixture-secret-token@github.com/example/fixture.git
+      chmod 0400 "$(git rev-parse --git-common-dir)/config" ;;
     config-branch)
       git config branch.concurrent.remote origin
       git config branch.concurrent.merge refs/heads/concurrent ;;
@@ -4929,7 +4941,7 @@ fi
 printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 if [ "$1" = claude ]; then
   case "${FIXTURE_MUTATION:-}" in
-    config-fifo|commondir|worktree-commondir|worktree-gitfile) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
+    config-fifo|commondir|worktree-commondir|worktree-gitfile|root-gitfile|root-commondir) printf 'ready\n' > "$FIXTURE_STATE/claude.ready" ;;
   esac
 fi
 EOF
@@ -5026,7 +5038,7 @@ EOF
     (ulimit -S -c 1
     env -u TRIBUNAL_BACKUP_LEGS -u TRIBUNAL_RISK -u TRIBUNAL_GLM -u TRIBUNAL_DEEPSEEK -u TRIBUNAL_DEEPSEEK_MODEL \
       PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
-      FIXTURE_WORK="$work" \
+      FIXTURE_WORK="$work" FIXTURE_ROOT="$repo" FIXTURE_ROOT_GITDIR="${root_gitdir:-}" \
       FIXTURE_CODEX_ERROR="plan limit: Codex execution failed or timed out; phase=execution; exit=1" "$@" \
       timeout -k 1 30 "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
       --output "$collection" > "$work/collect-$n.json" 2> "$work/collect-$n.err")
@@ -5050,11 +5062,11 @@ EOF
 
   printf '.\n' > "$repo/.git/commondir"
   ec=0; collect FIXTURE_CODEX_ERROR= TRIBUNAL_BACKUP_LEGS=off || ec=$?
-  preexisting_commondir_rejected() {
-    [ "$ec" -eq 1 ] && [ ! -e "$collection" ] && [ ! -e "$state/wrappers.started" ] \
+  preexisting_commondir_preserved() {
+    [ "$ec" -eq 0 ] && [ -e "$collection/manifest.json" ] && [ -e "$state/wrappers.started" ] \
       && [ -f "$repo/.git/commondir" ] && [ "$(cat "$repo/.git/commondir")" = . ]
   }
-  tr_check "T-004: pre-leg commondir is rejected without deletion" preexisting_commondir_rejected
+  tr_check "round 2 T-001: legitimate pre-leg commondir is pinned without deletion" preexisting_commondir_preserved
   rm -f "$repo/.git/commondir"
 
   mkdir -p "$work/home" "$work/tmp"
@@ -5308,7 +5320,7 @@ EOF
   manifest_sha="$(jq -r .manifest_sha256 "$work/collect-$n.json")"
   tr_check "collection records resolved Git paths and directory identity" \
     jqe --arg gitdir "$repo/.git" --arg identity "$(stat -c '%d:%i' "$repo/.git")" \
-    '.git_surface == {git_dir:$gitdir,common_dir:$gitdir,git_dir_identity:$identity}' "$collection/manifest.json"
+    '.git_surface | .schema == "tribunal-git-surface/v2" and .git_dir == $gitdir and .common_dir == $gitdir and .git_dir_identity == $identity and .common_dir_identity == $identity and .root_git == {kind:"directory",identity:$identity,file:null} and .commondir == null and (.config.sha256|length) == 64' "$collection/manifest.json"
   jq '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"Fixture review."},
     findings:[],scope_findings:[],conflicts_resolved:[],summary:"Fixture review.",
     provider_assessment:(.providers | map({key:.provider,value:{status:.status,
@@ -5323,9 +5335,12 @@ EOF
       "$plugin/scripts/collect-review-evidence.sh" "${verify_args[@]}" --collection "$collection" \
       --expected-manifest-sha256 "$manifest_sha" \
       > "$work/$command.json" 2> "$work/$command.err" || ec=$?
-    tr_check "$command rejects extensions.worktreeConfig" worktree_config_rejected "$work/$command.err"
+    tr_check "$command rejects changed extensions.worktreeConfig and restores config" \
+      bash -c '[ "$1" = 1 ] && grep -Fxq extensions.worktreeconfig "$2" && cmp -s "$3" "$4"' \
+      _ "$ec" "$work/$command.err" "$repo/.git/config" "$collection/git-surface/config"
+    git -C "$repo" config extensions.worktreeConfig true
   done
-  git -C "$repo" config --unset extensions.worktreeConfig
+  cp "$collection/git-surface/config" "$repo/.git/config"
   for command in verify-collection finalize; do
     rm -f "$state/git.calls" "$state/driver.executed"
     FIXTURE_STATE="$state" bash "$state/plant-commondir.sh" "$repo/.git"
@@ -5348,9 +5363,13 @@ EOF
   done
   cp "$collection/manifest.json" "$state/manifest.before"
   chmod u+w "$collection/manifest.json"
-  for mode in gitfile symlink replacement legacy; do
-    if [ "$mode" = legacy ]; then
-      jq 'del(.git_surface)' "$state/manifest.before" > "$collection/manifest.json"
+  for mode in gitfile symlink replacement legacy legacy-surface; do
+    if [[ "$mode" == legacy* ]]; then
+      if [ "$mode" = legacy ]; then
+        jq 'del(.git_surface)' "$state/manifest.before" > "$collection/manifest.json"
+      else
+        jq '.git_surface |= {git_dir,common_dir,git_dir_identity}' "$state/manifest.before" > "$collection/manifest.json"
+      fi
       manifest_sha="$(sha256sum "$collection/manifest.json" | awk '{print $1}')"
       expected='collection manifest lacks git_surface identity; recollect'
     else
@@ -5379,7 +5398,7 @@ EOF
       tr_check "$command rejects $mode before Git or arbitration" surface_verify_rejected
       rm -f "$state/git.watch"
     done
-    if [ "$mode" != legacy ]; then
+    if [[ "$mode" != legacy* ]]; then
       rm -rf "$repo/.git"
       mv "$repo/.git.saved" "$repo/.git"
     fi
@@ -5387,20 +5406,103 @@ EOF
   cp "$state/manifest.before" "$collection/manifest.json"
   chmod 0444 "$collection/manifest.json"
   manifest_sha="$(sha256sum "$collection/manifest.json" | awk '{print $1}')"
-  git -C "$repo" config core.hooksPath "$state/hooks"
-  git -C "$repo" config core.fsmonitor "$state/fsmonitor"
   rm -f "$state/fsmonitor.executed"
   verify_config_containment() {
+    git -C "$repo" config core.hooksPath "$state/hooks"
+    git -C "$repo" config core.fsmonitor "$state/fsmonitor"
+    local config_mode rc=0
+    config_mode="$(jq -r .git_surface.config.mode "$collection/manifest.json")"
     jq -e 'has("mutation_gate")' "$collection/manifest.json" >/dev/null || return 1
     env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
       "$plugin/scripts/collect-review-evidence.sh" "$@" --collection "$collection" \
-      --expected-manifest-sha256 "$manifest_sha" > "$work/verify.json" 2> "$work/verify.err" || return 1
+      --expected-manifest-sha256 "$manifest_sha" > "$work/verify.json" 2> "$work/verify.err" || rc=$?
+    [ "$rc" -eq 1 ] && grep -Fxq core.hookspath "$work/verify.err" && grep -Fxq core.fsmonitor "$work/verify.err" || return 1
+    cmp -s "$repo/.git/config" "$collection/git-surface/config" && [ "$(stat -c '%a' "$repo/.git/config")" = "$config_mode" ] || return 1
     [ ! -e "$state/fsmonitor.executed" ] || return 1
     [ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
   }
-  tr_check "verify-collection suppresses hooks and fsmonitor in library helpers" verify_config_containment verify-collection
-  tr_check "finalize suppresses hooks and fsmonitor in library helpers" verify_config_containment finalize --arbitration "$work/arbitration.json"
+  tr_check "verify-collection rejects and restores changed hooks and fsmonitor config" verify_config_containment verify-collection
+  tr_check "finalize rejects and restores changed hooks and fsmonitor config" verify_config_containment finalize --arbitration "$work/arbitration.json"
   cp "$state/config.before" "$repo/.git/config"
+  # Round 2: use the collector's functions without its CLI dispatch for helper probes.
+  sed '/^require_tools$/,$d' "$plugin/scripts/collect-review-evidence.sh" > "$plugin/scripts/surface-functions.sh"
+  tr_check "round 2 T-004: protective config wins over caller config" \
+    bash -c '. "$1"; test "$(hardened_git -c core.hooksPath=/caller config --get core.hooksPath)" = /dev/null' \
+    _ "$plugin/scripts/surface-functions.sh"
+  mkdir -p "$work/home"
+  git config --file "$work/home/.gitconfig" "includeIf.gitdir:$repo/.git.path" "$work/home/target-config"
+  git config --file "$work/home/target-config" safe.directory "$repo"
+  tr_check "round 2 T-005: safe.directory includeIf uses target repo" \
+    env HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" GIT_CONFIG_NOSYSTEM=1 \
+    bash -c '. "$1"; SURFACE_ROOT="$2"; load_safe_directories; SURFACE_ROOT=""; test "$(hardened_git config --get-all safe.directory)" = "$2"' \
+    _ "$plugin/scripts/surface-functions.sh" "$repo"
+  rm -rf "$work/home"
+  mkdir "$work/version-bin"
+  printf '#!/usr/bin/env bash\nprintf "git version 2.40.4\\n"\n' > "$work/version-bin/git"
+  chmod +x "$work/version-bin/git"
+  ec=0
+  PATH="$work/version-bin:$PATH" bash -c '. "$1"; require_git_version' _ "$plugin/scripts/surface-functions.sh" \
+    > "$work/version.out" 2> "$work/version.err" || ec=$?
+  tr_check "round 2 T-002: git 2.40 is rejected with 2.41 requirement" \
+    bash -c '[ "$1" = 1 ] && grep -Fq "git 2.41+ is required" "$2"' _ "$ec" "$work/version.err"
+
+  local main_repo="$repo" root_gitdir target phase saved
+  git -C "$main_repo" worktree add --detach -q "$work/linked" "$head"
+  repo="$work/linked"; root_gitdir="$(git -C "$repo" rev-parse --absolute-git-dir)"
+  cp "$repo/.git" "$state/root.git.before"
+  cp "$root_gitdir/commondir" "$state/commondir.before"
+  ec=0; collect FIXTURE_CODEX_ERROR= TRIBUNAL_BACKUP_LEGS=off || ec=$?
+  tr_check "round 2 T-001: linked root collects with stub legs" test "$ec" -eq 0
+  manifest_sha="$(jq -r '.manifest_sha256 // empty' "$work/collect-$n.json")"
+  # Tracking changes remain legitimate across later verification/finalization too.
+  git -C "$repo" config branch.after-collection.remote origin
+  git -C "$repo" config branch.after-collection.merge refs/heads/after-collection
+  for command in verify-collection finalize; do
+    verify_args=("$command")
+    [ "$command" != finalize ] || verify_args+=(--arbitration "$work/arbitration.json")
+    ec=0
+    env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+      "$plugin/scripts/collect-review-evidence.sh" "${verify_args[@]}" --collection "$collection" \
+      --expected-manifest-sha256 "$manifest_sha" > "$work/$command.json" 2> "$work/$command.err" || ec=$?
+    tr_check "round 2 T-001: linked root $command succeeds with branch-only config changes" test "$ec" -eq 0
+  done
+  saved="$collection"
+  for scenario in root-gitfile root-commondir; do
+    case "$scenario" in
+      root-gitfile) target="$repo/.git"; expected="$state/root.git.before" ;;
+      root-commondir) target="$root_gitdir/commondir"; expected="$state/commondir.before" ;;
+    esac
+    for phase in primary backup verify-collection finalize; do
+      rm -f "$state/git.calls" "$state/git.watch" "$state/claude.ready" "$state/wrappers.started"
+      ec=0
+      if [ "$phase" = primary ]; then
+        mkfifo "$state/claude.ready"
+        collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR=codex FIXTURE_MUTATION="$scenario" TRIBUNAL_BACKUP_LEGS=off || ec=$?
+      elif [ "$phase" = backup ]; then
+        collect FIXTURE_MUTATOR=deepseek FIXTURE_MUTATION="$scenario" || ec=$?
+      else
+        printf '/missing-resolution\n' > "$target"
+        touch "$state/git.watch"
+        verify_args=("$phase")
+        [ "$phase" != finalize ] || verify_args+=(--arbitration "$work/missing-arbitration.json")
+        env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+          "$plugin/scripts/collect-review-evidence.sh" "${verify_args[@]}" --collection "$saved" \
+          --expected-manifest-sha256 "$manifest_sha" > "$work/collect-$n.json" 2> "$work/collect-$n.err" || ec=$?
+      fi
+      linked_redirect_rejected() {
+        [ "$ec" -eq 1 ] && grep -Fq "git surface changed: $target" "$work/collect-$n.err" \
+          && cmp -s "$target" "$expected" && [ ! -e "$state/git.calls" ] || return 1
+        case "$phase" in primary|backup) [ -e "$state/wrappers.started" ] && [ ! -e "$collection" ] ;; esac
+      }
+      tr_check "round 2 T-001: $phase $scenario fails named before Git and restores bytes" linked_redirect_rejected
+      cp "$expected" "$target"
+      rm -f "$state/git.watch" "$state/claude.ready"
+      while IFS= read -r wt; do
+        case "$wt" in "$main_repo"|"$repo") ;; *) git -C "$main_repo" worktree remove -f -f "$wt" ;; esac
+      done < <(git -C "$main_repo" worktree list --porcelain | sed -n 's/^worktree //p')
+    done
+  done
+  git -C "$main_repo" worktree remove -f "$repo"
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
 }

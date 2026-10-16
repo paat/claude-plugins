@@ -17,17 +17,29 @@ unset command_name
 # Also covers library helpers and traps; never exported to reviewer shells.
 git() {
   check_git_surface || die "git surface validation failed"
+  local target="$PWD" i
+  local -a args=("$@")
+  for ((i=0; i<${#args[@]}; i+=2)); do
+    case "${args[$i]}" in
+      -C) target="${args[$((i+1))]}" ;;
+      -c) ;;
+      *) break ;;
+    esac
+  done
+  if [ "$SURFACE_PINNED" -eq 1 ] && [ "$target" = "$SURFACE_ROOT" ]; then
+    local -x GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" GIT_WORK_TREE="$SURFACE_ROOT"
+  fi
   hardened_git "$@"
 }
 
 hardened_git() {
   local arg upload_pack=""
-  local -a options=() invocation
+  local -a options=() invocation protections upload_invocation
   # Ignore external config and worktree attributes, including '=' driver names.
   invocation=(env GIT_NO_LAZY_FETCH=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
     GIT_CONFIG_COUNT="$SAFE_DIRECTORY_COUNT" "${SAFE_DIRECTORY_ENV[@]+"${SAFE_DIRECTORY_ENV[@]}"}"
-    git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904
-    -c core.attributesFile=/dev/null -c core.fsmonitor=false -c core.hooksPath=/dev/null)
+    git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904)
+  protections=(-c core.attributesFile=/dev/null -c core.fsmonitor=false -c core.hooksPath=/dev/null)
   while [ "${1:-}" = -c ] || [ "${1:-}" = -C ]; do
     options+=("$1" "$2"); shift 2
   done
@@ -35,12 +47,18 @@ hardened_git() {
     shift
     # Local clone drops command-scope config in its upload-pack child.
     # Reapply the same pinned environment there, quoted for Git's POSIX shell.
-    for arg in "${invocation[@]}" upload-pack; do
+    upload_invocation=(env)
+    if [ -n "${GIT_DIR:-}" ]; then
+      upload_invocation+=("GIT_DIR=$GIT_DIR" "GIT_COMMON_DIR=$GIT_COMMON_DIR")
+    fi
+    for arg in "${upload_invocation[@]}" "${invocation[@]}" "${protections[@]}" upload-pack; do
       upload_pack+="'${arg//\'/\'\\\'\'}' "
     done
     set -- clone "--upload-pack=$upload_pack" "$@"
+    # The clone destination must not inherit the source repository's pins.
+    invocation=(env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE "${invocation[@]}")
   fi
-  "${invocation[@]}" "${options[@]+"${options[@]}"}" "$@"
+  "${invocation[@]}" "${options[@]+"${options[@]}"}" "${protections[@]}" "$@"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -57,13 +75,17 @@ REVIEW_PIDS=()
 REVIEW_NAMES=()
 CONFIG_FILE=""
 CONFIG_SNAPSHOT=""
-CONFIG_MODE=""
 SAFE_DIRECTORY_COUNT=0
 SAFE_DIRECTORY_ENV=()
 SURFACE_ROOT=""
 SURFACE_GITDIR=""
 SURFACE_COMMON=""
 SURFACE_ID=""
+SURFACE_KIND=""
+SURFACE_GITDIR_ID=""
+SURFACE_COMMON_ID=""
+SURFACE_STATE=""
+SURFACE_SNAPSHOTS=""
 SURFACE_FAILED=0
 SURFACE_PINNED=0
 VERIFIED_COLLECTION=""
@@ -96,9 +118,12 @@ reject_worktree_config() {
 
 load_safe_directories() {
   local scope values value rc
+  if [ "$SURFACE_PINNED" -eq 1 ]; then
+    local -x GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON"
+  fi
   # Read only the operator's protected scopes, before any reviewer can change them.
   for scope in system global; do
-    values="$(command git config --"$scope" --includes --null --get-all safe.directory \
+    values="$(command git -C "$SURFACE_ROOT" config --"$scope" --includes --null --get-all safe.directory \
       | jq -Rs 'split("\u0000")[:-1]')" || {
       rc=$?
       [ "$rc" -eq 1 ] || die "cannot read protected safe.directory ($scope)"
@@ -114,7 +139,7 @@ load_safe_directories() {
 config_entries() {
   [ -f "$1" ] && [ ! -L "$1" ] || return 1
   # Parsing a regular file executes nothing; bypass the recursive surface guard.
-  hardened_git config --file "$1" --list --no-includes --null 2>/dev/null \
+  GIT_DIR="$SURFACE_GITDIR" GIT_COMMON_DIR="$SURFACE_COMMON" hardened_git config --file "$1" --list --no-includes --null 2>/dev/null \
     | jq -Rs 'split("\u0000")[:-1] | group_by(split("\n")[0])
       | map({key:(.[0] | split("\n")[0]), value:.}) | from_entries'
 }
@@ -128,33 +153,121 @@ changed_config_keys() {
     | [($before + $after | keys[]) | select($before[.] != $after[.])]'
 }
 
+pin_git_surface() {
+  local root_git="$SURFACE_ROOT/.git" kind common
+  [ ! -L "$root_git" ] || die "symbolic root git path: $root_git"
+  if [ -d "$root_git" ]; then kind=directory
+  elif [ -f "$root_git" ]; then kind=file
+  else die "root git path is not a directory or gitfile: $root_git"; fi
+  # Resolve only before legs launch; subsequent resolution checks use no Git.
+  SURFACE_GITDIR="$(real_dir "$(hardened_git -C "$SURFACE_ROOT" rev-parse --absolute-git-dir)")"
+  common="$(hardened_git -C "$SURFACE_ROOT" rev-parse --git-common-dir)"
+  case "$common" in /*) ;; *) common="$SURFACE_ROOT/$common" ;; esac
+  SURFACE_COMMON="$(real_dir "$common")"
+  SURFACE_SNAPSHOTS="$(mktemp -d)"
+  if [ "$kind" = file ]; then snapshot_surface_file "$root_git" root.git; fi
+  if [ -e "$SURFACE_GITDIR/commondir" ] || [ -L "$SURFACE_GITDIR/commondir" ]; then
+    snapshot_surface_file "$SURFACE_GITDIR/commondir" commondir
+  fi
+  CONFIG_FILE="$SURFACE_COMMON/config"
+  snapshot_surface_file "$CONFIG_FILE" config
+  CONFIG_SNAPSHOT="$SURFACE_SNAPSHOTS/config"
+  SURFACE_STATE="$(jq -nc --arg kind "$kind" --arg root_id "$(stat -c '%d:%i' -- "$root_git")" \
+    --arg git_dir "$SURFACE_GITDIR" --arg git_id "$(stat -c '%d:%i' -- "$SURFACE_GITDIR")" \
+    --arg common_dir "$SURFACE_COMMON" --arg common_id "$(stat -c '%d:%i' -- "$SURFACE_COMMON")" \
+    --argjson root_file "$(surface_file_metadata root.git)" \
+    --argjson commondir "$(surface_file_metadata commondir)" \
+    --argjson config "$(surface_file_metadata config)" \
+    '{schema:"tribunal-git-surface/v2",root_git:{kind:$kind,identity:$root_id,file:$root_file},
+      git_dir:$git_dir,git_dir_identity:$git_id,common_dir:$common_dir,common_dir_identity:$common_id,
+      commondir:$commondir,config:$config}')"
+  set_surface_identities
+  SURFACE_PINNED=1
+  check_git_surface || die "cannot pin git surface"
+}
+
+snapshot_surface_file() {
+  [ -f "$1" ] && [ ! -L "$1" ] || die "git surface is not a regular file: $1"
+  cp -p -- "$1" "$SURFACE_SNAPSHOTS/$2"
+}
+
+surface_file_metadata() {
+  local file="$SURFACE_SNAPSHOTS/$1"
+  if [ ! -f "$file" ]; then printf 'null'; return; fi
+  jq -nc --arg sha256 "$(sha_file "$file")" --argjson bytes "$(bytes_file "$file")" \
+    --arg mode "$(stat -c '%a' -- "$file")" '{sha256:$sha256,bytes:$bytes,mode:$mode}'
+}
+
+same_surface_dir() {
+  [ -d "$1" ] && [ ! -L "$1" ] \
+    && [ "$(stat -c '%d:%i' -- "$1")" = "$2" ] && [ "$(real_dir "$1")" = "$1" ]
+}
+
+same_surface_file() {
+  [ -f "$1" ] && [ ! -L "$1" ] && cmp -s -- "$1" "$SURFACE_SNAPSHOTS/$2"
+}
+
+restore_surface_file() {
+  local path="$1" snapshot="$SURFACE_SNAPSHOTS/$2" mode replacement
+  mode="$(printf '%s' "$SURFACE_STATE" | jq -r --arg key "$2" \
+    'if $key == "root.git" then .root_git.file.mode else .[$key].mode end')"
+  # Preserve the pinned gitfile inode; replace other paths without following links.
+  if [ "$2" = root.git ] && [ -f "$path" ] && [ ! -L "$path" ] \
+    && [ "$(stat -c '%d:%i' -- "$path")" = "$SURFACE_ID" ]; then
+    chmod u+w -- "$path" && cat -- "$snapshot" > "$path" && chmod "$mode" "$path"
+    return
+  fi
+  replacement="$(mktemp "$(dirname "$path")/.tribunal-restore.XXXXXX")" || return 1
+  if cp -- "$snapshot" "$replacement" && chmod "$mode" "$replacement"; then
+    if [ -d "$path" ] && [ ! -L "$path" ]; then rm -rf -- "$path"; fi
+    if mv -fT -- "$replacement" "$path"; then return 0; fi
+  fi
+  rm -f -- "$replacement"
+  return 1
+}
+
 check_git_surface() {
-  local changes problem="" gitdir
+  local changes problem="" root_git git_ok=0 common_ok=0 root_bad=0 commondir_bad=0
   [ "$SURFACE_FAILED" -eq 0 ] || return 1
-  [ -n "$SURFACE_ROOT" ] || return 0
-  gitdir="$SURFACE_ROOT/.git"
-  if [ ! -d "$gitdir" ] || [ -L "$gitdir" ] \
-    || [ "$(stat -c '%d:%i' -- "$gitdir" 2>/dev/null)" != "$SURFACE_ID" ] \
-    || [ "$(real_dir "$gitdir")" != "$SURFACE_GITDIR" ]; then
-    problem="$gitdir (expected the original real directory, device:inode $SURFACE_ID)"
-  elif [ -e "$gitdir/commondir" ] || [ -L "$gitdir/commondir" ]; then
-    problem="$gitdir/commondir (common-dir redirection is unsupported)"
-  elif [ "$SURFACE_COMMON" != "$SURFACE_GITDIR" ] \
-    || [ "$(real_dir "$SURFACE_COMMON")" != "$SURFACE_COMMON" ]; then
-    problem="$SURFACE_COMMON (common-dir realpath changed)"
+  [ "$SURFACE_PINNED" -eq 1 ] || return 0
+  root_git="$SURFACE_ROOT/.git"
+  if same_surface_dir "$SURFACE_GITDIR" "$SURFACE_GITDIR_ID"; then git_ok=1; fi
+  if same_surface_dir "$SURFACE_COMMON" "$SURFACE_COMMON_ID"; then common_ok=1; fi
+  if [ "$(stat -c '%d:%i' -- "$root_git" 2>/dev/null)" != "$SURFACE_ID" ] || [ -L "$root_git" ]; then
+    root_bad=1
+  elif [ "$SURFACE_KIND" = directory ]; then
+    [ -d "$root_git" ] && [ "$(real_dir "$root_git")" = "$SURFACE_GITDIR" ] || root_bad=1
+  else
+    same_surface_file "$root_git" root.git || root_bad=1
+  fi
+  if [ "$root_bad" -eq 1 ]; then problem="$root_git (original $SURFACE_KIND changed)"
+  elif [ "$git_ok" -eq 0 ]; then problem="$SURFACE_GITDIR (git-dir identity or realpath changed)"
+  elif [ "$common_ok" -eq 0 ]; then problem="$SURFACE_COMMON (common-dir identity or realpath changed)"; fi
+  if [ "$git_ok" -eq 1 ]; then
+    if [ -f "$SURFACE_SNAPSHOTS/commondir" ]; then
+      same_surface_file "$SURFACE_GITDIR/commondir" commondir || commondir_bad=1
+    elif [ -e "$SURFACE_GITDIR/commondir" ] || [ -L "$SURFACE_GITDIR/commondir" ]; then commondir_bad=1; fi
+    if [ "$commondir_bad" -eq 1 ]; then
+      problem="${problem:+$problem; }$SURFACE_GITDIR/commondir (resolution changed)"
+    fi
   fi
   if [ -n "$problem" ]; then
     SURFACE_FAILED=1
     printf 'tribunal evidence: git surface changed: %s\n' "$problem" >&2
-    # Do not follow a replaced .git symlink or use Git for cleanup after redirection.
-    if [ "$SURFACE_PINNED" -eq 1 ] && [ -d "$gitdir" ] && [ ! -L "$gitdir" ]; then
-      rm -f -- "$gitdir/commondir" || printf 'cannot remove planted commondir: %s\n' "$gitdir/commondir" >&2
+    if [ "$root_bad" -eq 1 ] && [ "$SURFACE_KIND" = file ]; then
+      restore_surface_file "$root_git" root.git || printf 'cannot restore gitfile: %s\n' "$root_git" >&2
+    fi
+    if [ "$commondir_bad" -eq 1 ]; then
+      if [ -f "$SURFACE_SNAPSHOTS/commondir" ]; then
+        restore_surface_file "$SURFACE_GITDIR/commondir" commondir \
+          || printf 'cannot restore commondir: %s\n' "$SURFACE_GITDIR/commondir" >&2
+      else
+        rm -f -- "$SURFACE_GITDIR/commondir" || printf 'cannot remove planted commondir: %s\n' "$SURFACE_GITDIR/commondir" >&2
+      fi
     fi
     return 1
   fi
   if [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ]; then
-    # Rollback bytes exist only while collecting; later commands bind directory identity.
-    [ -n "$CONFIG_SNAPSHOT" ] || return 0
     cmp -s "$CONFIG_SNAPSHOT" "$CONFIG_FILE" && return 0
     if changes="$(changed_config_keys)"; then
       # Upstream tracking writes from concurrent operator sessions are legitimate.
@@ -166,15 +279,42 @@ check_git_surface() {
   else
     changes='config path is missing, symbolic, or not a regular file'
   fi
-  [ -n "$CONFIG_SNAPSHOT" ] || {
-    printf 'tribunal evidence: shared git config changed: %s (%s)\n' "$CONFIG_FILE" "$changes" >&2
-    return 1
-  }
-  { rm -rf -- "$CONFIG_FILE" && cp -- "$CONFIG_SNAPSHOT" "$CONFIG_FILE" \
-    && chmod "$CONFIG_MODE" "$CONFIG_FILE"; } \
+  restore_surface_file "$CONFIG_FILE" config \
     || { printf 'cannot restore shared git config: %s\n' "$CONFIG_FILE" >&2; return 1; }
   printf 'tribunal evidence: shared git config changed: %s (restored)\n%s\n' "$CONFIG_FILE" "$changes" >&2
   return 1
+}
+
+load_git_surface() {
+  local manifest="$1" name metadata file
+  SURFACE_STATE="$(jq -c .git_surface "$manifest")"
+  SURFACE_ROOT="$(jq -r .repository.root "$manifest")"
+  SURFACE_GITDIR="$(printf '%s' "$SURFACE_STATE" | jq -r .git_dir)"
+  SURFACE_COMMON="$(printf '%s' "$SURFACE_STATE" | jq -r .common_dir)"
+  # Copy authenticated snapshots to private storage so cleanup never removes evidence.
+  SURFACE_SNAPSHOTS="$(mktemp -d)"
+  [ -d "$(dirname "$manifest")/git-surface" ] && [ ! -L "$(dirname "$manifest")/git-surface" ] \
+    || die "git surface snapshots missing or symbolic"
+  for name in root.git commondir config; do
+    metadata="$(printf '%s' "$SURFACE_STATE" | jq -c --arg key "$name" \
+      'if $key == "root.git" then .root_git.file else .[$key] end')"
+    [ "$metadata" != null ] || continue
+    file="$(dirname "$manifest")/git-surface/$name"
+    [ -f "$file" ] && [ ! -L "$file" ] || die "git surface snapshot missing or symbolic: $name"
+    cp -- "$file" "$SURFACE_SNAPSHOTS/$name"
+    [ "$(sha_file "$SURFACE_SNAPSHOTS/$name")" = "$(printf '%s' "$metadata" | jq -r .sha256)" ] \
+      && [ "$(bytes_file "$SURFACE_SNAPSHOTS/$name")" = "$(printf '%s' "$metadata" | jq -r .bytes)" ] \
+      || die "git surface snapshot digest/size mismatch: $name"
+  done
+  CONFIG_FILE="$SURFACE_COMMON/config"; CONFIG_SNAPSHOT="$SURFACE_SNAPSHOTS/config"
+  set_surface_identities
+  SURFACE_PINNED=1
+  check_git_surface || die "git surface changed; collection rejected"
+}
+
+set_surface_identities() {
+  IFS=$'\t' read -r SURFACE_KIND SURFACE_ID SURFACE_GITDIR_ID SURFACE_COMMON_ID < <(
+    printf '%s' "$SURFACE_STATE" | jq -r '[.root_git.kind,.root_git.identity,.git_dir_identity,.common_dir_identity] | @tsv')
 }
 
 cleanup() {
@@ -189,7 +329,7 @@ cleanup() {
   [ -z "$STAGING" ] || [ ! -e "$STAGING" ] || rm -rf -- "$STAGING"
   [ -z "$FINAL_TMP1" ] || [ ! -e "$FINAL_TMP1" ] || rm -f -- "$FINAL_TMP1"
   [ -z "$FINAL_TMP2" ] || [ ! -e "$FINAL_TMP2" ] || rm -f -- "$FINAL_TMP2"
-  [ -z "$CONFIG_SNAPSHOT" ] || rm -f -- "$CONFIG_SNAPSHOT"
+  [ -z "$SURFACE_SNAPSHOTS" ] || rm -rf -- "$SURFACE_SNAPSHOTS"
   exit "$rc"
 }
 trap cleanup EXIT
@@ -206,8 +346,8 @@ require_git_version() {
   local version
   version="$(command git --version)"
   [[ "$version" =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] \
-    && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 40) )) \
-    || die "git 2.40+ is required for --attr-source (found: $version)"
+    && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 41) )) \
+    || die "git 2.41+ is required for --attr-source (found: $version)"
 }
 
 real_dir() {
@@ -533,13 +673,10 @@ collect() {
   tribunal_risk_tier >/dev/null || exit 1
   backup_legs="$(tribunal_backup_legs)" || exit 1
   root="$(real_dir "$root")"
-  SURFACE_ROOT="$root"; SURFACE_GITDIR="$root/.git"; SURFACE_COMMON="$SURFACE_GITDIR"
-  SURFACE_ID="$(stat -c '%d:%i' -- "$SURFACE_GITDIR" 2>/dev/null)" || die "cannot snapshot git directory: $SURFACE_GITDIR"
-  CONFIG_FILE="$SURFACE_COMMON/config"
-  check_git_surface || die "sealed collection requires an unchanged real .git directory without commondir"
-  SURFACE_PINNED=1
+  SURFACE_ROOT="$root"
   load_safe_directories
   require_git_version
+  pin_git_surface
   reject_worktree_config "$root"
   [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || die "--repo-root is not a Git worktree root"
   case "$output" in /*) ;; *) die "--output must be absolute" ;; esac
@@ -596,13 +733,6 @@ collect() {
       claude) claude_worktree="$review_tmp" ;;
     esac
   done
-
-  CONFIG_MODE="$(stat -c '%a' -- "$CONFIG_FILE")" || die "cannot snapshot shared git config mode"
-  CONFIG_SNAPSHOT="$(mktemp)"
-  cp -- "$CONFIG_FILE" "$CONFIG_SNAPSHOT" || {
-    rm -f -- "$CONFIG_SNAPSHOT"; CONFIG_SNAPSHOT=""
-    die "cannot snapshot shared git config: $CONFIG_FILE"
-  }
 
   run_wrapper codex "$SCRIPT_DIR/run-codex-review.sh" "$codex_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers"
@@ -698,9 +828,12 @@ collect() {
     git -C "$root" worktree remove -f -f "$review_worktree" >/dev/null
   done
   REVIEW_WORKTREES=(); REVIEW_SOURCE=""
+  mkdir "$STAGING/git-surface"
+  cp -- "$SURFACE_SNAPSHOTS/"* "$STAGING/git-surface/"
+  chmod 0400 "$STAGING/git-surface/"*
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
     --arg completed_at "$(now)" --argjson binding "$binding" \
-    --arg git_dir "$SURFACE_GITDIR" --arg common_dir "$SURFACE_COMMON" --arg git_dir_identity "$SURFACE_ID" \
+    --argjson git_surface "$SURFACE_STATE" \
     --arg body_sha256 "$(sha_file "$STAGING/pr-body.txt")" \
     --argjson body_bytes "$(bytes_file "$STAGING/pr-body.txt")" \
     --arg diff_sha256 "$(sha_file "$STAGING/review.diff")" \
@@ -720,7 +853,7 @@ collect() {
     --slurpfile providers "$providers_json" \
     '{schema:$schema,started_at:$started_at,completed_at:$completed_at,
       repository:$binding.repository,
-      git_surface:{git_dir:$git_dir,common_dir:$common_dir,git_dir_identity:$git_dir_identity},
+      git_surface:$git_surface,
       pull_request:{number:$binding.pull_request.number,url:$binding.pull_request.url,state:$binding.pull_request.state,
         base_ref:$binding.pull_request.baseRefName,base_oid:$binding.pull_request.baseRefOid,
         head_ref:$binding.pull_request.headRefName,head_oid:$binding.pull_request.headRefOid,
@@ -760,13 +893,21 @@ validate_manifest_shape() {
     def sha: type=="string" and test("^[0-9a-f]{64}$");
     def oid: type=="string" and test("^[0-9a-f]{40}$");
     def uint: type=="number" and .>=0 and .==floor;
+    def identity: type=="string" and test("^[0-9]+:[0-9]+$");
+    def snapshot: exact(["sha256","bytes","mode"];["sha256","bytes","mode"])
+      and (.sha256|sha) and (.bytes|uint) and (.mode|type=="string" and test("^[0-7]{3,4}$"));
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
     exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
           ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
-    and (.git_surface | exact(["git_dir","common_dir","git_dir_identity"];["git_dir","common_dir","git_dir_identity"])
+    and (.git_surface | exact(["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"];
+                              ["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"])
+         and .schema=="tribunal-git-surface/v2"
          and (.git_dir|text and startswith("/")) and (.common_dir|text and startswith("/"))
-         and (.git_dir_identity|type=="string" and test("^[0-9]+:[0-9]+$")))
+         and (.git_dir_identity|identity) and (.common_dir_identity|identity)
+         and (.root_git | exact(["kind","identity","file"];["kind","identity","file"])
+              and (.identity|identity) and ((.kind=="directory" and .file==null) or (.kind=="file" and (.file|snapshot))))
+         and (.commondir==null or (.commondir|snapshot)) and (.config|snapshot))
     and (.repository | exact(["root","host","name_with_owner","url"];
                              ["root","host","name_with_owner","url"])
          and (.root|text and startswith("/")) and (.host|test("^[A-Za-z0-9.-]+$"))
@@ -885,17 +1026,10 @@ verify_collection_internal() {
   [ -f "$dir/pr-body.txt" ] && [ ! -L "$dir/pr-body.txt" ] || die "retained PR body missing or symbolic"
   [ -f "$dir/review.diff" ] && [ ! -L "$dir/review.diff" ] || die "retained diff missing or symbolic"
   [ "$expected_sha" = "$(sha_file "$manifest")" ] || die "collection manifest digest mismatch"
-  jq -e 'has("git_surface")' "$manifest" >/dev/null \
+  jq -e '.git_surface.schema == "tribunal-git-surface/v2"' "$manifest" >/dev/null \
     || die "collection manifest lacks git_surface identity; recollect with this runner (older manifests are unsupported)"
   validate_manifest_shape "$manifest" || die "collection manifest schema invalid"
-  SURFACE_ROOT="$(jq -r .repository.root "$manifest")"
-  SURFACE_GITDIR="$(jq -r .git_surface.git_dir "$manifest")"
-  SURFACE_COMMON="$(jq -r .git_surface.common_dir "$manifest")"
-  SURFACE_ID="$(jq -r .git_surface.git_dir_identity "$manifest")"
-  CONFIG_FILE="$SURFACE_COMMON/config"
-  # A sealed manifest pins a surface already checked for absence of commondir.
-  SURFACE_PINNED=1
-  check_git_surface || die "git surface changed; collection rejected"
+  load_git_surface "$manifest"
   load_safe_directories
   require_git_version
   reject_worktree_config "$SURFACE_ROOT"

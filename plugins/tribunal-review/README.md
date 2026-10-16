@@ -10,7 +10,7 @@ process before merge.
 
 ## Prerequisites
 
-- Bash 4+, git 2.40+ (sealed collection uses `--attr-source`), and standard `awk`/`sed`/coreutils commands
+- Bash 4+, git 2.41+ (sealed collection uses `--attr-source`), and standard `awk`/`sed`/coreutils commands
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
 - [Antigravity CLI](https://antigravity.google/docs/cli/install/) (`agy`) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default). Sign in once with a Google AI Pro/Ultra account, or set `GEMINI_API_KEY` for API-key mode. Gemini CLI no longer serves personal Google accounts
 - [OpenCode CLI](https://opencode.ai) (≥ 1.15) — **optional**, only for two opt-in legs:
@@ -62,10 +62,13 @@ exit code, byte counts, and truncation flags. Set `TRIBUNAL_DIAGNOSTIC_TAILS=on`
 only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
 tails are otherwise omitted by default because provider errors can contain credentials.
 Sealed collection does not support `extensions.worktreeConfig=true` (per-worktree config cannot be contained); disable it or run tribunal from a clone without it.
-The repository root must have a real `.git` directory without `commondir` redirection.
-Collections bind its device/inode and resolved Git/common-directory paths; verification
-and finalization check them before invoking Git. Older manifests without `git_surface`
-are rejected with a recollect instruction.
+Sealed collection supports main checkouts and linked worktrees. Before legs launch it
+pins the root `.git` directory or gitfile, resolved Git/common directories and their
+identities, any existing `commondir` bytes (or absence), and the common config.
+Resolution changes fail closed before Git runs; changed resolution files are restored.
+Only `branch.*` config changes are accepted; other changes name the keys and restore
+config bytes and mode. Private `git-surface/` snapshots in the collection let verification
+and finalization enforce the same pins. Older surface manifests require recollection.
 For either OpenCode leg, exit 0 with no review JSON and non-whitespace stderr is a
 `phase=execution` failure. Known gates get a credential-free classified message;
 stderr tails remain opt-in through `TRIBUNAL_DIAGNOSTIC_TAILS=on`, limited to the
