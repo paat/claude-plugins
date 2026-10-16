@@ -568,11 +568,16 @@ fail_mutated_providers() {
   done
 }
 
+wrapper_exit_message() {
+  if [ "$1" = 153 ]; then printf 'provider wrapper exited 153 (file size limit (SIGXFSZ))'
+  else printf 'provider wrapper exited %s' "$1"; fi
+}
+
 run_wrapper() {
   local name="$1" script="$2" worktree="$3" base_oid="$4" dir="$5"
   printf '%s\n' "$(now)" > "$dir/$name.started"
   # With monitor mode off, $! is not a group leader: setsid execs without forking.
-  (cd "$worktree" && ulimit -f 65536 && exec setsid env TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
+  (cd "$worktree" && ulimit -f 4194304 && exec setsid env TRIBUNAL_BASE_REF="$base_oid" bash "$script") \
     > "$dir/$name.raw" 2> "$dir/$name.stderr" &
   REVIEW_PIDS+=("$!"); REVIEW_NAMES+=("$name")
 }
@@ -593,7 +598,7 @@ wait_wrappers() {
 normalize_single() {
   local provider="$1" raw="$2" rc="$3" out="$4" want_base="${5:-}" want_head="${6:-}" count
   if [ "$rc" -ne 0 ]; then
-    write_failed_provider "$provider" "provider wrapper exited $rc" "$out"
+    write_failed_provider "$provider" "$(wrapper_exit_message "$rc")" "$out"
     return
   fi
   count="$(jq -s 'length' "$raw" 2>/dev/null || printf 0)"
@@ -615,7 +620,7 @@ normalize_opencode() {
   local raw="$1" rc="$2" dir="$3" want_base="${4:-}" want_head="${5:-}" provider count candidate
   for provider in glm deepseek; do
     if [ "$rc" -ne 0 ]; then
-      write_failed_provider "$provider" "provider wrapper exited $rc" "$dir/providers/$provider.json"
+      write_failed_provider "$provider" "$(wrapper_exit_message "$rc")" "$dir/providers/$provider.json"
       continue
     fi
     count="$(jq -s --arg p "$provider" '[.[] | select(.provider == $p)] | length' "$raw" 2>/dev/null || printf 0)"

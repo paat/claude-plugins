@@ -3370,7 +3370,7 @@ EOF
     echo -e "  ${GREEN}PASS${NC} APPROVE requires confidence 0.95 with repository policy findings"; PASS=$((PASS+1))
   fi
 
-  # The sealed wrapper's 64 MiB file limit must not apply to inherited Codex state.
+  # The sealed wrapper's 4 GiB file limit must not apply to inherited Codex state.
   cp "$PLUGIN_ROOT/scripts/run-codex-review.sh" "$plugin/scripts/"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
   host_codex="$work/normal-codex-home"
@@ -3382,7 +3382,7 @@ EOF
 cat >/dev/null
 printf '%s\n' "${CODEX_HOME:?}" > "${FIXTURE_CODEX_HOME_FILE:?}"
 grep -qx '{"fixture_auth":true}' "$CODEX_HOME/auth.json" || exit 1
-if [ "$(ulimit -f)" = 65536 ] && [ -f "$CODEX_HOME/state_5.sqlite" ] \
+if [ "$(ulimit -f)" = 4194304 ] && [ -f "$CODEX_HOME/state_5.sqlite" ] \
   && [ "$(wc -c < "$CODEX_HOME/state_5.sqlite")" -gt 67108864 ]; then
   exit 0
 fi
@@ -3404,6 +3404,46 @@ EOF
   else
     echo -e "  ${RED}FAIL${NC} sealed Codex leg isolates oversized inherited state"; FAIL=$((FAIL+1)); FAILURES+=("sealed Codex state isolation")
   fi
+  # A leg may grow its own state past the 64 MiB the old cap allowed; a runaway write into the review worktree is still fatal.
+  sigxfsz_collect() {  # sigxfsz_collect NAME TARGET_DIR SEEK_BYTES
+    cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+dd if=/dev/null of="${FIXTURE_TARGET:?}/leg-state.bin" bs=1 count=0 seek="${FIXTURE_SEEK:?}" 2>/dev/null || exit $?
+printf '%s\n' '{"provider":"codex","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+    FIXTURE_TARGET="$2" FIXTURE_SEEK="$3" CODEX_HOME="$host_codex" \
+      PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      TRIBUNAL_CODEX=on TRIBUNAL_GEMINI=off TRIBUNAL_GLM=off TRIBUNAL_DEEPSEEK=off \
+      TRIBUNAL_QWEN=off TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off TRIBUNAL_BACKUP_LEGS=off \
+      "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+        --output "$work/$1" > "$work/$1.json" 2>/dev/null
+  }
+  leg_own_state_ok() {
+    sigxfsz_collect own-state "$own_state" 100000000 \
+      && jq -e '.provider=="codex" and .summary.verdict=="APPROVE"' "$work/own-state/providers/codex.json" >/dev/null \
+      && [ "$(stat -c %s "$own_state/leg-state.bin")" = 100000000 ]
+  }
+  leg_worktree_flood_fails() {
+    sigxfsz_collect worktree-flood . 5000000000 || true
+    jq -e '.provider=="codex" and has("error") and (has("summary")|not)' \
+      "$work/worktree-flood/providers/codex.json" >/dev/null
+  }
+  leg_sigxfsz_named() {
+    sigxfsz_collect over-cap "$own_state" 5000000000 || true
+    jq -e '.provider=="codex" and has("error") and (.error|contains("file size limit (SIGXFSZ)"))' \
+      "$work/over-cap/providers/codex.json" >/dev/null
+  }
+  own_state="$work/leg-own-state"; mkdir -p "$own_state"
+  for label in "leg may write past 64 MiB to its own state outside the worktree:leg_own_state_ok" \
+    "leg writing past the process cap into the review worktree fails:leg_worktree_flood_fails" \
+    "exit-153 leg error says file size limit (SIGXFSZ):leg_sigxfsz_named"; do
+    if "${label##*:}"; then
+      echo -e "  ${GREEN}PASS${NC} ${label%:*}"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} ${label%:*}"; FAIL=$((FAIL+1)); FAILURES+=("${label%:*}")
+    fi
+  done
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
 }
