@@ -23,7 +23,7 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Grok Build | `grok-4.5` | Older Grok compatibility route | `low`, `medium`, `high` |
 | Muse Code | `default` | No `--model` flag; the installed CLI selects its model. T2 worker at `medium` for bounded implementation, reproduction, web research, and review | `minimal`–`max` |
 | Muse Code | `muse-wonder-1.0` | Explicit pin for coding and long-running agents (Model API and Muse Code). T3 worker at `high` | `minimal`–`max` |
-| Local Qwen | `qwen3.8-27b-local` | Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
+| Local Qwen | `default` | Runs whatever model the local endpoint serves (a pinned id must be served). Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
 
 GPT-6 Sol replaces GPT-5.6 Terra and GPT-6 Luna replaces GPT-5.6 Luna at the same or lower price:
@@ -94,8 +94,8 @@ silently; select a supported level or return an incompatibility.
 ## Availability
 
 Every runner exits `75` when its worker cannot take the task now: a transient provider error or
-plan limit, or — for `scripts/run-qwen-local.sh` — the one GPU slot busy, the server down or
-serving another model, or no wrapper. Local Qwen is never queued. `pool.sh run` moves to the next
+plan limit, or — for `scripts/run-qwen-local.sh` — the one GPU slot busy, the server down, a
+pinned model not served (or several served and none pinned), or no wrapper. Local Qwen is never queued. `pool.sh run` moves to the next
 worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and agy are mechanical-work engines and advisory
 reviewers only: architecture, security, and ambiguous design stay on the hosted catalog.

@@ -5,7 +5,7 @@ description: "Use local llama.cpp Qwen3.8-27B via Qwen Code for bounded mechanic
 
 # Local Qwen3.8-27B subagent
 
-Drive **Qwen3.8-27B** on local llama.cpp through the Qwen Code CLI. Claude/Codex/Grok stays the controller; this worker is for well-specified edits.
+Drive the model local llama.cpp serves (normally **Qwen3.8-27B**; pin another with `--model`) through the Qwen Code CLI. Claude/Codex/Grok stays the controller; this worker is for well-specified edits.
 
 ## When to use
 

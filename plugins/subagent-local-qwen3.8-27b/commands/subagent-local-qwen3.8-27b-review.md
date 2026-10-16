@@ -10,7 +10,7 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
 
 ## Steps
 
-1. **Decide the review target.** If `$ARGUMENTS` names a file or plan, review that. If it is empty or says "diff"/"changes", review the working diff (`git diff` / `git diff origin/main...HEAD`). Optional `--model <id>` overrides the served coding alias; `--dir <repo>` sets the repo (default: repo root).
+1. **Decide the review target.** If `$ARGUMENTS` names a file or plan, review that. If it is empty or says "diff"/"changes", review the working diff (`git diff` / `git diff origin/main...HEAD`). Optional `--model <id>` pins a served model (default: whatever the endpoint serves); `--dir <repo>` sets the repo (default: repo root).
 
 2. **Do your own review first** so you can compare, not just relay. Apply the same target, evidence, causation, and adjacency limits as the dispatched review below.
 
@@ -59,7 +59,7 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
 4. **Synthesize** into a unified report:
 
    ## Code Review: [target]
-   ### Local Qwen3.8-27B Findings
+   ### Local <model id from the wrapper's `running model` line> Findings
    [key findings, with file:line]
    ### My Findings
    [your own independent findings]
@@ -75,4 +75,4 @@ Get an independent **read-only review** from local **Qwen3.8-27B** via the Qwen 
 ## Notes
 
 - Read-only is enforced by `--approval-mode plan` plus the review contract — not by a process sandbox.
-- Bound model is **Qwen3.8-27B**. For high-stakes security review prefer Codex/Grok.
+- Runs the model the endpoint serves (tuned for **Qwen3.8-27B**). For high-stakes security review prefer Codex/Grok.

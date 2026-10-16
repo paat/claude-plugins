@@ -6,14 +6,18 @@
 # than queues: if the slot is taken (by us or by anything else), it exits 75 and
 # the controller routes the task to Grok instead. It never waits for the GPU.
 #
+# `--model default` (the default) runs whatever model the endpoint serves; a pinned
+# id must be served exactly. The exit line names the model that ran.
+#
 # Usage:
-#   run-qwen-local.sh --mode implement|review [--repo DIR] [--base REF]
+#   run-qwen-local.sh --mode implement|review [--repo DIR] [--base REF] [--model default|ID]
 #                     [--timeout SECONDS] [--out FILE] [--prompt-file FILE] [PROMPT]
 #
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty
 # final message; 6 review without a terminal APPROVE/NEEDS_WORK; 55 qwen run
-# budget exceeded (worktree may be partly edited); 75 unavailable (slot busy, another model served,
-# server down, or no wrapper) — route elsewhere; other codes come from the wrapper.
+# budget exceeded (worktree may be partly edited); 75 unavailable (slot busy, pinned model not
+# served, several served and none pinned, server down, or no wrapper) — route elsewhere; other
+# codes come from the wrapper.
 #
 # Env:
 # Requires flock, curl and jq; without any of them the contract cannot be kept and
@@ -29,12 +33,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-qwen-local.sh --mode implement|review [--repo DIR] [--base REF] [--timeout SECONDS] [--out FILE] [--prompt-file FILE] [PROMPT]'
+  printf '%s\n' 'Usage: run-qwen-local.sh --mode implement|review [--repo DIR] [--base REF] [--model default|ID] [--timeout SECONDS] [--out FILE] [--prompt-file FILE] [PROMPT]'
 }
 
 mode=""
 repo_dir="$PWD"
 base_ref=""
+model=default
 run_timeout=900
 output_file=""
 prompt_file=""
@@ -44,6 +49,7 @@ while [ "$#" -gt 0 ]; do
     --mode) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; mode="$2"; shift 2 ;;
     --repo|--dir) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
     --base) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; base_ref="$2"; shift 2 ;;
+    --model) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
     --prompt-file) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; prompt_file="$2"; shift 2 ;;
@@ -64,6 +70,7 @@ case "$mode" in
   implement|review) ;;
   *) printf 'run-qwen-local: --mode must be implement or review\n' >&2; exit 2 ;;
 esac
+[ -n "$model" ] || { printf 'run-qwen-local: --model must be default or a served model id\n' >&2; exit 2; }
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: timeout must be a positive integer\n' >&2; exit 2; }
 qwen_wall_time="$((run_timeout - (run_timeout / 2 < 60 ? run_timeout / 2 : 60)))s"
 [ "$mode" != review ] || [ -n "$base_ref" ] || {
@@ -79,9 +86,10 @@ esac
 # A candidate counts only if it answers --print-base: older wrappers exit 1 on a
 # busy server instead of 75, which would silently disable the Grok fallback.
 # Prints "<wrapper path><tab><base url>". A candidate must support every flag this
-# runner sends (--print-base and --diff-file); a stale cached copy that predates
-# one of them would fail dispatch with a usage error instead of the 75 the
-# fallback contract expects. --print-base probes the network when OPENAI_BASE_URL
+# runner sends (--print-base and --diff-file) and print the `running model` line it
+# reads; the host keeps old versions cached, and a stale copy would fail dispatch
+# with a usage error, refuse a served model that is not the Qwen coding alias, or
+# hide which model ran. --print-base probes the network when OPENAI_BASE_URL
 # is unset, so ask once and carry the answer.
 mmo_find_wrapper() {
   local candidate base help
@@ -99,6 +107,7 @@ mmo_find_wrapper() {
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
     help="$("$candidate" --help 2>/dev/null || true)"
     case "$help" in *--diff-file*) ;; *) continue ;; esac
+    case "$help" in *'running model'*) ;; *) continue ;; esac
     base="$("$candidate" --print-base 2>/dev/null || true)"
     if [ -n "$base" ]; then
       printf '%s\t%s' "$candidate" "$base"
@@ -112,7 +121,7 @@ mmo_find_wrapper() {
 
 found="$(mmo_find_wrapper || true)"
 if [ -z "$found" ]; then
-  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper supporting --print-base and --diff-file (>= 0.4.0); route elsewhere\n' >&2
+  printf 'run-qwen-local: no subagent-local-qwen3.8-27b wrapper supporting --print-base, --diff-file and the running-model line (>= 0.5.0); route elsewhere\n' >&2
   exit 75
 fi
 wrapper="${found%%$'\t'*}"
@@ -243,6 +252,7 @@ stream_file="$runtime_dir/stream.json"
 case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
 
 wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --max-wall-time "$qwen_wall_time" --out "$stream_file")
+[ "$model" = default ] || wrapper_args+=(--model "$model")
 if [ "$mode" = review ]; then
   # Hand over the patch we just validated: re-diffing in the wrapper would be a
   # second source of truth that the size gate never saw.
@@ -264,10 +274,10 @@ if [ "$rc" -eq 127 ]; then
   printf 'run-qwen-local: qwen CLI missing or too old; route elsewhere\n' >&2
   rc=75
 fi
-# The wrapper's preflight refuses with 1 when the GPU serves another model: the local
-# engine is unavailable, and nothing was edited yet.
+# The wrapper's preflight refuses with 1 when a pinned model is not served, or several
+# are and none is pinned: the local engine is unavailable, and nothing was edited yet.
 if [ "$rc" -eq 1 ] && grep -q 'wrong-model:' "$runtime_dir/err.txt"; then
-  printf 'run-qwen-local: local server is serving a different model; route elsewhere\n' >&2
+  printf 'run-qwen-local: local server does not serve the requested model; route elsewhere\n' >&2
   rc=75
 fi
 if [ "$rc" -eq 55 ]; then
@@ -291,4 +301,5 @@ if [ "$rc" -ne 0 ] && [ "$rc" -ne 6 ]; then
   keep_runtime=1
   printf 'run-qwen-local: worker logs kept in %s\n' "$runtime_dir" >&2
 fi
-mmo_finish run-qwen-local "$rc" "$runtime_dir/err.txt" "model=local-qwen" "mode=$mode"
+served="$(sed -n 's/^subagent-local-qwen3\.8-27b-run: running model //p' "$runtime_dir/err.txt" | head -n1)"
+mmo_finish run-qwen-local "$rc" "$runtime_dir/err.txt" "model=${served:-$model}" "mode=$mode"

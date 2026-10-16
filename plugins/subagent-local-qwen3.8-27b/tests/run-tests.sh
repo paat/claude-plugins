@@ -103,10 +103,6 @@ check "extract JSON array last result" "FINAL FROM JSON" "$out"
 out="$(printf '%s\n' 'not json at all' 'TAIL FALLBACK' | ql_extract_final_answer)"
 contains "extract fallback keeps raw" "TAIL FALLBACK" "$out"
 
-ql_is_coding_profile "Qwen3.8-27B-UD-Q6_K_XL-coding"; check "coding profile ok" 0 "$?"
-ql_is_coding_profile "Qwen3.8-27B-UD-Q6_K_XL-longctx"; check "longctx refused" 1 "$?"
-ql_is_coding_profile "other-model"; check "other model refused" 1 "$?"
-
 # Executed argv rebuild: contract after --append-system-prompt is one element with real newlines.
 impl_argv=()
 while IFS= read -r -d '' arg; do impl_argv+=("$arg"); done < <(
@@ -178,9 +174,10 @@ case "$url" in
 esac
 CURL
 
+# QWEN38_MODEL is a pin: keep the caller's environment from leaking one in.
 run() {
   HOME="$host_qwen_dir" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
-    PATH="$stubdir:$PATH" "$SCRIPT" "$@"
+    QWEN38_MODEL="${QL_TEST_PIN:-}" PATH="$stubdir:$PATH" "$SCRIPT" "$@"
 }
 
 # (a) Happy path + isolated HOME + stdin prompt + yolo
@@ -368,25 +365,67 @@ err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
 check "down preflight is transient 75" 75 "$rc"
 contains "down message" "down or unreachable" "$err"
 
-# (e) wrong-model (longctx only)
+# (e) the served model is the default, whatever it is; a pin must be served exactly.
 make_curl <<'CURL'
 #!/usr/bin/env bash
-url=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -sS|-s|--silent) shift ;;
-    -m) shift 2 ;;
-    -w) shift 2 ;;
-    -*) shift ;;
-    *) url="$1"; shift ;;
-  esac
-done
-printf '%s\n' '{"data":[{"id":"Qwen3.8-27B-UD-Q6_K_XL-longctx"}]}'
+printf '%s\n' '{"data":[{"id":"gpt-oss-120b","meta":{"n_ctx":32768}}]}'
 printf '%s\n' '200'
 CURL
-err="$(run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
-check "wrong-model preflight is 1 (not transient)" 1 "$rc"
-contains "wrong-model message" "wrong-model" "$err"
+make_qwen <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
+  exit 0
+fi
+printf '%s\n' "$@" > "$QL_STUB_ARGV"
+cp "$HOME/.qwen/settings.json" "$QL_STUB_SETTINGS"
+printf '%s\n' '[{"type":"result","result":"SERVED OK"}]'
+STUB
+: > "$argv_file"; : > "$settings_file"
+err="$(QL_STUB_ARGV="$argv_file" QL_STUB_SETTINGS="$settings_file" run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "served non-Qwen model runs by default" 0 "$rc"
+contains "stderr names the served model" "running model gpt-oss-120b" "$err"
+contains "footer names the served model" "model=gpt-oss-120b" "$err"
+check "qwen runs the served model" "gpt-oss-120b" "$(grep -x -A1 -- '-m' "$argv_file" | tail -n1)"
+contains "settings use the served model" '"id": "gpt-oss-120b"' "$(cat "$settings_file")"
+contains "settings use the served n_ctx" '"contextWindowSize": 32768' "$(cat "$settings_file")"
+
+: > "$argv_file"
+err="$(QL_STUB_ARGV="$argv_file" QL_STUB_SETTINGS="$settings_file" \
+  run -C /tmp -m Qwen3.8-27B-UD-Q6_K_XL-coding "x" 2>&1 >/dev/null)"; rc=$?
+check "mismatched --model pin refuses with 1" 1 "$rc"
+contains "mismatched pin is wrong-model" "wrong-model: pinned Qwen3.8-27B-UD-Q6_K_XL-coding not served" "$err"
+check "mismatched pin never runs qwen" 0 "$(wc -c < "$argv_file" | tr -d ' ')"
+err="$(QL_TEST_PIN=Qwen3.8-27B-UD-Q6_K_XL-coding QL_STUB_ARGV="$argv_file" QL_STUB_SETTINGS="$settings_file" \
+  run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "mismatched QWEN38_MODEL pin refuses with 1" 1 "$rc"
+contains "QWEN38_MODEL pin is wrong-model" "wrong-model: pinned" "$err"
+
+# Several served: no guess without a pin; a served pin runs, with the default window.
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' '{"data":[{"id":"a-model"},{"id":"b-model"}]}'
+printf '%s\n' '200'
+CURL
+err="$(QL_STUB_ARGV="$argv_file" QL_STUB_SETTINGS="$settings_file" run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "several served without a pin refuses with 1" 1 "$rc"
+contains "several served is wrong-model" "wrong-model: several models served" "$err"
+err="$(QL_STUB_ARGV="$argv_file" QL_STUB_SETTINGS="$settings_file" run -C /tmp -m b-model "x" 2>&1 >/dev/null)"; rc=$?
+check "a served pin runs" 0 "$rc"
+check "qwen runs the pinned model" "b-model" "$(grep -x -A1 -- '-m' "$argv_file" | tail -n1)"
+contains "missing n_ctx keeps the default window" '"contextWindowSize": 65536' "$(cat "$settings_file")"
+
+# A served id that would break the settings JSON is escaped.
+make_curl <<'CURL'
+#!/usr/bin/env bash
+printf '%s\n' '{"data":[{"id":"we\"ird\\id"}]}'
+printf '%s\n' '200'
+CURL
+err="$(QL_STUB_ARGV="$argv_file" QL_STUB_SETTINGS="$settings_file" run -C /tmp "x" 2>&1 >/dev/null)"; rc=$?
+check "quoted served id runs" 0 "$rc"
+if command -v jq >/dev/null 2>&1; then
+  check "settings JSON keeps a quoted id intact" 'we"ird\id' "$(jq -r '.model.name' "$settings_file")"
+fi
 
 # (e2) structural failures are NOT transient: they never self-resolve, so a caller
 # must see them instead of substituting another engine forever.
@@ -487,6 +526,20 @@ exit 0
 STUB
 err="$(PATH="$stubdir:$PATH" ql_preflight_cli 2>&1)"; rc=$?
 check "qwen with all built flags passes preflight" 0 "$rc"
+
+# (h2) flags early in a help text far past the pipe buffer: a piped grep -q would
+# exit on the match, SIGPIPE the writer, and pipefail would report the flag missing.
+make_qwen <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--help" ]; then
+  echo "Usage: qwen --yolo --approval-mode --output-style --exclude-tools --max-session-turns --max-wall-time --append-system-prompt --include-directories"
+  head -c 300000 /dev/zero | tr '\0' 'x'
+  exit 0
+fi
+exit 0
+STUB
+err="$(PATH="$stubdir:$PATH" ql_preflight_cli 2>&1)"; rc=$?
+check "long qwen help with early flags passes preflight" 0 "$rc"
 
 rm -rf "$stubdir" "$host_qwen_dir" "$argv_file" "$stdin_file" "$home_file" "$settings_file"
 echo
