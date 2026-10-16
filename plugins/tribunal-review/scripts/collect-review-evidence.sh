@@ -635,7 +635,7 @@ collect() {
   set +m
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
-  local mutation_gate_json
+  local mutation_gate_json sensitive_paths source line path content
   local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited
   local -A mutation_errors=() review_gitdirs=()
@@ -684,6 +684,23 @@ collect() {
   if [ "$(printf '%s' "$ignored_paths_json" | jq 'length')" -gt 0 ]; then
     printf '%s' "$ignored_paths_json" | jq -S . > "$STAGING/ignored-paths.json"
     validate_ignored_paths "$STAGING/ignored-paths.json" || die "internal ignored-path evidence is invalid"
+    sensitive_paths="[]"
+    while IFS=$'\t' read -r source line path; do
+      content="$(git -C "$root" show "$head_oid:$source")" || die "cannot read ignored-path policy: $source"
+      if printf '%s\n' "$content" | sed -n "1,${line}p" | awk -v line="$line" '
+        NR >= line { exit }
+        /^[[:space:]]*#/ {
+          if (tolower($0) ~ /(^|[^[:alnum:]])(secret|pii|credential|key)([^[:alnum:]]|$)/ \
+              || tolower($0) ~ /(^|[^[:alnum:]])never[[:space:]]+commit([^[:alnum:]]|$)/) sensitive=1
+          next
+        }
+        /^[[:space:]]*$/ { sensitive=0 }
+        END { exit !sensitive }
+      '; then
+        sensitive_paths="$(jq -c --arg path "$path" '. + [$path]' <<<"$sensitive_paths")"
+      fi
+    done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$STAGING/ignored-paths.json")
+    printf '%s' "$sensitive_paths" | jq -S . > "$STAGING/sensitive-paths.json"
   fi
   deleted_paths_json="$(cd "$root" && tribunal_deleted_policy_paths "$base_oid")"
   if [ "$(printf '%s' "$deleted_paths_json" | jq 'length')" -gt 0 ]; then
@@ -806,6 +823,8 @@ collect() {
     --argjson diff_bytes "$(bytes_file "$STAGING/review.diff")" \
     --arg ignored_paths_sha256 "$([ ! -f "$STAGING/ignored-paths.json" ] || sha_file "$STAGING/ignored-paths.json")" \
     --argjson ignored_paths_bytes "$([ ! -f "$STAGING/ignored-paths.json" ] && printf '0' || bytes_file "$STAGING/ignored-paths.json")" \
+    --arg sensitive_paths_sha256 "$([ ! -f "$STAGING/sensitive-paths.json" ] || sha_file "$STAGING/sensitive-paths.json")" \
+    --argjson sensitive_paths_bytes "$([ ! -f "$STAGING/sensitive-paths.json" ] && printf '0' || bytes_file "$STAGING/sensitive-paths.json")" \
     --arg deleted_paths_sha256 "$([ ! -f "$STAGING/deleted-paths.json" ] || sha_file "$STAGING/deleted-paths.json")" \
     --argjson deleted_paths_bytes "$([ ! -f "$STAGING/deleted-paths.json" ] && printf '0' || bytes_file "$STAGING/deleted-paths.json")" \
     --arg mutation_gate_sha256 "$([ ! -f "$STAGING/mutation-gate.json" ] || sha_file "$STAGING/mutation-gate.json")" \
@@ -830,7 +849,8 @@ collect() {
       providers:$providers,
       panel_policy:{min_ok_legs:$min_ok_legs,source:"env"}}
       + (if $ignored_paths_sha256 == "" then {} else
-          {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes}} end)
+          {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes},
+           sensitive_paths:{path:"sensitive-paths.json",sha256:$sensitive_paths_sha256,bytes:$sensitive_paths_bytes}} end)
       + (if $deleted_paths_sha256 == "" then {} else
           {deleted_paths:{path:"deleted-paths.json",sha256:$deleted_paths_sha256,bytes:$deleted_paths_bytes}} end)
       + (if $mutation_gate_sha256 == "" then {} else
@@ -838,7 +858,7 @@ collect() {
     > "$STAGING/manifest.json"
   rm -f "$providers_json"
   chmod 0444 "$STAGING/manifest.json" "$STAGING/pr-body.txt" "$STAGING/review.diff" "$STAGING/providers/"*.json
-  [ ! -f "$STAGING/ignored-paths.json" ] || chmod 0444 "$STAGING/ignored-paths.json"
+  [ ! -f "$STAGING/ignored-paths.json" ] || chmod 0444 "$STAGING/ignored-paths.json" "$STAGING/sensitive-paths.json"
   [ ! -f "$STAGING/deleted-paths.json" ] || chmod 0444 "$STAGING/deleted-paths.json"
   [ ! -f "$STAGING/mutation-gate.json" ] || chmod 0444 "$STAGING/mutation-gate.json"
   mv -T -- "$STAGING" "$output" 2>/dev/null \
@@ -863,7 +883,7 @@ validate_manifest_shape() {
     def snapshot: exact(["sha256","bytes","mode"];["sha256","bytes","mode"])
       and (.sha256|sha) and (.bytes|uint) and (.mode|type=="string" and test("^[0-7]{3,4}$"));
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","deleted_paths","mutation_gate","panel_policy"];
+    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy"];
           ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers"])
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
     and (.git_surface | exact(["schema","root_git","git_dir","git_dir_identity","common_dir","common_dir_identity","commondir","config"];
@@ -890,6 +910,10 @@ validate_manifest_shape() {
     and ((has("ignored_paths")|not) or
          (.ignored_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="ignored-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
+    and (has("ignored_paths") == has("sensitive_paths"))
+    and ((has("sensitive_paths")|not) or
+         (.sensitive_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
+          and .path=="sensitive-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("deleted_paths")|not) or
          (.deleted_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="deleted-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
@@ -1007,8 +1031,19 @@ verify_collection_internal() {
     [ "$(bytes_file "$dir/ignored-paths.json")" = "$(jq -r .ignored_paths.bytes "$manifest")" ] \
       || die "ignored-path artifact size mismatch"
     validate_ignored_paths "$dir/ignored-paths.json" || die "ignored-path artifact schema invalid"
+    [ -f "$dir/sensitive-paths.json" ] && [ ! -L "$dir/sensitive-paths.json" ] \
+      || die "sensitive-path artifact missing or symbolic"
+    [ "$(sha_file "$dir/sensitive-paths.json")" = "$(jq -r .sensitive_paths.sha256 "$manifest")" ] \
+      || die "sensitive-path artifact digest mismatch"
+    [ "$(bytes_file "$dir/sensitive-paths.json")" = "$(jq -r .sensitive_paths.bytes "$manifest")" ] \
+      || die "sensitive-path artifact size mismatch"
+    jq -e --slurpfile ignored "$dir/ignored-paths.json" '
+      type == "array" and (length == (unique | length))
+      and ((. - [$ignored[0][].path]) | length == 0)
+    ' "$dir/sensitive-paths.json" >/dev/null || die "sensitive-path artifact schema invalid"
   else
     [ ! -e "$dir/ignored-paths.json" ] || die "unbound ignored-path artifact"
+    [ ! -e "$dir/sensitive-paths.json" ] || die "unbound sensitive-path artifact"
   fi
   if jq -e 'has("deleted_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/deleted-paths.json" ] && [ ! -L "$dir/deleted-paths.json" ] \
@@ -1070,7 +1105,7 @@ verify_collection_internal() {
 }
 
 validate_arbitration() {
-  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths mutation_gate sensitive_paths root source line path
+  local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths mutation_gate sensitive_paths
   local min_ok_legs
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
   # Sealed floor only — never re-read ambient TRIBUNAL_MIN_OK_LEGS (issue #519).
@@ -1099,22 +1134,8 @@ validate_arbitration() {
     mutation_gate="[]"
   fi
   sensitive_paths="[]"
-  root="$(jq -r .repository.root "$manifest")"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
-    while IFS=$'\t' read -r source line path; do
-      if git -C "$root" show "HEAD:$source" 2>/dev/null | sed -n "1,${line}p" | awk -v line="$line" '
-        NR >= line { exit }
-        /^[[:space:]]*#/ {
-          if (tolower($0) ~ /(^|[^[:alnum:]])(secret|pii|credential|key)([^[:alnum:]]|$)/ \
-              || tolower($0) ~ /(^|[^[:alnum:]])never[[:space:]]+commit([^[:alnum:]]|$)/) sensitive=1
-          next
-        }
-        /^[[:space:]]*$/ { sensitive=0 }
-        END { exit !sensitive }
-      '; then
-        sensitive_paths="$(jq -c --arg path "$path" '. + [$path]' <<<"$sensitive_paths")"
-      fi
-    done < <(jq -r '.[] | [.source, (.line | tostring), .path] | @tsv' "$dir/ignored-paths.json")
+    sensitive_paths="$(jq -c . "$dir/sensitive-paths.json")"
   fi
   jq -e --argjson statuses "$statuses" --argjson min_ok_legs "$min_ok_legs" --argjson evidence "$evidence" \
     --argjson ignored_paths "$ignored_paths" --argjson deleted_paths "$deleted_paths" \
