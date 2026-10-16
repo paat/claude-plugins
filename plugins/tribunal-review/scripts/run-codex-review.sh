@@ -18,7 +18,7 @@ RISK_EFFORT="$(tribunal_risk_effort codex 2>&1)" || { tribunal_error codex "$RIS
 CODEX_EFFORT="${TRIBUNAL_CODEX_EFFORT:-${RISK_EFFORT:-medium}}"
 TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
-# The sealed collector limits every wrapper to 64 MiB. Keep Codex's mutable
+# The sealed collector limits every wrapper to 4 GiB (ulimit -f 4194304). Keep Codex's mutable
 # runtime databases out of the caller home while retaining its credentials.
 HOST_CODEX_HOME="${CODEX_HOME:-${HOME:-}/.codex}"
 ISOLATED_CODEX_HOME="$TMPDIR/codex-home"

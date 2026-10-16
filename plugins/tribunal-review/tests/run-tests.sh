@@ -3370,7 +3370,7 @@ EOF
     echo -e "  ${GREEN}PASS${NC} APPROVE requires confidence 0.95 with repository policy findings"; PASS=$((PASS+1))
   fi
 
-  # The sealed wrapper's 64 MiB file limit must not apply to inherited Codex state.
+  # The sealed wrapper's 4 GiB file limit must not apply to inherited Codex state.
   cp "$PLUGIN_ROOT/scripts/run-codex-review.sh" "$plugin/scripts/"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
   host_codex="$work/normal-codex-home"
@@ -3382,7 +3382,7 @@ EOF
 cat >/dev/null
 printf '%s\n' "${CODEX_HOME:?}" > "${FIXTURE_CODEX_HOME_FILE:?}"
 grep -qx '{"fixture_auth":true}' "$CODEX_HOME/auth.json" || exit 1
-if [ "$(ulimit -f)" = 65536 ] && [ -f "$CODEX_HOME/state_5.sqlite" ] \
+if [ "$(ulimit -f)" = 4194304 ] && [ -f "$CODEX_HOME/state_5.sqlite" ] \
   && [ "$(wc -c < "$CODEX_HOME/state_5.sqlite")" -gt 67108864 ]; then
   exit 0
 fi
@@ -3404,7 +3404,7 @@ EOF
   else
     echo -e "  ${RED}FAIL${NC} sealed Codex leg isolates oversized inherited state"; FAIL=$((FAIL+1)); FAILURES+=("sealed Codex state isolation")
   fi
-  # A leg may grow its own state past 64 MiB; a runaway write into the review worktree is still fatal.
+  # A leg may grow its own state past the 64 MiB the old cap allowed; a runaway write into the review worktree is still fatal.
   sigxfsz_collect() {  # sigxfsz_collect NAME TARGET_DIR SEEK_BYTES
     cat > "$fake/codex" <<'EOF'
 #!/usr/bin/env bash
