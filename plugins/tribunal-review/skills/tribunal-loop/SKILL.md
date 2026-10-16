@@ -6,8 +6,8 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 # Tribunal Loop
 
 Multi-provider code review with inline arbitration. By default the panel is Codex
-(repo-walking), Grok (repo-walking), Muse (repo-walking), and Claude Code (diff-only). Gemini, DeepSeek,
-GLM, and Qwen are opt-in. The calling context arbitrates
+(repo-walking), Grok (repo-walking), Muse (repo-walking), and Claude Code (diff-only).
+Gemini, DeepSeek, and Qwen are opt-in. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
@@ -55,15 +55,14 @@ removes failed probes from quorum.
 
 ## Step 2: Parallel Review
 
-Run the provider scripts as parallel shell calls, not Task agents. The OpenCode
-script serializes GLM and DeepSeek internally to avoid OpenCode shared-state
-deadlocks and prints one JSON object per leg.
+Run the provider scripts as parallel shell calls, not Task agents. Each prints
+one JSON object for its provider.
 
 ```bash
 mkdir -p "$RUN_DIR"
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-codex-review.sh" > "$RUN_DIR/codex.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-gemini-review.sh" > "$RUN_DIR/gemini.json" &
-bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-opencode-review.sh" > "$RUN_DIR/opencode.jsonl" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-deepseek-review.sh" > "$RUN_DIR/deepseek.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$RUN_DIR/qwen.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-grok-review.sh" > "$RUN_DIR/grok.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-muse-review.sh" > "$RUN_DIR/muse.json" &
@@ -76,10 +75,10 @@ The scripts preserve the previous runner behavior: unique temp dirs, capped
 disabled-provider markers, large diff staging as files where needed, JSON output
 normalization, and timeout-bounded provider calls. Codex and Claude use one strict
 review schema; Codex also persists its final response independently of stdout.
-The OpenCode wrapper invokes `opencode` only when GLM or DeepSeek is enabled; then it runs pure
-and non-interactive with permission prompts disabled.
+The DeepSeek wrapper invokes `dsh` only when enabled, with a read-only sandbox,
+approval disabled, and a prompt-carried review schema.
 
-Collect Codex, Gemini, GLM, DeepSeek, Qwen, Grok, Muse, and Claude outputs. Treat disabled
+Collect Codex, Gemini, DeepSeek, Qwen, Grok, Muse, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as
 provider failure and continue with remaining non-disabled providers. For an error starting
 with `plan limit:`, run one backup leg per `references/provider-policy.md`.
@@ -251,6 +250,6 @@ conflicting arbitration for that collection fails.
 
 ## Trust Hierarchy
 
-The calling context makes the final decision. Codex, Gemini, GLM, DeepSeek,
+The calling context makes the final decision. Codex, Gemini, DeepSeek,
 Qwen, Grok, Muse, and Claude are equal advisory peers. Verify reviewer claims against the
 diff and reachable code before accepting them.

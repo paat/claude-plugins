@@ -1,0 +1,14 @@
+- id: agent-default-model
+  config: {provider: deepseek-official, model: deepseek-v4-pro, reasoningEffort: high}
+- id: sandbox-policy
+  config: {mode: read-only, workspaceRoot: !!js process.cwd()}
+- id: approval
+  config: {policy: never}
+- id: permission
+  disabled: true
+- id: session-log-deepseek
+  config: {enabled: false}
+- id: session-telemetry-otel
+  config: {mode: DISABLED}
+- id: tool-web
+  disabled: true

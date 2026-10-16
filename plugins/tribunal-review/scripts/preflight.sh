@@ -103,27 +103,15 @@ else
   add_provider claude skipped "CLI not authenticated"
 fi
 
-if [ "${TRIBUNAL_GLM:-off}" = "on" ] || [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ]; then
-  if command -v opencode >/dev/null 2>&1; then
-    opencode models >/dev/null 2>&1 || true
-    models="$(opencode models 2>/dev/null || true)"
-    if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
-      printf '%s\n' "$models" | grep -qxF "${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.3}" && add_provider glm usable "model registered; non-interactive invocation not probed" || add_provider glm skipped "OpenCode model not in registry"
-    else
-      add_provider glm disabled "default off"
-    fi
-    if [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ]; then
-      printf '%s\n' "$models" | grep -qxF "$(tribunal_deepseek_model)" && add_provider deepseek usable "model registered; non-interactive invocation not probed" || add_provider deepseek skipped "OpenCode model not in registry"
-    else
-      add_provider deepseek disabled "default off; issue #461; set TRIBUNAL_DEEPSEEK=on to enable"
-    fi
-  else
-    [ "${TRIBUNAL_GLM:-off}" = "on" ] && add_provider glm skipped "opencode CLI not on PATH" || add_provider glm disabled "default off"
-    [ "${TRIBUNAL_DEEPSEEK:-off}" = "on" ] && add_provider deepseek skipped "opencode CLI not on PATH" || add_provider deepseek disabled "default off; issue #461; set TRIBUNAL_DEEPSEEK=on to enable"
-  fi
+if [ "${TRIBUNAL_GLM:-off}" = "on" ]; then
+  add_warning retired-glm "GLM leg is retired; remove TRIBUNAL_GLM from the environment"
+fi
+if [ "${TRIBUNAL_DEEPSEEK:-off}" != "on" ]; then
+  add_provider deepseek disabled "default off; set TRIBUNAL_DEEPSEEK=on to enable"
+elif deepseek_note="$(tribunal_deepseek_available)"; then
+  add_provider deepseek usable "dsh and credential present; non-interactive invocation not probed"
 else
-  add_provider glm disabled "default off"
-  add_provider deepseek disabled "default off; issue #461; set TRIBUNAL_DEEPSEEK=on to enable"
+  add_provider deepseek skipped "$deepseek_note"
 fi
 
 if [ "${TRIBUNAL_SMOKE_PROBE:-off}" = on ]; then
@@ -149,17 +137,13 @@ if [ "${TRIBUNAL_SMOKE_PROBE:-off}" = on ]; then
       set_provider_result claude failed "$(smoke_failure_note claude "$smoke_output")"
     fi
   fi
-  if provider_usable glm || provider_usable deepseek; then
-    smoke_output="$(TRIBUNAL_DIAGNOSTIC_TAILS=off bash "$SCRIPT_DIR/run-opencode-review.sh" --smoke 2>/dev/null || true)"
-    for smoke_provider in glm deepseek; do
-      if provider_usable "$smoke_provider"; then
-        if printf '%s\n' "$smoke_output" | smoke_review_ok "$smoke_provider"; then
-          set_provider_result "$smoke_provider" usable "non-interactive smoke passed"
-        else
-          set_provider_result "$smoke_provider" failed "$(smoke_failure_note "$smoke_provider" "$smoke_output")"
-        fi
-      fi
-    done
+  if provider_usable deepseek; then
+    smoke_output="$(bash "$SCRIPT_DIR/run-deepseek-review.sh" --smoke 2>/dev/null || true)"
+    if printf '%s\n' "$smoke_output" | smoke_review_ok deepseek; then
+      set_provider_result deepseek usable "non-interactive smoke passed"
+    else
+      set_provider_result deepseek failed "$(smoke_failure_note deepseek "$smoke_output")"
+    fi
   fi
 fi
 

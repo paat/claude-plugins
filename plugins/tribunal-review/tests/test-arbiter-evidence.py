@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
 
     check('documented lookup fails visibly when pinned object is pruned', missing_pinned_object)
 
-    providers = ('codex', 'gemini', 'glm', 'deepseek', 'qwen', 'grok', 'muse', 'claude')
+    providers = ('codex', 'gemini', 'deepseek', 'qwen', 'grok', 'muse', 'claude')
     (work / 'providers').mkdir()
 
     def verdict_case(statuses, decision, confidence, accepts=True, findings=[],
@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
                 artifact['findings'] = findings if row['provider'] == 'codex' else []
             (work / 'providers' / (row['provider'] + '.json')).write_text(json.dumps(artifact))
         arbitration = {'tribunal_verdict': {'decision': decision, 'confidence': confidence,
-                        'rationale': 'GLM failed to produce a review; remaining evidence assessed.'},
+                        'rationale': 'A provider failed to produce a review; remaining evidence assessed.'},
                        'findings': [], 'scope_findings': [], 'provider_assessment': {
                            row['provider']: {'findings_accepted': 0, 'findings_rejected': 0,
                                              'false_positives': [], 'status': row['status']}
@@ -131,15 +131,15 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
                 f'validator {decision} confidence={confidence}: exit={result.returncode}, accepts={accepts}')
 
     check('mixed ok and failed panel can retain NEEDS_WORK',
-          lambda: verdict_case({'codex': 'ok', 'glm': 'failed'}, 'NEEDS_WORK', 0.7))
+          lambda: verdict_case({'codex': 'ok', 'deepseek': 'failed'}, 'NEEDS_WORK', 0.7))
     check('healthy empty panel with disabled legs keeps APPROVE shortcut',
           lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95))
     check('all failed panel keeps NEEDS_WORK confidence zero',
-          lambda: verdict_case({'codex': 'failed', 'glm': 'failed'}, 'NEEDS_WORK', 0))
+          lambda: verdict_case({'codex': 'failed', 'deepseek': 'failed'}, 'NEEDS_WORK', 0))
     check('failed leg forbids APPROVE confidence 0.95',
-          lambda: verdict_case({'codex': 'ok', 'glm': 'failed'}, 'APPROVE', 0.95, accepts=False))
+          lambda: verdict_case({'codex': 'ok', 'deepseek': 'failed'}, 'APPROVE', 0.95, accepts=False))
     check('failed leg permits APPROVE confidence 0.90',
-          lambda: verdict_case({'codex': 'ok', 'glm': 'failed'}, 'APPROVE', 0.90))
+          lambda: verdict_case({'codex': 'ok', 'deepseek': 'failed'}, 'APPROVE', 0.90))
     check('full healthy empty panel rejects APPROVE confidence 0.90',
           lambda: verdict_case(dict.fromkeys(providers, 'ok'), 'APPROVE', 0.90, accepts=False))
     check('healthy panel with findings rejects APPROVE confidence 0.90',

@@ -2,13 +2,12 @@
 # Shared tribunal-review script helpers.
 set -u
 
-# Shared by the OpenCode runner and preflight registry check.
 tribunal_deepseek_model() {
-  printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek/deepseek-flash}"
+  printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek-v4-pro}"
 }
 
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 1; otherwise an
-# integer in 1..8. Membership still uses the TRIBUNAL_<PROVIDER> toggles.
+# integer in 1..7. Membership still uses the TRIBUNAL_<PROVIDER> toggles.
 tribunal_min_ok_legs() {
   local raw="${TRIBUNAL_MIN_OK_LEGS:-}"
   if [ -z "$raw" ]; then
@@ -16,9 +15,9 @@ tribunal_min_ok_legs() {
     return 0
   fi
   case "$raw" in
-    [1-8]) printf '%s\n' "$raw"; return 0 ;;
+    [1-7]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 1..8)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 1..7)\n' "$raw" >&2
   return 1
 }
 
@@ -58,8 +57,8 @@ tribunal_backup_legs() {
   IFS=, read -r -a legs <<< "$raw"
   for leg in ${legs[@]+"${legs[@]}"}; do
     case "$leg" in
-      glm|deepseek|gemini|qwen) ;;
-      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want glm, deepseek, gemini, qwen, or off)\n' "$leg" >&2; return 1 ;;
+      deepseek|gemini|qwen) ;;
+      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want deepseek, gemini, qwen, or off)\n' "$leg" >&2; return 1 ;;
     esac
     case "$seen" in *" $leg "*) printf 'duplicate TRIBUNAL_BACKUP_LEGS entry: %s\n' "$leg" >&2; return 1 ;; esac
     seen="$seen$leg "
@@ -67,17 +66,19 @@ tribunal_backup_legs() {
   done
 }
 
-# A backup leg runs only when its transport is installed (and its model registered).
-# The first `opencode models` call can initialize state and print nothing, as in preflight.
+tribunal_deepseek_available() {
+  command -v dsh >/dev/null 2>&1 || { printf 'dsh CLI not on PATH\n'; return 1; }
+  if [ -n "${DEEPSEEK_API_KEY:+present}" ] \
+    || grep -q '^DEEPSEEK_API_KEY=' "${DSH_HOME:-${HOME}/.dsh}/.env" 2>/dev/null; then
+    return 0
+  fi
+  printf 'MISSING_CREDENTIAL: DEEPSEEK_API_KEY is not set and no dsh .env key entry exists\n'
+  return 1
+}
+
 tribunal_backup_installed() {
-  local model models
   case "$1" in
-    glm|deepseek)
-      command -v opencode >/dev/null 2>&1 || return 1
-      if [ "$1" = glm ]; then model="${TRIBUNAL_GLM_MODEL:-opencode-go/glm-5.3}"; else model="$(tribunal_deepseek_model)"; fi
-      opencode models >/dev/null 2>&1 || true
-      models="$(opencode models 2>/dev/null || true)"
-      grep -qxF -- "$model" <<< "$models" ;;
+    deepseek) tribunal_deepseek_available >/dev/null ;;
     gemini) command -v agy >/dev/null 2>&1 ;;
     qwen) command -v qwen >/dev/null 2>&1 ;;
     *) return 1 ;;

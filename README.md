@@ -115,7 +115,7 @@ Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.m
 ## Model ID Refresh
 
 `scripts/refresh-model-versions.sh` snapshots the model catalogs of the installed
-`codex`, `opencode`, `grok`, and `agy` CLIs. When a new ID appears in a model family
+`codex`, `grok`, and `agy` CLIs. When a new ID appears in a model family
 the plugins already use, a headless `claude -p` session in a throwaway worktree
 updates superseded pins within the same family and tier and opens a
 `chore/model-refresh-*` PR. It never merges, and it skips runs while such a PR is

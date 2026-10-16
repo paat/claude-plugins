@@ -11,6 +11,7 @@ FILES=(
   schemas/review-output.json
   scripts/check-runner-bundle.sh
   scripts/collect-review-evidence.sh
+  scripts/dsh-review.patch.yml
   scripts/generate-runner-bundle.sh
   scripts/lib.sh
   scripts/run-claude-review.sh
@@ -18,7 +19,7 @@ FILES=(
   scripts/run-gemini-review.sh
   scripts/run-grok-review.sh
   scripts/run-muse-review.sh
-  scripts/run-opencode-review.sh
+  scripts/run-deepseek-review.sh
   scripts/run-qwen-review.sh
 )
 
