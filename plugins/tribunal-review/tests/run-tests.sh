@@ -5082,6 +5082,25 @@ EOF
     [ "$ec" -eq 0 ] && [ "$(status_of codex) $(status_of claude)" = 'ok ok' ]
   }
   tr_check "T-003: protected safe.directory permits different-owner collection" safe_directory_collected
+  git -C "$repo" config branch.verification.remote origin
+  git config --file "$work/home/.gitconfig" --unset-all safe.directory
+  git config --file "$work/home/.gitconfig" "includeIf.gitdir:$repo/.git.path" "$work/home/trusted-config"
+  git config --file "$work/home/trusted-config" safe.directory '*'
+  tr_check "different-owner verification accepts branch drift with conditional safe.directory" \
+    env HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+      PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" \
+      bash -c '"$1/scripts/collect-review-evidence.sh" verify-collection --collection "$2" --expected-manifest-sha256 "$(jq -r .manifest_sha256 "$3")" >/dev/null' \
+      _ "$plugin" "$collection" "$work/collect-$n.json"
+  sed '/^require_tools$/,$d' "$plugin/scripts/collect-review-evidence.sh" > "$plugin/scripts/verify-functions.sh"
+  tr_check "explicit-file config parsing in a different-owner repo needs no loaded safe.directory" \
+    env HOME="$work/empty-home" XDG_CONFIG_HOME="$work/empty-home/.config" GIT_CONFIG_NOSYSTEM=1 \
+      GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+    bash -c '
+      . "$1/scripts/verify-functions.sh"
+      SURFACE_GITDIR="$2/.git"; SURFACE_COMMON="$SURFACE_GITDIR"
+      [ "$SAFE_DIRECTORY_COUNT" -eq 0 ]
+      config_entries "$SURFACE_COMMON/config" | jq -e "length > 0" >/dev/null
+    ' _ "$plugin" "$repo"
   rm -rf "$work/home"
 
   cp "$repo/.git/config" "$state/config.before"
