@@ -69,10 +69,21 @@ tribunal_backup_legs() {
 tribunal_deepseek_available() {
   command -v dsh >/dev/null 2>&1 || { printf 'dsh CLI not on PATH\n'; return 1; }
   if [ -n "${DEEPSEEK_API_KEY:+present}" ] \
+    || awk '
+      /^refs:[[:space:]]*$/ { refs=1; next }
+      /^[^[:space:]#]/ { refs=0 }
+      refs && /^[[:space:]]+DEEPSEEK_API_KEY:[[:space:]]*/ {
+        sub(/^[[:space:]]+DEEPSEEK_API_KEY:[[:space:]]*/, "")
+        sub(/[[:space:]]+#.*$/, "")
+        sub(/[[:space:]]+$/, "")
+        if ($0 != "" && $0 != "\"\"" && $0 != "\047\047" && $0 != "null" && $0 != "~" && $0 !~ /^#/) found=1
+      }
+      END { exit !found }
+    ' "${DSH_HOME:-${HOME}/.dsh}/.credentials.yaml" 2>/dev/null \
     || grep -q '^DEEPSEEK_API_KEY=' "${DSH_HOME:-${HOME}/.dsh}/.env" 2>/dev/null; then
     return 0
   fi
-  printf 'MISSING_CREDENTIAL: DEEPSEEK_API_KEY is not set and no dsh .env key entry exists\n'
+  printf 'MISSING_CREDENTIAL: DEEPSEEK_API_KEY is not set and no dsh credential key entry exists\n'
   return 1
 }
 

@@ -103,6 +103,11 @@ DSH
   unset DEEPSEEK_API_KEY
   scenario='preflight absent key skipped'; preflight
   check jq -e 'any(.providers[]; .name=="deepseek" and .status=="skipped" and (.note|contains("MISSING_CREDENTIAL")))' "$work/output/preflight"
+  mkdir -p "$DSH_HOME"
+  printf 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sentinel-deepseek-secret-651\n' > "$DSH_HOME/.credentials.yaml"
+  scenario='preflight stored credentials key usable'; preflight
+  check jq -e 'any(.providers[]; .name=="deepseek" and .status=="usable")' "$work/output/preflight"
+  rm "$DSH_HOME/.credentials.yaml"
   mkdir -p "$DSH_HOME"; printf 'DEEPSEEK_API_KEY=sentinel-deepseek-secret-651\n' > "$DSH_HOME/.env"
   scenario='preflight dsh home key usable'; preflight
   check jq -e 'any(.providers[]; .name=="deepseek" and .status=="usable")' "$work/output/preflight"
