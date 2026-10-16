@@ -3278,6 +3278,52 @@ EOF
   else
     echo -e "  ${RED}FAIL${NC} keyboard and secretary ignore comments stay non-sensitive"; FAIL=$((FAIL+1)); FAILURES+=("keyword-like ignore comments")
   fi
+  base="$(git -C "$repo" rev-parse HEAD)"
+  printf '# API keys\n*.tmp\n\n# credentials\n*.csv\n\n# keyboard shortcuts\n*.log\n' > "$repo/.gitignore"
+  printf 'key artifact\n' > "$repo/api.tmp"
+  printf 'credential artifact\n' > "$repo/creds.csv"
+  printf 'shortcut artifact\n' > "$repo/shortcuts.log"
+  git -C "$repo" add .gitignore
+  git -C "$repo" add -f api.tmp creds.csv shortcuts.log
+  git -C "$repo" commit -q -m 'add plural sensitive ignore comments'
+  head="$(git -C "$repo" rev-parse HEAD)"
+  PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+      --output "$work/plural-sensitive" > "$work/plural-sensitive.json"
+  local plural_manifest
+  plural_manifest="$(jq -r .manifest_sha256 "$work/plural-sensitive.json")"
+  if jq -e 'index("api.tmp") != null and index("creds.csv") != null and index("shortcuts.log") == null' \
+      "$work/plural-sensitive/sensitive-paths.json" >/dev/null 2>&1; then
+    echo -e "  ${GREEN}PASS${NC} plural keys and credentials comments seal paths, keyboard does not"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} plural keys and credentials comments seal paths, keyboard does not"; FAIL=$((FAIL+1)); FAILURES+=("plural sensitive ignore comments")
+  fi
+  jq '.findings=[
+      {id:"T-001",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+       category:"security",file:"api.tmp",line:1,title:"Force-added ignored key artifact",
+       description:"The reviewed diff adds a path matched by *.tmp at .gitignore:2.",
+       suggestion:"Remove the file or document why force-adding it is safe.",confidence:1,
+       arbiter_notes:"Deterministic repository-policy signal; default medium severity."},
+      {id:"T-002",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+       category:"security",file:"creds.csv",line:1,title:"Force-added ignored credential artifact",
+       description:"The reviewed diff adds a path matched by *.csv at .gitignore:5.",
+       suggestion:"Remove the file or document why force-adding it is safe.",confidence:1,
+       arbiter_notes:"Deterministic repository-policy signal; default medium severity."},
+      {id:"T-003",consensus:"SINGLE_PROVIDER",providers:["repository-policy"],severity:"medium",
+       category:"security",file:"shortcuts.log",line:1,title:"Force-added ignored shortcut artifact",
+       description:"The reviewed diff adds a path matched by *.log at .gitignore:8.",
+       suggestion:"Remove the file or document why force-adding it is safe.",confidence:1,
+       arbiter_notes:"Deterministic repository-policy signal; default medium severity."}
+    ] | .summary="Deterministic medium repository-policy findings remain non-blocking."' \
+    "$work/arbitration.json" > "$work/plural-arbitration.json"
+  if PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$work/plural-sensitive" \
+      --expected-manifest-sha256 "$plural_manifest" --arbitration "$work/plural-arbitration.json" \
+      >/dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC} plural-comment sensitive path cannot be downgraded to medium"; FAIL=$((FAIL+1)); FAILURES+=("plural sensitive severity floor")
+  else
+    echo -e "  ${GREEN}PASS${NC} plural-comment sensitive path cannot be downgraded to medium"; PASS=$((PASS+1))
+  fi
   base="$initial_base"
 
   printf '# ordinary scratch files\nscratch/\n' > "$repo/.gitignore"

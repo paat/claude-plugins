@@ -159,7 +159,7 @@ in `summary` and the finding's `arbiter_notes`; retain the mark in those notes a
 
 ### Ignored Added Paths
 If preflight warns or sealed `ignored-paths.json` exists, read the preceding stanza comments from `git show HEAD:<source>` (never the ambient worktree) and make each signal a `repository-policy` finding; it must become a finding, not be reported and forgotten.
-The default is medium; escalate to high when the preceding ignore comment says `secret`, `PII`, `credential`, `key`, or `never commit`. That high blocks the gate by design.
+The default is medium; escalate to high when the preceding ignore comment says `secret(s)`, `PII`, `credential(s)`, `key(s)`, or `never commit`. That high blocks the gate by design.
 
 ### Deleted Policy Paths
 If preflight warns or sealed `deleted-paths.json` exists, make each path a medium `repository-policy` finding; it must become a finding, not be reported and forgotten.
