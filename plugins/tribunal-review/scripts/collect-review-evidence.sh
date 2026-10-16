@@ -109,7 +109,7 @@ kill_leg() {
       for child in $children; do kill -KILL "$child" 2>/dev/null || true; done
       wait "$pid" 2>/dev/null || true
       unset 'NAMESPACE_PIDS[$pid]'
-      return
+      return 0
     fi
     # The launcher has finished or has not forked yet; --kill-child covers death
     # during startup. No reviewer can run before that parent-death guard is set.
@@ -272,7 +272,7 @@ restore_surface_file() {
   if [ "$2" = root.git ] && [ -f "$path" ] && [ ! -L "$path" ] \
     && [ "$(stat -c '%d:%i' -- "$path")" = "$SURFACE_ID" ]; then
     chmod u+w -- "$path" && cat -- "$snapshot" > "$path" && chmod "$mode" "$path"
-    return
+    return $?
   fi
   replacement="$(mktemp "$(dirname "$path")/.tribunal-restore.XXXXXX")" || return 1
   if cp -- "$snapshot" "$replacement" && chmod "$mode" "$replacement"; then

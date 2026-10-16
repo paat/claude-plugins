@@ -4738,6 +4738,73 @@ LEG
   rm -rf "$work"
 }
 
+test_collector_namespace_failure_cleanup() {
+  local work mode ec leg dead
+  if ! unshare --user --map-current-user --pid --fork --kill-child true 2>/dev/null; then
+    echo "  SKIP namespace failure cleanup: unprivileged namespaces unavailable"; SKIP=$((SKIP+1)); return
+  fi
+  work="$(mktemp -d)"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  git init -q "$work/repo"
+  git -C "$work/repo" -c user.name=Fixture -c user.email=fixture@example.test commit -qm initial --allow-empty
+  cat > "$work/blocked.sh" <<'LEG'
+leg="${PWD##*/}"
+read -r host_pid rest < /proc/self/stat
+printf '%s\n' "$host_pid" > "../$leg.pid"
+printf 'ready\n' > "../$leg.ready"
+sleep 1
+git config core.fsmonitor planted-by-surviving-leg
+sleep 20
+LEG
+  for mode in die TERM; do
+    mkdir -p "$work/staging/wrappers"
+    mkfifo "$work/a.ready" "$work/b.ready"
+    ec=0
+    timeout -k 1 10 bash -c '
+      . "$1/collector-functions.sh"
+      set +m
+      STAGING="$1/staging"
+      SURFACE_ROOT="$1/repo"
+      REVIEW_SOURCE="$SURFACE_ROOT"
+      pin_git_surface
+      probe_containment
+      for leg in a b; do
+        git -C "$REVIEW_SOURCE" worktree add --detach --quiet "$1/$leg" HEAD
+        REVIEW_WORKTREES+=("$1/$leg")
+        run_wrapper "$leg" "$1/blocked.sh" "$1/$leg" unused "$STAGING/wrappers"
+      done
+      read -r ready < "$1/a.ready"
+      read -r ready < "$1/b.ready"
+      # Cleanup must restore this mutation after terminating both blocked legs.
+      command git -C "$SURFACE_ROOT" config core.fsmonitor planted-before-exit
+      if [ "$2" = die ]; then die "git surface changed; collection rejected"; fi
+      kill -TERM "$$"
+    ' _ "$work" "$mode" > "$work/$mode.out" 2> "$work/$mode.err" || ec=$?
+    tr_check "namespace $mode collector exits with failure" test "$ec" -eq 1
+    dead=1
+    for leg in a b; do
+      if [ ! -s "$work/$leg.pid" ]; then dead=0; continue; fi
+      case "$(ps -o stat= -p "$(cat "$work/$leg.pid")")" in ''|Z*) ;; *) dead=0 ;; esac
+    done
+    tr_check "namespace $mode both legs dead when collector exits" test "$dead" -eq 1
+    sleep 2
+    tr_check "namespace $mode fsmonitor stays unset after two seconds" \
+      test -z "$(git -C "$work/repo" config --get core.fsmonitor || true)"
+    tr_check "namespace $mode only main worktree remains registered" \
+      test "$(git -C "$work/repo" worktree list --porcelain | sed -n 's/^worktree //p')" = "$work/repo"
+    tr_check "namespace $mode staging removed" test ! -e "$work/staging"
+    # Also clean up the intentionally failing pre-fix run.
+    for leg in a b; do
+      [ ! -s "$work/$leg.pid" ] || kill -KILL "$(cat "$work/$leg.pid")" 2>/dev/null || true
+      git -C "$work/repo" worktree remove -f -f "$work/$leg" 2>/dev/null || true
+    done
+    git -C "$work/repo" config --unset core.fsmonitor || true
+    rm -rf "$work/staging" "$work/a.ready" "$work/b.ready" "$work/a.pid" "$work/b.pid"
+  done
+  rm -rf "$work"
+}
+
 test_collector_completion_order() {
   local work ec=0
   work="$(mktemp -d)"
@@ -5808,6 +5875,7 @@ test_preflight_risk_and_backups
 test_backup_leg_collection
 test_collector_completion_order
 test_collector_pid_namespace
+test_collector_namespace_failure_cleanup
 test_collector_reap_rescan
 test_collector_config_includes
 test_collector_surface_leftovers
