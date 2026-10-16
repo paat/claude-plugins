@@ -4572,6 +4572,58 @@ test_collector_config_includes() {
   rm -rf "$work"
 }
 
+test_collector_reap_rescan() {
+  local work ec=0
+  work="$(mktemp -d)"
+  sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  mkdir -p "$work/staging/wrappers"
+  mkfifo "$work/a.go" "$work/b.go" "$work/child.ready"
+  cat > "$work/a.sh" <<'LEG'
+read -r go < a.go
+exit 17
+LEG
+  cat > "$work/b.sh" <<'LEG'
+read -r go < b.go
+timeout 5 bash -c '
+  trap "" TERM
+  printf "ready\n" > child.ready
+  sleep 1
+  touch rewritten
+' >/dev/null 2>&1 &
+read -r ready < child.ready
+exit 23
+LEG
+  printf 'sleep 3\n' > "$work/c.sh"
+  timeout -k 1 10 bash -c '
+    . "$1/collector-functions.sh"
+    set +m
+    STAGING="$1/staging"
+    checked=0; fixture_root="$1"
+    check_git_surface() {
+      if [ "$checked" -eq 0 ]; then
+        checked=1
+        printf "go\n" > "$fixture_root/b.go"
+        sleep 0.4
+      fi
+    }
+    run_wrapper a "$1/a.sh" "$1" unused "$STAGING/wrappers"
+    run_wrapper b "$1/b.sh" "$1" unused "$STAGING/wrappers"
+    run_wrapper c "$1/c.sh" "$1" unused "$STAGING/wrappers"
+    printf "go\n" > "$1/a.go"
+    wait_wrappers
+    STAGING=""
+  ' _ "$work" > "$work/out" 2> "$work/err" || ec=$?
+  reap_rescan_ok() {
+    [ "$ec" -eq 0 ] && [ ! -e "$work/rewritten" ] \
+      && [ "$(cat "$work/staging/wrappers/a.exit")" = 17 ] \
+      && [ "$(cat "$work/staging/wrappers/b.exit")" = 23 ] \
+      && [ "$work/staging/wrappers/b.finished" -ot "$work/staging/wrappers/c.finished" ]
+  }
+  tr_check "rescan reaps a leg finishing during another leg surface check before its descendant acts" reap_rescan_ok
+  rm -rf "$work"
+}
+
 test_collector_completion_order() {
   local work ec=0
   work="$(mktemp -d)"
@@ -5601,6 +5653,7 @@ test_risk_effort_reaches_claude_and_grok
 test_preflight_risk_and_backups
 test_backup_leg_collection
 test_collector_completion_order
+test_collector_reap_rescan
 test_collector_config_includes
 test_collector_surface_leftovers
 test_collector_subdirectory_root

@@ -619,9 +619,10 @@ run_wrapper() {
 }
 
 wait_wrappers() {
-  local index pid name rc running remaining="${#REVIEW_PIDS[@]}"
+  local index pid name rc running reaped remaining="${#REVIEW_PIDS[@]}"
   while [ "$remaining" -gt 0 ]; do
     running="$(jobs -pr)"
+    reaped=0
     for index in "${!REVIEW_PIDS[@]}"; do
       pid="${REVIEW_PIDS[$index]}"; name="${REVIEW_NAMES[$index]}"
       [[ $'\n'"$running"$'\n' != *$'\n'"$pid"$'\n'* ]] || continue
@@ -630,11 +631,12 @@ wait_wrappers() {
       kill_leg "$pid"
       unset 'REVIEW_PIDS[index]' 'REVIEW_NAMES[index]'
       remaining=$((remaining - 1))
+      reaped=1
       check_git_surface || die "git surface changed; collection rejected"
       printf '%s\n' "$rc" > "$STAGING/wrappers/$name.exit"
       printf '%s\n' "$(now)" > "$STAGING/wrappers/$name.finished"
     done
-    if [ "$remaining" -gt 0 ]; then wait -n || true; fi
+    if [ "$remaining" -gt 0 ] && [ "$reaped" -eq 0 ]; then wait -n || true; fi
   done
   REVIEW_PIDS=(); REVIEW_NAMES=()
 }
