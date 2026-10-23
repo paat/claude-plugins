@@ -1013,12 +1013,12 @@ EOF
 }
 
 test_muse_leg() {
-  local label="muse leg: read-only flags, default model, stamped model, failures" work fake ok=1
+  local label="muse leg: read-only flags, spark default, stamped model, failures" work fake ok=1
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   cat > "$fake/muse" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FIXTURE_MUSE_ARGS"
-jq -cn --arg m "${FIXTURE_MUSE_SERVED:-muse-spark-1.3-contributor}" '{payload_type:"run.model.configured",payload:{model_id:$m}}'
+jq -cn --arg m "${FIXTURE_MUSE_SERVED:-muse-spark-1.3}" '{payload_type:"run.model.configured",payload:{model_id:$m}}'
 if [ -n "${FIXTURE_MUSE_FAIL:-}" ]; then
   jq -cn --arg r "$FIXTURE_MUSE_FAIL" '{payload_type:"run.terminal.failed",payload:{terminal:"failed",reason:$r}}'
   printf 'run ended with Failed: %s\n' "$FIXTURE_MUSE_FAIL" >&2
@@ -1040,17 +1040,21 @@ EOF
   run_muse() { (cd "$work" && PATH="$fake:$PATH" TRIBUNAL_MUSE=on TRIBUNAL_BASE_REF=HEAD~1 \
     FIXTURE_MUSE_ARGS="$work/args" "$@" bash "$PLUGIN_ROOT/scripts/run-muse-review.sh"); }
   run_muse env > "$work/ok.json" 2>/dev/null || ok=0
-  jq -e '.provider=="muse" and .model=="muse-spark-1.3-contributor" and .summary.verdict=="APPROVE" and (.diff_stat|type=="object")' \
+  jq -e '.provider=="muse" and .model=="muse-spark-1.3" and .summary.verdict=="APPROVE" and (.diff_stat|type=="object")' \
     "$work/ok.json" >/dev/null || ok=0
-  for flag in exec --json --yolo --disable-write --disable-shell --disable-web-tools --no-foreign-personal-context --output-schema; do
+  for flag in exec --json --yolo --disable-write --disable-shell --disable-web-tools --no-foreign-personal-context --output-schema --model; do
     grep -qxF -- "$flag" "$work/args" || ok=0
   done
-  ! grep -qxF -- --model "$work/args" || ok=0
-  run_muse env TRIBUNAL_MUSE_MODEL=muse-spark-1.3 > "$work/pin.json" 2>/dev/null || ok=0
-  jq -e '.provider=="muse" and (.error|contains("not the requested muse-spark-1.3"))' "$work/pin.json" >/dev/null || ok=0
+  grep -qxF -- muse-spark-1.3 "$work/args" || ok=0
+  run_muse env FIXTURE_MUSE_SERVED=muse-spark-1.3-contributor > "$work/mismatch.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and (.error|contains("not the requested muse-spark-1.3"))' "$work/mismatch.json" >/dev/null || ok=0
   run_muse env TRIBUNAL_MUSE_MODEL=muse-spark-1.3 FIXTURE_MUSE_SERVED=muse-spark-1.3 > "$work/pin-ok.json" 2>/dev/null || ok=0
   jq -e '.model=="muse-spark-1.3" and .summary.verdict=="APPROVE"' "$work/pin-ok.json" >/dev/null || ok=0
-  run_muse env FIXTURE_MUSE_SERVED=claude-haiku-4-5 > "$work/family.json" 2>/dev/null || ok=0
+  run_muse env TRIBUNAL_MUSE_MODEL=default FIXTURE_MUSE_SERVED=muse-spark-1.3-contributor > "$work/cli-default.json" 2>/dev/null || ok=0
+  jq -e '.provider=="muse" and .model=="muse-spark-1.3-contributor" and .summary.verdict=="APPROVE"' \
+    "$work/cli-default.json" >/dev/null || ok=0
+  ! grep -qxF -- --model "$work/args" || ok=0
+  run_muse env TRIBUNAL_MUSE_MODEL=default FIXTURE_MUSE_SERVED=claude-haiku-4-5 > "$work/family.json" 2>/dev/null || ok=0
   jq -e '.provider=="muse" and (.error|contains("executed model family mismatch"))' "$work/family.json" >/dev/null || ok=0
   run_muse env FIXTURE_MUSE_NO_TERMINAL=on > "$work/noterm.json" 2>/dev/null || ok=0
   jq -e '.provider=="muse" and (.error|contains("Muse execution failed"))' "$work/noterm.json" >/dev/null || ok=0

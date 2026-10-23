@@ -29,7 +29,7 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`; prior-generation `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
-| Muse Code (`muse`) | `default` (passes no `--model`; the installed CLI selects its model); explicit pin `muse-wonder-1.0` | Bounded implementation, reproduction, research, and independent review; `muse-wonder-1.0` is the T3 coding pin |
+| Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
 | Antigravity (`agy`) | `gemini-3.8-flash` | Cheap, fast bounded edits and an advisory diff-only review lens |
 
@@ -49,8 +49,8 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | Tier | Task evidence | Workers, in order |
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
-| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse (default model), Gemini 3.8 Flash high, GPT-6.1 Sol (all medium unless noted) |
-| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra high, Opus 5.5 high, Muse `muse-wonder-1.0` high |
+| T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol (all medium unless noted) |
+| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra high, Opus 5.5 high, Muse `muse-wonder-full-1.0` high |
 | T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
@@ -173,10 +173,11 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   MCPs. OAuth `auth.json`, `XAI_API_KEY`, and `GROK_*` variables are preserved; config-only
   enterprise authentication should use Grok's equivalent `GROK_*` environment variables.
 - Muse legs pass `--no-foreign-personal-context` so they do not load host Claude rules and skills,
-  and keep `MUSE_*`, `META_API_KEY`, and `XDG_*` for authentication. If the selected model has a
-  `-contributor` suffix, Meta may use content for product improvement. `muse-wonder-1.0` is an
-  explicit model selection; `MMO_MUSE_MODEL` sets the direct runner default, while pool rows supply
-  their own `--model`. A leg pinned to a model it did not run exits 7.
+  and keep `MUSE_*`, `META_API_KEY`, and `XDG_*` for authentication. A `-contributor` model id
+  lets Meta use content for product improvement; that applies when `MMO_MUSE_MODEL=default`
+  passes no `--model` and the CLI selects one. Bounded work requests `muse-spark-1.3`; the T3
+  pin is `muse-wonder-full-1.0`. Pool rows supply their own `--model`. A pinned leg that ran
+  another model exits 7.
 
 ## Review gate
 
@@ -198,7 +199,7 @@ directory and exits 7 if the repository changed anyway.
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
   - latest Grok Build (`grok`), using Grok 4.7 by default
-  - Meta Muse Code (`muse`); `default` passes no `--model`, and `muse-wonder-1.0` is the explicit T3 pin
+  - Meta Muse Code (`muse`); bounded work requests `muse-spark-1.3`, T3 pins `muse-wonder-full-1.0`, and `default` passes no `--model`
   - Google Antigravity CLI (`agy`) for the Gemini Flash route
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
@@ -220,7 +221,7 @@ catalog.
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` (`150` for implement) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement`; env values above 100 are clamped outside implement |
 | `MMO_GROK_CONTINUE_ON_MAX_TURNS` | `1` | Implement only: finishing `--resume` passes (0-3) after a max-turns stop on a changed tree, within the one `--timeout`; a max-turns stop exits 76 |
-| `MMO_MUSE_MODEL` | `default` | Direct runner default; pool rows supply their own `--model` |
+| `MMO_MUSE_MODEL` | `muse-spark-1.3` | Direct runner default. `default` passes no `--model`. Pool rows supply their own `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
 | `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200 |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/local-Qwen review |

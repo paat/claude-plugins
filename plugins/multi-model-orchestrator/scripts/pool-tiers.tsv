@@ -9,7 +9,7 @@ T1	codex	gpt-6-luna	low
 T1	codex	gpt-5.6-luna	low
 T2	claude	claude-sonnet-5-5	medium
 T2	grok	grok-4.7	medium
-T2	muse	default	medium
+T2	muse	muse-spark-1.3	medium
 T2	agy	gemini-3.8-flash	high
 T2	codex	gpt-6.1-sol	medium
 T2	codex	gpt-6-sol	medium
@@ -17,6 +17,6 @@ T2	claude	claude-sonnet-5	medium
 T2	codex	gpt-5.6-terra	medium
 T3	codex	gpt-6-astra	high
 T3	claude	claude-opus-5-5	high
-T3	muse	muse-wonder-1.0	high
+T3	muse	muse-wonder-full-1.0	high
 T4	codex	gpt-6-astra	xhigh
 T4	claude	claude-opus-5-5	xhigh

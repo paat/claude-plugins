@@ -42,7 +42,7 @@
     },
     {
       "path": "scripts/run-muse-review.sh",
-      "sha256": "1045b656cce692ea8e4a324fda00d149f2d858332b330fd54b6920e82012c665"
+      "sha256": "3954ced1228df500ef95d172fb9fe734fcad440240196fb3ef63bc531d439a2a"
     },
     {
       "path": "scripts/run-deepseek-review.sh",

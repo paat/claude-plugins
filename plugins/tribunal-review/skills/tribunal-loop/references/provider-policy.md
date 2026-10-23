@@ -18,9 +18,10 @@
   `TRIBUNAL_GROK_MODEL` (default `grok-4.7`); repo-walking on the xAI Grok CLI
   with tools allowlist, sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`),
   `bypassPermissions`, isolated host config, web search off (issue #378).
-- Muse: on by default; disable with `TRIBUNAL_MUSE=off`; CLI default model unless
-  `TRIBUNAL_MUSE_MODEL` is set (the current default may use content for product
-  improvement); repo-walking via `muse exec --yolo` with write, shell, and web tools off.
+- Muse: on by default; disable with `TRIBUNAL_MUSE=off`; requests `muse-spark-1.3`
+  unless `TRIBUNAL_MUSE_MODEL` is set (`default` passes no `--model`; a `-contributor`
+  id the CLI then selects may use content for product improvement); repo-walking via
+  `muse exec --yolo` with write, shell, and web tools off.
 
 ## Risk tier and effort
 
