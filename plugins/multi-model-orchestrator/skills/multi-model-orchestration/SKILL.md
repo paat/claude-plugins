@@ -15,7 +15,7 @@ explaining the community evidence behind the original policy.
 - Apply provider/model allowlists and denylists before routing. Preserve compatible explicit model
   and effort choices; never silently substitute a forbidden provider.
 - Use only Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5 (Fable 5, Opus 5, Sonnet 5 compat); GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna (GPT-6 Sol, GPT-5.6 Terra, Luna compat);
-  Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); Muse `default` (no `--model`) and `muse-wonder-1.0` for complex coding; and the local llama.cpp model (`default`: whatever it serves) for mechanical work when its endpoint answers.
+  Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); Muse `muse-spark-1.3` for bounded work and `muse-wonder-full-1.0` for complex coding (`default` passes no `--model`); and the local llama.cpp model (`default`: whatever it serves) for mechanical work when its endpoint answers.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, Grok uses sandbox `none` with
   `bypassPermissions`, and Muse uses `--yolo`. Keep reviewer mutation control in prompts and tool allowlists — except
@@ -83,7 +83,7 @@ same-provider reviewer; preserve the restriction.
 - Grok 4.7: fast independent reproduction and a decorrelated code-review lens. Start at `medium`
   and use `high` or `xhigh` for difficult review; Grok 4.6 keeps the same efforts, and Grok 4.5
   remains available without `xhigh`.
-- Muse: a second fast decorrelated lens on the same terms as Grok. Start `default` at `medium`; pin `muse-wonder-1.0` at `high` for complex coding.
+- Muse: a second fast decorrelated lens on the same terms as Grok. Start `muse-spark-1.3` at `medium`; pin `muse-wonder-full-1.0` at `high` for complex coding. Plain `muse-wonder-1.0` is not routed. `default` passes no `--model`.
 - Ultra requires a bounded prompt: one pass, at most 10 findings, realistic reachable failures,
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 

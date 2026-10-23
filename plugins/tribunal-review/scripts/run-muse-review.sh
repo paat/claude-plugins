@@ -9,10 +9,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "${TRIBUNAL_MUSE:-on}" = "off" ]; then tribunal_disabled muse "Muse leg disabled via TRIBUNAL_MUSE=off"; exit 0; fi
 command -v muse >/dev/null 2>&1 || { tribunal_error muse "Muse CLI not on PATH"; exit 0; }
 
-# Unset runs the CLI default model; a pinned model must be the one the run configured.
-MUSE_MODEL="${TRIBUNAL_MUSE_MODEL:-}"
+# Unset requests muse-spark-1.3. TRIBUNAL_MUSE_MODEL=default passes no --model and
+# skips the served-model check; any other id must be the one the run configured.
+MUSE_MODEL="${TRIBUNAL_MUSE_MODEL:-muse-spark-1.3}"
 model_args=()
-[ -z "$MUSE_MODEL" ] || model_args=(--model "$MUSE_MODEL")
+[ "$MUSE_MODEL" = default ] || model_args=(--model "$MUSE_MODEL")
 RISK_EFFORT="$(tribunal_risk_effort muse 2>&1)" || { tribunal_error muse "$RISK_EFFORT"; exit 0; }
 MUSE_EFFORT="${TRIBUNAL_MUSE_EFFORT:-$RISK_EFFORT}"
 effort_args=()
@@ -39,7 +40,7 @@ WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
   || { tribunal_error muse "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error muse "cannot diff against $BASE_REF"; exit 0; }
 DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
-[ -s "$DIFF_FILE" ] || { tribunal_empty muse "${MUSE_MODEL:-default}" "$BASE_REF" "$DIFF_STAT"; exit 0; }
+[ -s "$DIFF_FILE" ] || { tribunal_empty muse "$MUSE_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
 tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 tribunal_review_prompt muse "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 # Inline the diff: the workspace tools cannot read the runner's temp dir.
@@ -66,7 +67,7 @@ if [ "$rc" -ne 0 ] || [ -z "$terminal" ]; then
   tribunal_error_with_diagnostics muse "Muse execution failed or timed out" execution "$rc" "$OUT" "$ERR"
   exit 0
 fi
-if [ -n "$MUSE_MODEL" ] && [ -n "$actual_model" ] && [ "$actual_model" != "$MUSE_MODEL" ]; then
+if [ "$MUSE_MODEL" != default ] && [ -n "$actual_model" ] && [ "$actual_model" != "$MUSE_MODEL" ]; then
   tribunal_error_with_diagnostics muse "Muse configured model $actual_model, not the requested $MUSE_MODEL" \
     model_family "$rc" "$OUT" "$ERR"
   exit 0

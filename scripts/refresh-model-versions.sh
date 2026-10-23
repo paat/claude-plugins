@@ -66,7 +66,7 @@ Read only the relevant catalog and pinned model lines; be token-frugal.
    runs the pin: a Codex pin needs the codex section. Leave pins for CLIs
    without a catalog section unchanged.
 2. Never change family or tier (opus -> fable, flash -> pro, sol -> astra), local
-   model names, Muse (it runs on the CLI default), changelog or history text, or
+   model names, Muse pins (do not follow the CLI catalog default), changelog or history text, or
    test fixtures that use an old ID on purpose. Keep a pin whose nearby comment
    justifies the older version and list it in the PR body. In a list of
    accepted or routable IDs, put the new ID directly ahead of the old one and

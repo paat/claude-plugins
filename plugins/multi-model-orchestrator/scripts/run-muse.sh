@@ -6,8 +6,8 @@
 # walk the repository read-only; research drops both and runs in an empty directory with
 # web and read tools. A non-implement leg that changed the repository exits 7.
 #
-# `--model default` (the default) runs the CLI default model; a pinned model must be the one
-# the run configured.
+# Unset requests muse-spark-1.3. `--model default` passes no --model and runs whatever
+# the installed CLI selects; any other model must be the one the run configured.
 #
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty final
 # message; 6 review without APPROVE/NEEDS_WORK; 7 leg wrote to the repository or ran
@@ -25,7 +25,7 @@ usage() {
 mode=""
 repo_dir="$PWD"
 base_ref="HEAD"
-model="${MMO_MUSE_MODEL:-default}"
+model="${MMO_MUSE_MODEL:-muse-spark-1.3}"
 effort="${MMO_MUSE_EFFORT:-medium}"
 max_steps="${MMO_MUSE_MAX_STEPS:-50}"
 run_timeout=1200
