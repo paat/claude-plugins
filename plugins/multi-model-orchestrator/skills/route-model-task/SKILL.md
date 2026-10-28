@@ -1,12 +1,13 @@
 ---
 name: route-model-task
-description: "Choose a worker (Claude Code, Codex, Grok Build, Muse Code, Antigravity Gemini Flash, or local Qwen), model, and reasoning effort by task complexity, plan-limit headroom, and availability. Use when an orchestrator must assign tasks, when the user asks which coding model or effort to use, or when provider restrictions, latency, cost, risk, or independent-review needs affect routing."
+description: "Choose a worker (Claude Code, Codex, Grok Build, Muse Code, Antigravity Gemini Flash/Argon, or local Qwen), model, and reasoning effort by task fit, complexity, plan-limit headroom, and availability. Use when an orchestrator must assign tasks, when the user asks which coding model or effort to use, or when provider restrictions, latency, cost, risk, or independent-review needs affect routing."
 ---
 
 # Route Model Task
 
-Choose one primary route per bounded task. Read `references/routing.md` before assigning a model
-or effort. Use the evidence notes only when explaining or revisiting the policy.
+Choose one primary route per bounded task. Read `references/routing.md` and
+`references/task-fit.md` before assigning a model or effort. Read only the relevant evidence
+notes when explaining or revisiting a recommendation; do not re-research unchanged routes.
 
 ## Route in this order
 
@@ -14,12 +15,15 @@ or effort. Use the evidence notes only when explaining or revisiting the policy.
    tool access, edit authority, and required reviewer independence. Apply them before scoring.
 2. Reject contradictions such as “Codex only” plus “do not use Codex.” Never substitute a denied
    provider. If no valid route remains, return the exact blocker.
-3. Classify the task by role, ambiguity, scope/coupling, risk, determinism of validation, modality,
-   and expected duration.
+3. Classify task family, role, ambiguity, scope/coupling, risk, validation, modality, and duration.
+   Use `references/task-fit.md` to choose a candidate and effort separately. Check that its runner
+   actually exposes the required tools; model capability alone is insufficient.
 4. Classify complexity into a tier (T1–T4, `references/routing.md`). Run
-   `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh pick --tier <T>` with the restrictions as `--allow`/`--deny`;
-   its first line is the route, and the rest are its fallbacks. An explicit model or effort pin
-   skips the pool: select from the strict catalog directly.
+   `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh pick --tier <T>` with restrictions as `--allow`/`--deny`
+   and the task-fit candidate as `--prefer <exact-model>`. Its first line is the eligible route;
+   preference never bypasses the tier, usage limits, restrictions, or review eligibility.
+   Use table order when evidence does not distinguish candidates. User pins take precedence:
+   validate catalog, restrictions and usage headroom before calling their runner directly.
 5. Add another model only when independent evidence can change the result. Prefer a provider
    different from the implementer for high-risk review or contradictory diagnoses.
 
@@ -31,6 +35,11 @@ or effort. Use the evidence notes only when explaining or revisiting the policy.
   that another provider would be better unless the allowed catalog cannot meet the task.
 - Do not raise effort to compensate for a vague task packet, missing acceptance criteria, or
   unavailable validation.
+- For a pool route, keep the same tier, mode, restrictions, usage snapshot, and `--prefer` in
+  `pick` and `run`. If the task needs a different supported effort, first select an eligible
+  candidate through `pick`, then call its runner with the recorded exact model and effort.
+  On unavailability, reroute within the same constraints; never silently discard the effort
+  decision or use direct dispatch to evade a tight window. Explicit user pins remain binding.
 - Default to one pass. Parallelize only disjoint work or independent read-only investigations.
 - Route a repeated scope violation, stalled tool loop, or contradictory diagnosis to another
   allowed provider before blindly increasing effort.
@@ -52,11 +61,13 @@ Return one compact entry per task:
 Task: <bounded outcome>
 Role: <plan|implement|investigate|review|verify>
 Tier: <T1|T2|T3|T4, or pinned>
+Task fit: <family; source-backed candidate or local evidence; uncertainty>
 Route: <provider> / <exact model> / <effort or n/a>
-Why: <task evidence that justifies this route>
+Why: <why this model and this effort meet this task's acceptance>
 Access: <read-only or edit; required tools>
 Gate: <deterministic acceptance check>
 Fallback: <allowed route and trigger, or none>
+Dispatch: <pool arguments including preference, or runner/model/effort arguments>
 ```
 
 If the request is routing-only, stop after the route cards. If an orchestrator invoked this skill,
@@ -64,6 +75,9 @@ pass the cards into its task ledger and dispatch only after its normal preflight
 
 ## Calibrate
 
-Record effective provider, model, effort, completion, latency, tool-loop count, scope violations,
-and gate result. Change defaults only from repeated local task evidence; vendor benchmarks and
-community reports are starting hypotheses, not a permanent leaderboard.
+In the existing task ledger, record task family, actual served model (including local `default`),
+effort, runner/version, tools, acceptance result, elapsed time, repair/retry count, and cost if
+known. Separate provider/infra failures from task failures. Compare repeated representative
+tasks with the same repository state, inputs, harness and tests; include review/repair time.
+Vary effort while holding the model fixed. Change defaults only when that evidence improves
+successful delivery; vendor benchmarks are candidate-selection hints, not a leaderboard.

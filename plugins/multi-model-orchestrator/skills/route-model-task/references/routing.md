@@ -5,7 +5,7 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 
 | Provider | Model | Start here for | Supported effort in this plugin |
 |---|---|---|---|
-| Claude Code | `claude-haiku-5-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; the wrapper runs Haiku without `--effort` |
+| Claude Code | `claude-haiku-5-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; plugin policy runs Haiku without `--effort` |
 | Claude Code | `claude-haiku-4-5` | Prior-generation Haiku compatibility route | `n/a` |
 | Claude Code | `claude-sonnet-5-5` | Current Sonnet: ordinary coding, tool use, browser/visual work, cost-aware agents | `low`–`max` |
 | Claude Code | `claude-sonnet-5` | Prior-generation Sonnet compatibility route | `low`–`max` |
@@ -26,10 +26,10 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Muse Code | `default` | Explicit opt-in: passes no `--model`; the installed CLI selects its model | `minimal`–`max` |
 | Local Qwen | `default` | Runs whatever model the local endpoint serves (a pinned id must be served). Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
+| agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate; review remains advisory | `low`, `medium`, `high` |
 
-GPT-6 Sol replaces GPT-5.6 Terra and GPT-6 Luna replaces GPT-5.6 Luna at the same or lower price:
-use Luna for mechanical tasks and narrow checks, Sol for ordinary bounded implementation, and Astra
-for hard technical work. A newer flagship does not retire the cheaper tiers. Explicit model requests still take precedence.
+Use `task-fit.md` to select model and effort from the task's acceptance criteria. A newer
+flagship does not retire cheaper tiers. Explicit model requests still take precedence.
 Only catalogued models are allowed; unavailable models do not authorize an unlisted fallback.
 
 ## Complexity tiers
@@ -38,7 +38,9 @@ Complexity picks the tier. `scripts/pool-tiers.tsv` lists each tier's workers in
 `scripts/pool.sh pick|run --tier <T>` drops the ones that cannot take the task now (not allowed,
 CLI not installed, an advisory engine on a review, or a plan window near its limit) and tries the
 rest in order. T1 and T2 fall back to the higher tiers' workers; T3 and T4 never fall to a weaker
-tier — park until the reset `pool.sh` prints. An explicit model pin bypasses the pool.
+tier — park until the reset `pool.sh` prints. `--prefer` accepts a provider or exact model,
+within each tier; it does not bypass any filter. Direct model/effort pins still require
+restriction, availability and usage checks.
 
 | Task evidence | Tier | Pool flags |
 |---|---|---|
@@ -46,8 +48,8 @@ tier — park until the reset `pool.sh` prints. An explicit model pin bypasses t
 | Well-specified everyday change with known tests | T2 | |
 | Bounded independent implementation or reproduction | T2 | `--prefer grok` or `--prefer muse` |
 | Cross-module backend/data/API work or hard root cause | T3 | |
-| Large refactor, long tool loop, complex system design | T3 | `--prefer claude` |
-| Ambiguous product intent, UX, copy, or visual replication | T3 | `--prefer claude` |
+| Large refactor, long tool loop, complex system design | T3 | task-fit model preference |
+| Ambiguous product intent, UX, copy, or visual replication | T3 | task-fit model preference; require actual visual/browser tools |
 | Security, payments, destructive migration, subtle concurrency | T4 | review: T4 `--mode review --deny <worker provider>` |
 | Technical adversarial review | the item's tier, at least T2 | `--mode review --deny <worker provider>` |
 | Mechanical verification after a model-authored change | T1 | run the deterministic check directly when no judgment is needed |
@@ -98,37 +100,13 @@ Every runner exits `75` when its worker cannot take the task now: a transient pr
 plan limit, or — for `scripts/run-qwen-local.sh` — the one GPU slot busy, the server down, a
 pinned model not served (or several served and none pinned), or no wrapper. Local Qwen is never queued. `pool.sh run` moves to the next
 worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
-or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and agy are mechanical-work engines and advisory
-reviewers only: architecture, security, and ambiguous design stay on the hosted catalog.
+or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and
+agy reviews remain advisory. Local implementation stays bounded and mechanical; agy
+Flash stays in T1/T2 while Argon is a T3 implementation candidate. Neither is a T4 route.
 
-## Evidence basis, 2026-10-03
+## Evidence basis
 
-- Anthropic describes Fable 5.1 as its highest-capability long-running model, Opus 5.5 for complex
-  agentic coding, Sonnet 5.5 as the speed/intelligence balance, and Haiku 4.5 as its fastest current
-  tier. Sonnet 5.5 recalibrated its effort levels; start agentic coding at `medium`. Its effort guidance favors high as a baseline, lower settings where evals hold, and xhigh
-  or max only for demanding work.
-- OpenAI describes Astra as the GPT-6 flagship, Sol for complex coding and agentic work, and Luna
-  for focused, high-volume tasks. It recommends medium as a baseline and higher efforts only for measured gains.
-- The Grok Build CLI (1.0.41) also lists `grok-4.7-build-fast` (same model, faster serving, twice
-  the price, Grok Build only); it is not catalogued. grok-4.7 and grok-4.6 accept low, medium, high,
-  and xhigh; grok-4.5 accepts low, medium, and high. xAI reports strong coding performance and high
-  serving speed; treat those vendor measurements as hypotheses.
-- Bounded Muse work requests `muse-spark-1.3` (T2, `medium`). Complex coding pins
-  `muse-wonder-full-1.0` (T3, `high`). Plain `muse-wonder-1.0` is not routed.
-  `default` passes no `--model` and runs whatever the installed CLI selects.
-  Headless `muse exec` blocks on an approval prompt until the timeout unless `--yolo`. A pinned
-  leg exits 7 when the configured model id differs; route on local task results.
-- Antigravity CLI 1.2.14 serves `gemini-3.8-flash-{low,medium,high}` and answers `/usage` locally.
-  Its print mode enforces no read-only mode (`--mode plan` still edits files), so `run-agy.sh`
-  reviews diff-only from an empty directory and fails with 7 if the repository changed.
-- Cross-vendor benchmark numbers are not directly comparable when model dates, harnesses, tools,
-  token budgets, and reasoning settings differ. Prefer controlled local task results.
-
-Primary sources:
-
-- [Anthropic model selection](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model)
-- [Anthropic effort](https://platform.claude.com/docs/en/build-with-claude/effort)
-- [Claude Opus 5 prompting](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5)
-- [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model)
-- [xAI Grok reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning)
-- [Grok Build CLI reference](https://docs.x.ai/build/cli/reference)
+Task/effort recommendations and transport limits are in `task-fit.md`. The dated primary
+sources, availability checks and calibration caveats are in `evidence-2026-10.md` (checked
+2026-10-28). Vendor benchmarks nominate candidates; repeated local task evidence decides
+preference. Do not compare different harnesses or assume an upstream default is plugin policy.
