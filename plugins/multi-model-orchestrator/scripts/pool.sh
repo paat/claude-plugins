@@ -191,7 +191,7 @@ repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 out_abs=""
 [ -z "$output_file" ] || out_abs="$(realpath -m "$output_file")"
 prompt_file="$(mktemp)"
-runner_stderr="$(mktemp)"
+runner_stderr=""
 trap 'rm -f "$prompt_file" "$runner_stderr"' EXIT
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'pool: empty prompt\n' >&2; exit 2; }
@@ -214,8 +214,13 @@ for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++));
   printf 'pool: %s -> %s/%s/%s\n' "$r_tier" "$r_provider" "$r_model" "$r_effort" >&2
   before="$(mmo_tree_state "$repo_dir" "$out_abs")"
   rc=0
-  MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" 2> "$runner_stderr" || rc=$?
-  cat "$runner_stderr" >&2
+  if [ "$r_provider" = claude ]; then
+    [ -n "$runner_stderr" ] || runner_stderr="$(mktemp)"
+    MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" 2> "$runner_stderr" || rc=$?
+    cat "$runner_stderr" >&2
+  else
+    MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" || rc=$?
+  fi
   case "$rc" in
     75|77|127)
       if [ "$(mmo_tree_state "$repo_dir" "$out_abs")" != "$before" ]; then
