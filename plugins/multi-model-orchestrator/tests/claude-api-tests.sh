@@ -63,13 +63,14 @@ case "$result" in
   overloaded) message='API Error: 529 overloaded' ;;
   limit) message='API Error: 429 usage limit reached' ;;
   native) message="You've hit your 5-hour limit · resets 4pm (UTC)" ;;
+  prose) message='Task failed while reviewing quota, 402, billing_error, and hit your usage limit handling' ;;
   generic) message='Unexpected task execution failure' ;;
   *) message='' ;;
 esac
 if [ -n "$message" ]; then
   if [ "$format" = stream-json ]; then
     jq -nc --arg r "$message" '{type:"assistant",error:"billing_error",message:{content:[{type:"text",text:$r}]}}'
-    jq -nc --arg r "$message" '{type:"result",subtype:"error_during_execution",is_error:true,errors:[$r]}'
+    jq -nc --arg r "$message" '{type:"result",subtype:"error_during_execution",is_error:true,result:$r}'
   elif [ "$result" = credit_stderr ]; then
     printf '%s\n' "$message" >&2
   else
@@ -196,7 +197,7 @@ for error in native generic; do
     fi
   done
 done
-for error in native generic; do
+for error in native generic prose; do
   prepare "plan-stream-$error"
   common+=(STUB_PLAN_RESULT="$error")
   rc=0
@@ -206,7 +207,8 @@ for error in native generic; do
   if [ "$error" = native ]; then
     check 'native failed stream result reports exit 75 failure=limit' limit
   else
-    check 'generic failed stream result retains exit 1' test "$rc" -eq 1
+    check "$error failed stream result retains exit 1 with no API call" \
+      bash -c '[ "$1" -eq 1 ] && [ "$(cat "$2")" = plan ]' _ "$rc" "$artifacts/calls"
   fi
 done
 prepare plan-runtime-no-usage

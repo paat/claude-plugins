@@ -257,7 +257,7 @@ else
     error) exit 23 ;;
     # Real Claude text-mode auth: empty stderr; last stdout line carries API Error.
     auth)
-      printf 'Failed to authenticate. API Error: 401 API key is invalid.\n'
+      printf 'API Error: 401 API key is invalid.\n'
       exit 1
       ;;
     api_error_not_last)

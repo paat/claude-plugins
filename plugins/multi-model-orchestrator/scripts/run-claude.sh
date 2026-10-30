@@ -349,6 +349,7 @@ fi
 if [ "$haiku" -eq 1 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
 if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="${out_dev:-$output_file}"; fi
 
+cli_error_pattern="^API Error: [0-9]{3}|^You've hit your .*limit\b|^(Your )?Credit balance (is )?too low"
 : > "$classify_file"
 if [ "$provider_rc" -ne 0 ] || { [ "$api" -eq 1 ] && [ "$rc" -eq 1 ]; }; then
   if [ "$stream_log_set" -eq 1 ] && [ -f "$stream_file" ]; then
@@ -358,12 +359,12 @@ if [ "$provider_rc" -ne 0 ] || { [ "$api" -eq 1 ] && [ "$rc" -eq 1 ]; }; then
       [ -z "$api_status" ] || printf '%s\n' "$api_status" > "$classify_file"
       printf '%s\n' "$result_event" | jq -r '
         select(.is_error == true or .subtype != "success")
-        | (.errors[]?, .error?, .result?) | strings' >> "$classify_file"
+        | (.errors[]?, .error?, .result?) | strings' \
+        | grep -Ei "$cli_error_pattern" >> "$classify_file" || true
     fi
   elif [ -s "$output_file" ]; then
     last_line="$(grep -Ev '^[[:space:]]*$' "$output_file" | tail -n 1 || true)"
-    if printf '%s\n' "$last_line" | grep -Eq "API Error: [0-9]{3}|^You've hit your .*limit\b" ||
-       { [ "$api" -eq 1 ] && printf '%s\n' "$last_line" | grep -Eiq '^(Your )?Credit balance (is )?too low'; }; then
+    if printf '%s\n' "$last_line" | grep -Eiq "$cli_error_pattern"; then
       printf '%s\n' "$last_line" > "$classify_file"
     fi
   fi
@@ -371,7 +372,7 @@ if [ "$provider_rc" -ne 0 ] || { [ "$api" -eq 1 ] && [ "$rc" -eq 1 ]; }; then
     # Claude Code 2.1.314 / docs/en/errors, checked 2026-10-30: billing failures
     # use "Credit balance is too low" or billing_error, including failed stream results.
     last_error="$(grep -Ev '^[[:space:]]*$' "${output_file}.stderr" | tail -n 1 || true)"
-    if printf '%s\n' "$last_error" | grep -Eiq '^(Your )?Credit balance (is )?too low|^API Error: '; then
+    if printf '%s\n' "$last_error" | grep -Eiq "$cli_error_pattern"; then
       printf '%s\n' "$last_error" >> "$classify_file"
     fi
   fi
