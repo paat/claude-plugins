@@ -3,8 +3,8 @@
 #   <provider> <window> <used>% resets <UTC> in <XdYhZm> as-of <UTC>
 # Codex: newest rate_limits event by that event's own timestamp, among the 20 newest session
 # logs from the last 8 days (free). Claude: newest rate_limit_event in a run-claude.sh --stream-log (free) or,
-# with --probe-claude, one tiny claude -p call. agy: its local /usage command (free; Gemini
-# buckets only). Grok and Muse have no source. A provider with no data prints "<provider> unknown <why>".
+# with --probe-claude, one tiny claude -p call. agy: its local /usage command (free; one
+# window per quota pool). Grok and Muse have no source. A provider with no data prints "<provider> unknown <why>".
 # Always exits 0 unless misused.
 set -euo pipefail
 
@@ -183,14 +183,16 @@ else
 fi
 
 # agy print-mode /usage answers locally (0 tokens): command.data.groups[].buckets[] with
-# id gemini-5h|gemini-weekly, remaining_fraction, reset_time. The 3p buckets (Claude/GPT
-# inside agy) are not pool routes and are skipped.
+# id, remaining_fraction, reset_time. Each quota pool gets <window>_<model fragment>, so pool.sh
+# binds it only to that pool's models: Gemini (Flash), "Claude and GPT models" (3p), Argon.
+# Unknown bucket ids are skipped.
 if command -v agy >/dev/null 2>&1; then
   agy_dir=$(mktemp -d)
   agy_rows=$( (cd "$agy_dir" && timeout -k 5 60 agy -p=/usage --output-format json </dev/null 2>/dev/null) | jq -r '
     [.command.data.groups[]?.buckets[]?
      | select((.id | type) == "string" and (.remaining_fraction | type) == "number")
-     | (.id | if . == "gemini-5h" then "5h" elif . == "gemini-weekly" then "7d" else empty end) as $w
+     | ({"gemini-5h": "5h_flash", "gemini-weekly": "7d_flash", "3p-5h": "5h_claude", "3p-weekly": "7d_claude",
+         "gemini-argon-wtu-weekly": "7d_argon"}[.id] // empty) as $w
      | ((.reset_time // "") | try (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch empty) as $r
      | [$w, ((1 - .remaining_fraction) * 100 | round), $r]]
     | .[] | @tsv' 2>/dev/null) || agy_rows=""
@@ -198,7 +200,7 @@ if command -v agy >/dev/null 2>&1; then
   if [ -n "$agy_rows" ]; then
     printf '%s\n' "$agy_rows" | emit agy "$now"
   else
-    printf 'agy unknown (/usage returned no Gemini buckets)\n'
+    printf 'agy unknown (/usage returned no known quota buckets)\n'
   fi
 else
   printf 'agy unknown (agy CLI not installed)\n'

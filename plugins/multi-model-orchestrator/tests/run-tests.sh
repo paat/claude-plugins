@@ -2704,20 +2704,24 @@ expect_mt=$(jq -nr --argjson t "$mt_new" '$t | strftime("%Y-%m-%dT%H:%MZ")')
 case "$out" in *"codex 5h 33% resets "*" as-of ${expect_mt}"*) ;; *) fail "usage.sh falls back to file mtime when the event has no timestamp (want 33% as-of ${expect_mt}): $out" ;; esac
 case "$out" in *"codex 5h 77%"*) fail "usage.sh let an older untimestamped rollout win: $out" ;; esac
 
-# agy: local /usage JSON, Gemini buckets only; fractional-second resets parse.
+# agy: local /usage JSON, one window per quota pool; unknown buckets skipped; fractional-second resets parse.
 iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%S; }
 cat > "$U/bin/agy" <<STUB
 #!/usr/bin/env bash
 [ "\$1" = "-p=/usage" ] || exit 9
-printf '%s' '{"status":"SUCCESS","command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-weekly","remaining_fraction":0.97,"reset_time":"$(iso "$future")Z"},{"id":"gemini-5h","remaining_fraction":0.84,"reset_time":"$(iso "$future").250Z"}]},{"name":"Claude and GPT models","buckets":[{"id":"3p-5h","remaining_fraction":0.5,"reset_time":"$(iso "$future")Z"}]}]}}}'
+printf '%s' '{"status":"SUCCESS","command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-weekly","remaining_fraction":0.97,"reset_time":"$(iso "$future")Z"},{"id":"gemini-5h","remaining_fraction":0.84,"reset_time":"$(iso "$future").250Z"}]},{"name":"Claude and GPT models","buckets":[{"id":"3p-5h","remaining_fraction":0.5,"reset_time":"$(iso "$future")Z"},{"id":"3p-weekly","remaining_fraction":0.91,"reset_time":"$(iso "$future")Z"}]},{"name":"Gemini 4 Argon","buckets":[{"id":"gemini-argon-wtu-weekly","remaining_fraction":0.99,"reset_time":"$(iso "$future")Z"},{"id":"mystery-bucket","remaining_fraction":0.2,"reset_time":"$(iso "$future")Z"}]}]}}}'
 STUB
 out=$(CODEX_HOME="$U/none" bash "$USAGE_SH")
-case "$out" in *"agy 7d 3% resets"*) ;; *) fail "usage.sh reads the agy weekly bucket: $out" ;; esac
-case "$out" in *"agy 5h 16% resets"*) ;; *) fail "usage.sh parses a fractional-second agy reset: $out" ;; esac
-case "$out" in *"3p"*|*"agy 5h 50%"*) fail "usage.sh skips agy's Claude/GPT buckets: $out" ;; esac
+case "$out" in *"agy 7d_flash 3% resets"*) ;; *) fail "usage.sh reads the agy Gemini weekly bucket: $out" ;; esac
+case "$out" in *"agy 5h_flash 16% resets"*) ;; *) fail "usage.sh parses a fractional-second agy reset: $out" ;; esac
+case "$out" in *"agy 5h_claude 50% resets"*) ;; *) fail "usage.sh reads the agy Claude 5h bucket: $out" ;; esac
+case "$out" in *"agy 7d_claude 9% resets"*) ;; *) fail "usage.sh reads the agy Claude weekly bucket: $out" ;; esac
+case "$out" in *"agy 7d_argon 1% resets"*) ;; *) fail "usage.sh reads the agy Argon weekly bucket: $out" ;; esac
+[ "$(printf '%s\n' "$out" | grep -c '^agy ')" -eq 5 ] || fail "usage.sh skips an unknown agy bucket id: $out"
+case "$out" in *"80%"*|*mystery*|*"agy 5h "*|*"agy 7d "*) fail "usage.sh emits only per-pool agy windows: $out" ;; esac
 printf '#!/usr/bin/env bash\nexit 1\n' > "$U/bin/agy"
 out=$(CODEX_HOME="$U/none" bash "$USAGE_SH")
-case "$out" in *"agy unknown (/usage returned no Gemini buckets)"*) ;; *) fail "usage.sh reports a failed agy probe as unknown: $out" ;; esac
+case "$out" in *"agy unknown (/usage returned no known quota buckets)"*) ;; *) fail "usage.sh reports a failed agy probe as unknown: $out" ;; esac
 
 contains "$META_SKILL" 'references/usage-limits.md' 'Meta skill routes with usage headroom'
 contains "$META_REFS/usage-limits.md" 'get_usage' 'Usage limits prefer the desktop get_usage tool'
@@ -2833,6 +2837,17 @@ done
 rc=0; printf 'x\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode implement --model gemini-4-argon --effort xhigh --repo "$AR" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "Argon rejects unsupported xhigh effort (got $rc)"
 pass 'run-agy: Argon forwards each supported effort and rejects unsupported effort'
+
+for claude_model in claude-opus-5-5 claude-sonnet-5-5; do
+  claude_n="$(find "$AG/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
+  printf 'bounded task\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode implement --model "$claude_model" --effort high --repo "$AR" --timeout 30 >/dev/null 2>"$AG/err" \
+    || fail "run-agy accepts $claude_model: $(cat "$AG/err")"
+  exact_line "$AG/calls/call.${claude_n}.args" "$claude_model-high" "agy receives $claude_model with the effort suffix"
+done
+rc=0; printf 'x\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode implement --model no-such-model --repo "$AR" >/dev/null 2>"$AG/err" || rc=$?
+[ "$rc" -eq 2 ] || fail "run-agy rejects an unknown model (got $rc)"
+contains "$AG/err" 'claude-opus-5-5' 'the catalog error lists the agy Claude models'
+pass 'run-agy: Claude models reach agy with the effort suffix; unknown models exit 2'
 
 missing_argon='invalid model selection (--model "gemini-4-argon-high" --effort ""): model gemini-4-argon-high is not recognized as a known model or custom model in settings'
 for failure in "$missing_argon" 'unexpected task execution failure'; do
@@ -3076,13 +3091,13 @@ out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bas
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --mode review --usage /dev/null 2>/dev/null)" || true
 [ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "muse muse-spark-1.3 medium" ] || fail "shipped T2 table routes Muse Spark, including review: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --usage /dev/null 2>/dev/null)" || true
-[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "codex gpt-6-astra high|claude claude-opus-5-5 high|muse muse-wonder-full-1.0 high|codex gpt-6.1-sol high|agy gemini-4-argon high|" ] \
+[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "codex gpt-6-astra high|claude claude-opus-5-5 high|agy claude-opus-5-5 high|muse muse-wonder-full-1.0 high|codex gpt-6.1-sol high|agy gemini-4-argon high|" ] \
   || fail "shipped T3 table keeps Astra and Opus ahead of muse-wonder-full-1.0: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --allow muse-wonder-full-1.0 --usage /dev/null 2>/dev/null)" || true
 [ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ')" = "muse muse-wonder-full-1.0 high" ] || fail "allow muse-wonder-full-1.0 keeps only that T3 worker: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --deny muse-wonder-full-1.0 --usage /dev/null 2>/dev/null)" || true
 case "$out" in *muse-wonder-full-1.0*) fail "deny muse-wonder-full-1.0 still listed it: $out" ;; esac
-[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6-astra claude-opus-5-5 gpt-6.1-sol gemini-4-argon " ] || fail "deny muse-wonder-full-1.0 keeps the other T3 workers: $out"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6-astra claude-opus-5-5 claude-opus-5-5 gpt-6.1-sol gemini-4-argon " ] || fail "deny muse-wonder-full-1.0 keeps the other T3 workers: $out"
 rm -rf "$PL/muse-calls"; mkdir -p "$PL/muse-calls"
 printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
   STUB_MUSE_CALLS="$PL/muse-calls" STUB_MUSE_SERVED=muse-wonder-full-1.0 \
@@ -3102,6 +3117,47 @@ printf 'debug a bounded problem\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_RO
   bash "$POOL" run --tier T3 --prefer gemini-4-argon --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
   || fail "pool executes the exact preferred Argon route: $(cat "$PL/err")"
 exact_line "$PL/calls/call.${argon_n}.args" 'gemini-4-argon-high' 'pool execution preserves selected model and effort'
+
+# agy quota pools: each per-pool window binds only its own models.
+ship() { "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick "$@"; }
+printf 'agy 7d_flash 95%% resets %s\n' "$(utc_min "$far")" > "$PL/agy-usage.txt"
+out="$(ship --tier T1 --allow agy --usage "$PL/agy-usage.txt" 2>"$PL/err")"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "claude-sonnet-5-5 claude-opus-5-5 gemini-4-argon " ] || fail "a spent agy Gemini pool skips only Flash: $out"
+contains "$PL/err" 'skip T1 agy/gemini-3.8-flash: plan window >= 90%' 'pick names the spent Gemini pool'
+printf 'agy 5h_claude 95%% resets %s\n' "$(utc_min "$far")" > "$PL/agy-usage.txt"
+out="$(ship --tier T1 --allow agy --usage "$PL/agy-usage.txt" 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gemini-3.8-flash gemini-3.8-flash gemini-4-argon " ] || fail "a spent agy Claude 5h pool skips only agy Claude: $out"
+printf 'claude 7d 95%% resets %s\n' "$(utc_min "$far")" > "$PL/agy-usage.txt"
+out="$(ship --tier T3 --usage "$PL/agy-usage.txt" 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f2,3 | tr '\t\n' ':|')" = "codex:gpt-6-astra|agy:claude-opus-5-5|muse:muse-wonder-full-1.0|codex:gpt-6.1-sol|agy:gemini-4-argon|" ] \
+  || fail "a spent Claude plan moves Opus to agy in its table position: $out"
+out="$(ship --tier T2 --usage "$PL/agy-usage.txt" 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f2,3 | tr '\t' ':')" = "agy:claude-sonnet-5-5" ] || fail "a spent Claude plan moves Sonnet to agy first: $out"
+printf 'agy 7d_argon 10%% resets %s\n' "$(utc_min "$half")" > "$PL/agy-usage.txt"
+out="$(ship --tier T3 --usage "$PL/agy-usage.txt" 2>"$PL/err")"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gemini-4-argon gpt-6-astra claude-opus-5-5 claude-opus-5-5 muse-wonder-full-1.0 gpt-6.1-sol " ] \
+  || fail "a spare agy Argon pool promotes only Argon: $out"
+contains "$PL/err" 'use it or lose it: agy 7d_argon 10% used' 'pick names the spare per-pool window'
+out="$(ship --tier T1 --deny claude --usage /dev/null 2>/dev/null)"
+case "$out" in *claude*) fail "deny claude removes Claude through every transport: $out" ;; esac
+case "$out" in *gemini-3.8-flash*gemini-4-argon*) ;; *) fail "deny claude keeps agy Gemini rows: $out" ;; esac
+out="$(ship --tier T1 --allow claude --usage /dev/null 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f2 | sort -u)" = claude ] || fail "allow claude admits no agy transport: $out"
+out="$(ship --tier T1 --mode review --usage /dev/null 2>"$PL/err")" || true
+case "$out" in *agy*) fail "review still skips every agy row: $out" ;; esac
+contains "$PL/err" 'skip T3 agy/claude-opus-5-5: advisory reviewer' 'agy Claude stays an advisory reviewer'
+
+# run: the Claude plan is spent at run time (exit 75), so the same Opus model runs through agy.
+mv "$PL/bin/claude" "$PL/claude.ok"
+printf '#!/usr/bin/env bash\ncat >/dev/null\nprintf "API Error: 429 rate limit\\n"\nexit 1\n' > "$PL/bin/claude"; chmod +x "$PL/bin/claude"
+rm -f "$PL/calls"/*
+printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
+  bash "$POOL" run --tier T3 --allow claude,agy --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
+  || fail "a spent Claude plan falls through to agy Opus: $(cat "$PL/err")"
+contains "$PL/err" 'pool: claude unavailable (exit 75); next worker' 'the Claude Opus row was tried first'
+exact_line "$PL/calls/call.0.args" 'claude-opus-5-5-high' 'agy receives the same Opus model and effort'
+contains "$PL/err" 'pool: exit=0 worker=agy model=claude-opus-5-5 effort=high tier=T3' 'pool names the agy Opus worker'
+mv "$PL/claude.ok" "$PL/bin/claude"
 for bad in '--tier T5' '--tier T2 --mode advise' '--tier T2 --timeout 0' '--tier T2 --bogus'; do
   rc=0
   # shellcheck disable=SC2086
