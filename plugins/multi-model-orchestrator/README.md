@@ -69,7 +69,7 @@ failures do not enable API spending. Set `MMO_CLAUDE_API_KEY_FILE` to a linked C
 `run-claude.sh --api` uses it only in the leg, bypasses plan-window gates, and exits 75 when
 unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables and use
 the file key while retaining CLAUDE.md, the system prompt, and normal tools. It remains Claude for restrictions and reviewer
-independence. This uses monthly plan API credit, separate from subscription limits; purchased
+independence. To deny API spend, unset `MMO_CLAUDE_API_KEY_FILE`. This uses monthly plan API credit, separate from subscription limits; purchased
 credits/auto-reload can extend usage ([credit terms](https://support.claude.com/en/articles/17154008),
 [`claude -p` eligibility](https://support.claude.com/en/articles/15036540), read 2026-10-30).
 

@@ -266,18 +266,23 @@ pick --tier T3 --usage "$work/spent" --deny claude
 check '--deny claude excludes API for reviewer independence' no_api
 prepare api-denied
 pick --tier T3 --usage "$work/available" --deny claude-api
-check '--deny claude-api keeps plan Claude rows' \
-  has "$artifacts/pick" $'\tclaude\t'
+check '--deny claude-api excludes plan Claude rows' \
+  bash -c '! grep -Fq "$2" "$1"' _ "$artifacts/pick" $'\tclaude\t'
 prepare api-denied-spent
 pick --tier T3 --usage "$work/spent" --deny claude-api
 check '--deny claude-api removes API rows' no_api
 prepare api-only
 pick --tier T3 --usage "$work/spent" --allow claude-api
-check '--allow claude-api admits only API rows' \
+check '--allow claude-api admits API rows when plan is spent' \
   bash -c '[ "$(wc -l < "$1")" -eq 1 ] && grep -q "claude-api" "$1"' _ "$artifacts/pick"
 prepare api-only-available
 pick --tier T3 --usage "$work/available" --allow claude-api
-check '--allow claude-api does not admit plan rows' test ! -s "$artifacts/pick"
+check '--allow claude-api admits plan Claude rows' \
+  has "$artifacts/pick" $'\tclaude\t'
+prepare review-api-denied
+pick --tier T3 --mode review --usage "$work/available" --deny claude-api
+check 'review --deny claude-api excludes plan Claude rows' \
+  bash -c '! grep -Fq "$2" "$1"' _ "$artifacts/pick" $'\tclaude\t'
 prepare review-api
 printf 'changed\n' > "$work/repo/file"
 run_pool --tier T3 --mode review --base HEAD --allow claude --usage "$work/spent"
