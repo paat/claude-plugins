@@ -130,6 +130,15 @@ STUB
     index=$((index+1))
   done
   tr_check '#667 absent input preserves all seven complete prompts byte-for-byte' test "$unchanged" = 0
+  jq -n '[range(24)|{title:("aaa-old-"+tostring),file:"app.txt",reason:"disproved"}]' > "$work/old.json"
+  jq -n '[{title:"zzz-new",file:"app.txt",reason:"new proof"}]' > "$work/round.json"
+  jq '.[0:1]' "$work/old.json" > "$work/duplicate.json"
+  jq -s '.[0]+.[1]' "$work/round.json" "$work/duplicate.json" > "$work/current.json"
+  printf '{"provider_assessment":{}}\n' > "$work/rejected.json"
+  PRIOR_REJECTIONS="$work/old.json" PREVIOUS_ARBITRATION="$work/rejected.json" \
+    ROUND_REJECTIONS="$work/current.json" NEXT_REJECTIONS="$work/merged.json" bash -c "$rejection_merge"
+  tr_check 'tribunal T-002 newest rejections lead 25 entries and duplicates keep first occurrence' \
+    jq -e 'length == 25 and .[0].title == "zzz-new" and .[1].title == "aaa-old-0" and .[2].title == "aaa-old-1" and (.[0:20] | any(.title == "zzz-new"))' "$work/merged.json"
   mkdir "$work/empty"
   jq -n '[range(25)|{title:("entry-"+tostring),file:"app.txt",reason:"disproved"}]' > "$work/entries.json"
   TRIBUNAL_PRIOR_REJECTIONS_FILE="$work/entries.json" bash -c '. "$1"; tribunal_context_block "$2" "$3"' \
