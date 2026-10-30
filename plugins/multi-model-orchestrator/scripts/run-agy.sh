@@ -39,7 +39,7 @@ while [ "$#" -gt 0 ]; do
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'run-agy: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done

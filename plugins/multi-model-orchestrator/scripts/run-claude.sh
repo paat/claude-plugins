@@ -82,7 +82,7 @@ while [ "$#" -gt 0 ]; do
       mcp_urls+=("$mcp_url")
       shift 2
       ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'run-claude: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done

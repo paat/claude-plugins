@@ -38,7 +38,7 @@ legs=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --leg) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; legs+=("$2"); shift 2 ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'review-gate: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done

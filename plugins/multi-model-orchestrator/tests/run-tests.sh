@@ -3371,4 +3371,6 @@ done
 printf 'Outcome regressions: %s PASS, %s FAIL.\n' "$outcome_passes" "$outcome_failures"
 [ "$outcome_failures" -eq 0 ] || exit 1
 
+python3 "$PLUGIN_ROOT/tests/test-outcome-lifecycle.py" "$PLUGIN_ROOT/scripts" "$OUTCOMES/lifecycle" "$outcome_repo"
+
 printf 'All multi-model-orchestrator tests passed.\n'

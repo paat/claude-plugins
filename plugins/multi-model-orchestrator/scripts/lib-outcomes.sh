@@ -7,6 +7,9 @@ mmo_outcome_init() {
   mmo_outcome_tokens=""
   mmo_outcome_head_sha=""
   mmo_outcome_verdict=""
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
   trap 'mmo_outcome_exit "$?"' EXIT
 }
 
@@ -45,8 +48,11 @@ mmo_outcome_exit() {
     done
     mkdir -p -- "$(dirname -- "$outcomes_file")" || exit 0
     if [ ! -e "$outcomes_file" ]; then
-      # Exclusive creation avoids duplicate headers when legs start together.
-      (set -o noclobber; printf 'utc_time\trepo\ttier\trole\tprovider\trequested_model\tserved_model\teffort\texit_code\tduration_seconds\ttokens\thead_sha\tverdict\n' > "$outcomes_file") || [ -f "$outcomes_file" ] || exit 0
+      # Publish a complete header before any writer can append.
+      header_file="$(mktemp "${outcomes_file}.XXXXXX")" || exit 0
+      trap 'rm -f -- "$header_file"' EXIT
+      printf 'utc_time\trepo\ttier\trole\tprovider\trequested_model\tserved_model\teffort\texit_code\tduration_seconds\ttokens\thead_sha\tverdict\n' > "$header_file" || exit 0
+      ln -- "$header_file" "$outcomes_file" || [ -f "$outcomes_file" ] || exit 0
     fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${fields[@]}" >> "$outcomes_file"
   ) >/dev/null 2>&1 || :

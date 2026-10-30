@@ -46,7 +46,7 @@ while [ "$#" -gt 0 ]; do
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
     --stream-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; stream_file="$2"; stream_log_set=1; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'run-grok: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
