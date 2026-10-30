@@ -72,8 +72,7 @@ tiers_file="${MMO_POOL_TIERS:-$SCRIPT_DIR/pool-tiers.tsv}"
 
 in_list() {  # in_list LIST provider model
   local list=",$1," provider="$2"
-  list="${list//,claude-api,/,claude,}"
-  [ "$provider" != claude-api ] || provider=claude
+  if [ "$provider" = claude-api ] && [[ "$list" == *,claude,* ]]; then return 0; fi
   case "$list" in *",$provider,"*|*",$3,"*) return 0 ;; *) return 1 ;; esac
 }
 
