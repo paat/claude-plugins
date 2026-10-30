@@ -298,10 +298,7 @@ if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ ! -s "$INSPECT_OUT" ]; then
 fi
 
 if [ "$GROK_RECOVERY" = reject ]; then
-  jq -nc --argjson inspect_rc "$rc" --arg requested "$GROK_EFFORT" '
-    {provider:"grok",error:"grok_recovery_rejected: tools-off finalize required but excluded from quorum (TRIBUNAL_GROK_RECOVERY=reject)",
-     grok_execution:{verdict_phase:"finalize",inspect_exit_code:$inspect_rc,
-       requested_effort:(if $requested == "" then null else $requested end),verdict_effort:null}}'
+  tribunal_error grok "grok_recovery_rejected: tools-off finalize required but excluded from quorum (inspect_rc=$rc, phase=finalize required)"
   exit 0
 fi
 

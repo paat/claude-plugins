@@ -5568,9 +5568,18 @@ CLI
   run_provenance_fixture TRIBUNAL_GROK_RECOVERY=reject
   tr_check "Grok strict recovery is a named failed leg, never an ok APPROVE" jq -e \
     '.provider=="grok" and (.error|contains("grok_recovery_rejected")) and (has("summary")|not) and (has("status")|not)' "$work/out.json"
-  tr_check "Grok strict timeout records required phase and inspect exit without claimed verdict effort" jq -e \
-    '.grok_execution=={verdict_phase:"finalize",inspect_exit_code:124,requested_effort:null,verdict_effort:null}' "$work/out.json"
+  tr_check "Grok strict timeout records required phase and inspect exit in the standard error shape" jq -e \
+    'keys==["error","provider"] and (.error|contains("(inspect_rc=124, phase=finalize required)"))' "$work/out.json"
   tr_check "Grok strict timeout never invokes finalize" test "$(cat "$work/phases")" = inspect
+  for name in validate_provider write_failed_provider grok_recovery_allowed normalize_single provider_status; do
+    sed -n "/^$name() {/,/^}/p" "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" >> "$work/helpers.sh"
+  done
+  bash -c '. "$1/helpers.sh"; normalize_single grok "$1/out.json" 0 "$1/grok.json" "" "" reject
+    provider_status "$1/grok.json" > "$1/status"' _ "$work"
+  tr_check "collector preserves the wrapper timeout rejection and diagnostics" jq -e \
+    '.provider=="grok" and (.error|startswith("grok_recovery_rejected")) and (.error|contains("(inspect_rc=124, phase=finalize required)"))' "$work/grok.json"
+  tr_check "collector classifies the wrapper timeout rejection as failed" test "$(cat "$work/status")" = failed
+  tr_check "collector rejection never invokes Grok finalize" test "$(cat "$work/phases")" = inspect
   run_provenance_fixture FIXTURE_SCENARIO=direct TRIBUNAL_GROK_RECOVERY=reject
   tr_check "Grok strict policy still accepts a completed direct inspection" jq -e \
     '.summary.verdict=="APPROVE" and .grok_execution.verdict_phase=="inspect" and (has("error")|not)' "$work/out.json"
