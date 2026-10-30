@@ -81,7 +81,12 @@ if [ -n "$helper" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   unset api_key
   [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || exit 92
   [ "$bare" -eq 0 ] || exit 94
-  [ "${CLAUDE_CONFIG_DIR:-}" != "$STUB_LOGIN" ] || exit 93
+  [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ "$CLAUDE_CONFIG_DIR" != "$STUB_LOGIN" ] || exit 93
+  [ -d "$CLAUDE_CONFIG_DIR" ] && [ "$(stat -c %a "$CLAUDE_CONFIG_DIR")" = 700 ] || exit 93
+  [ -z "$(ls -A "$CLAUDE_CONFIG_DIR")" ] || exit 93
+  printf '%s\n' "$CLAUDE_CONFIG_DIR" >> "$STUB_ARTIFACTS/config-dirs"
+  # Claude can populate its config; cleanup must remove those files too.
+  touch "$CLAUDE_CONFIG_DIR/cli-state"
   printf 'api\n' >> "$STUB_ARTIFACTS/calls"
   result="${STUB_RESULT:-ok}"
 else
@@ -209,6 +214,8 @@ check 'available plan runs with subscription and never API' \
   bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2")" = plan ]' _ "$rc" "$artifacts/calls"
 check 'plan retains default settings discovery and subscription environment' \
   bash -c '[ "$(cat "$1/settings.json")" = "{}" ] && [ "$(cat "$1/setting-sources")" = user,project,local ] && grep -q "^CLAUDE_CODE_OAUTH_TOKEN=fixture-oauth$" "$1/cli.environ"' _ "$artifacts"
+check 'plan retains the host config directory and its contents' \
+  bash -c 'grep -Fxq "CLAUDE_CONFIG_DIR=$2" "$1/cli.environ" && [ -f "$2/.claude.json" ] && [ ! -e "$1/config-dirs" ]' _ "$artifacts" "$work/login"
 prepare prefer-api
 pick --tier T3 --usage "$work/available" --prefer claude-api
 check 'preference cannot force API while plan is available' no_api
@@ -293,6 +300,17 @@ for invalid in newline multiline carriage-return; do
     bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2/out.stderr" && [ ! -e "$2/calls" ]' _ "$rc" "$artifacts"
 done
 
+for format in text stream; do
+  for result in ok generic; do
+    prepare "config-$format-$result"
+    common+=(STUB_RESULT="$result")
+    if [ "$format" = stream ]; then run_api --stream-log "$artifacts/stream"; else run_api; fi
+    expected_rc=0; [ "$result" = ok ] || expected_rc=1
+    check "$format $result CLI gets an empty private config directory, removed after exit" \
+      bash -c '[ "$1" -eq "$2" ] && [ "$(cat "$3/calls")" = api ] && [ -s "$3/config-dirs" ] && [ ! -e "$(cat "$3/config-dirs")" ]' _ "$rc" "$expected_rc" "$artifacts"
+  done
+done
+
 prepare missing-key-pick
 common+=(MMO_CLAUDE_API_KEY_FILE="$work/absent-key")
 pick --tier T3 --usage "$work/spent"
@@ -341,7 +359,7 @@ git -C "$work/repo" checkout -q -- file
 
 prepare background-child
 rc=0
-timeout 3s bash "$scripts/claude-api-exec.sh" "$work/key" \
+timeout 3s bash "$scripts/claude-api-exec.sh" "$work/key" "$artifacts/tmp" \
   bash -c 'sleep 30 >/dev/null 2>&1 & exit 0' \
   > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
 check 'helper exits 0 within three seconds when CLI leaves a background child' test "$rc" -eq 0
@@ -372,7 +390,7 @@ check 'leg timeout covers helper preparation before Claude starts' \
   bash -c '[ "$1" -eq 124 ] && [ "$2" -lt 2000000000 ] && [ -f "$3/helper-started" ] && [ ! -e "$3/calls" ]' _ "$rc" "$elapsed" "$artifacts"
 
 prepare no-newline
-bash "$scripts/claude-api-exec.sh" "$work/key" bash -c 'printf x; printf y >&2' \
+bash "$scripts/claude-api-exec.sh" "$work/key" "$artifacts/tmp" bash -c 'printf x; printf y >&2' \
   > "$artifacts/stdout" 2> "$artifacts/stderr"
 check 'helper preserves unterminated stdout and stderr as exactly one byte each' \
   bash -c '[ "$(wc -c < "$1/stdout")" -eq 1 ] && [ "$(cat "$1/stdout")" = x ] && [ "$(wc -c < "$1/stderr")" -eq 1 ] && [ "$(cat "$1/stderr")" = y ]' _ "$artifacts"
@@ -436,6 +454,9 @@ check 'successful --api leg records exactly one Claude API outcome row' \
     _ "$artifacts"
 check 'canary absent from every leg artifact across all cases' \
   bash -c '! grep -r -a -F -q -f "$1" "$2/artifacts" "$2/home" "$2/repo"' _ "$work/key" "$work"
+
+check 'every API leg gets a distinct directory and leaves no config behind' \
+  bash -c 'mapfile -t dirs < <(cat "$1"/*/config-dirs); [ "${#dirs[@]}" -gt 0 ] && [ "$(printf "%s\n" "${dirs[@]}" | sort -u | wc -l)" -eq "${#dirs[@]}" ] || exit 1; for dir in "${dirs[@]}"; do [ ! -e "$dir" ] || exit 1; done' _ "$work/artifacts"
 
 printf 'Claude API regression tests: %s passed, %s failed, %s total.\n' "$passed" "$failed" "$((passed + failed))"
 [ "$failed" -eq 0 ]
