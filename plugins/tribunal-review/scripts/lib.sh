@@ -40,7 +40,7 @@ tribunal_risk_effort() {
     '') ;;
     T1) printf 'low\n' ;;
     T2) printf 'medium\n' ;;
-    T3) printf 'high\n' ;;
+    T3) if [ "$1" = grok ]; then printf 'medium\n'; else printf 'high\n'; fi ;;
     T4) if [ "$1" = codex ]; then printf 'xhigh\n'; else printf 'high\n'; fi ;;
   esac
 }
