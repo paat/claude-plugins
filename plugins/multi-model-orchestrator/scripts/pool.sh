@@ -26,6 +26,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+. "$SCRIPT_DIR/lib-outcomes.sh"
+mmo_signal_init
 
 usage() {
   printf '%s\n' 'Usage: pool.sh pick|run --tier T1|T2|T3|T4 [--mode implement|review] [--allow LIST] [--deny LIST] [--prefer PROVIDER_OR_MODEL] [--usage FILE] [--timeout SECONDS] [--repo DIR] [--base REF] [--out FILE]'
@@ -217,10 +219,10 @@ for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++));
   rc=0
   if [ "$r_provider" = claude ]; then
     [ -n "$runner_stderr" ] || runner_stderr="$(mktemp)"
-    MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" 2> "$runner_stderr" || rc=$?
+    MMO_OUTCOME_TIER="$r_tier" mmo_run direct "" "" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" 2> "$runner_stderr" || rc=$?
     cat "$runner_stderr" >&2
   else
-    MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" || rc=$?
+    MMO_OUTCOME_TIER="$r_tier" mmo_run direct "" "" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" || rc=$?
   fi
   case "$rc" in
     75|77|127)

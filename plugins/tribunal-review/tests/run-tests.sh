@@ -6523,6 +6523,9 @@ EOF
 }
 
 echo ""
+. "$PLUGIN_ROOT/tests/prior-rejections.sh"
+test_prior_rejections
+
 echo "Risk tier, effort, and backup legs"
 test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok

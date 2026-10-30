@@ -261,10 +261,16 @@ so neither can be the only reviewer — the gate enforces that rather than trust
 so. agy enforces no read-only mode in print mode, so `run-agy.sh --mode review` runs from an empty
 directory and exits 7 if the repository changed anyway.
 
+TERM, HUP, and INT to a runner or `pool.sh run` stop the active provider, including
+nested timeout wrappers, with the existing 10-second kill grace. The runner records
+one outcome with exit 143, 129, or 130 respectively.
+
 ## Prerequisites
 
 - bash 4+
 - git and GNU coreutils (`timeout`, `date -d`, `stat -c`, `realpath -m`)
+- `ps` (procps) to stop nested provider watchdogs (`claude-api`, local Qwen) on a leg stop; without it the root watchdog is still signalled
+- `awk` and `setsid` (util-linux) for forwarding stops through nested provider watchdogs
 - The authenticated CLI for each selected route:
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
