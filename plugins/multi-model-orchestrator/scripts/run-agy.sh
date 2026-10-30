@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-agy.sh --mode implement|review [--repo DIR|--dir DIR] [--base REF] [--model gemini-3.8-flash|gemini-4-argon] [--effort low|medium|high] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-agy.sh --mode implement|review [--repo DIR|--dir DIR] [--base REF] [--model gemini-3.8-flash|gemini-4-argon|claude-opus-5-5|claude-sonnet-5-5] [--effort low|medium|high] [--timeout SECONDS] [--out FILE]'
 }
 
 mode=""
@@ -45,7 +45,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in implement|review) ;; *) printf 'run-agy: --mode must be implement or review\n' >&2; exit 2 ;; esac
-case "$model" in gemini-3.8-flash|gemini-4-argon) ;; *) printf 'run-agy: unsupported model %s (current catalog: gemini-3.8-flash|gemini-4-argon)\n' "$model" >&2; exit 2 ;; esac
+case "$model" in gemini-3.8-flash|gemini-4-argon|claude-opus-5-5|claude-sonnet-5-5) ;; *) printf 'run-agy: unsupported model %s (current catalog: gemini-3.8-flash|gemini-4-argon|claude-opus-5-5|claude-sonnet-5-5)\n' "$model" >&2; exit 2 ;; esac
 case "$effort" in low|medium|high) ;; *) printf 'run-agy: unsupported effort %s (expected low|medium|high)\n' "$effort" >&2; exit 2 ;; esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-agy: timeout must be a positive integer\n' >&2; exit 2; }
 if [ "$mode" = review ]; then

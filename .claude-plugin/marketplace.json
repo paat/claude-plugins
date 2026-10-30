@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — Codex + Grok + Muse + Claude (diff-only) by default; Gemini, DeepSeek via dsh and Qwen opt-in, with calling-context arbitration",
-      "version": "0.28.7",
+      "version": "0.28.8",
       "author": {
         "name": "Andre Paat"
       },
@@ -251,7 +251,7 @@
     {
       "name": "multi-model-orchestrator",
       "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
-      "version": "0.23.2",
+      "version": "0.24.1",
       "author": {
         "name": "Andre Paat"
       },

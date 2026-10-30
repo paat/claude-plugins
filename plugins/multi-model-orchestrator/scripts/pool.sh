@@ -9,8 +9,9 @@
 # pool-tiers.tsv (or MMO_POOL_TIERS). This script only removes workers that cannot take the
 # task now: not allowed or denied (LIST = comma-separated providers or models), CLI not
 # installed, an advisory engine (local qwen, agy) on a review, or a plan window >= 90% used
-# that resets after the timeout. Within each tier, --prefer's rows go first, then the rows of
-# any provider whose 7d window is <= 60% used and resets within 24h (use it or lose it).
+# that resets after the timeout. --deny claude also removes agy's claude-* rows (same model).
+# Within each tier, --prefer's rows go first, then the rows a 7d window binds when it is
+# <= 60% used and resets within 24h (use it or lose it).
 # Usage comes from --usage (usage.sh output) or a fresh usage.sh run. T1 and T2 workers are
 # followed by the higher tiers' workers as fallbacks; T3 and T4 never fall to a weaker tier.
 #
@@ -74,7 +75,7 @@ in_list() {  # in_list LIST provider model
 
 # Tight windows as "provider window reset_epoch". A window named <w>_<x> (Claude's 7d_opus)
 # binds only models containing <x>; any other window binds the whole provider.
-# Spare providers (" provider " each): a 7d window with headroom that is about to reset.
+# Spare windows as "provider window": a 7d window with headroom that is about to reset.
 now=$(date +%s)
 if [ -n "$usage_file" ]; then
   [ -r "$usage_file" ] || { printf 'pool: cannot read usage file %s\n' "$usage_file" >&2; exit 2; }
@@ -91,23 +92,32 @@ while read -r u_provider u_window u_used u_word u_reset _; do
   u_epoch="$(date -u -d "$u_reset" +%s 2>/dev/null)" || continue
   if [ "$u_used" -ge 90 ] && [ "$u_epoch" -gt $((now + run_timeout)) ]; then
     tight+="$u_provider $u_window $u_epoch"$'\n'
-  elif [ "$u_window" = 7d ] && [ "$u_used" -le 60 ] && [ "$u_epoch" -gt "$now" ] && [ "$u_epoch" -le $((now + 86400)) ]; then
-    spare+=" $u_provider "
-    printf 'pool: use it or lose it: %s 7d %s%% used, resets %s\n' "$u_provider" "$u_used" "$u_reset" >&2
+  elif [[ "$u_window" == 7d || "$u_window" == 7d_* ]] && [ "$u_used" -le 60 ] && [ "$u_epoch" -gt "$now" ] && [ "$u_epoch" -le $((now + 86400)) ]; then
+    spare+="$u_provider $u_window"$'\n'
+    printf 'pool: use it or lose it: %s %s %s%% used, resets %s\n' "$u_provider" "$u_window" "$u_used" "$u_reset" >&2
   fi
 done <<< "$usage_text"
 
+binds() {  # binds window model
+  case "$1" in *_*) [[ "$2" == *"${1#*_}"* ]] ;; esac
+}
+
 # Prints the earliest reset among the windows that bind this worker; fails when none does.
 tight_reset() {  # tight_reset provider model
-  local t_provider t_window t_epoch suffix found=""
+  local t_provider t_window t_epoch found=""
   while read -r t_provider t_window t_epoch; do
-    [ "$t_provider" = "$1" ] || continue
-    case "$t_window" in
-      *_*) suffix="${t_window#*_}"; case "$2" in *"$suffix"*) ;; *) continue ;; esac ;;
-    esac
+    [ "$t_provider" = "$1" ] && binds "$t_window" "$2" || continue
     [ -n "$found" ] && [ "$found" -le "$t_epoch" ] || found="$t_epoch"
   done <<< "$tight"
   [ -n "$found" ] && printf '%s' "$found"
+}
+
+is_spare() {  # is_spare provider model
+  local s_provider s_window
+  while read -r s_provider s_window; do
+    [ "$s_provider" = "$1" ] && binds "$s_window" "$2" && return 0
+  done <<< "$spare"
+  return 1
 }
 
 cli_for() {
@@ -124,7 +134,7 @@ for t in $chain; do
     [ "$r_tier" = "$t" ] || continue
     if [ -n "$prefer" ] && { [ "$r_provider" = "$prefer" ] || [ "$r_model" = "$prefer" ]; }; then
       preferred+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
-    elif [[ "$spare" == *" $r_provider "* ]]; then
+    elif is_spare "$r_provider" "$r_model"; then
       spared+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
     else
       rows+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
@@ -135,7 +145,7 @@ for t in $chain; do
     IFS=$'\t' read -r r_tier r_provider r_model r_effort <<< "$row"
     why=""
     if [ -n "$allow" ] && ! in_list "$allow" "$r_provider" "$r_model"; then why="not allowed"
-    elif [ -n "$deny" ] && in_list "$deny" "$r_provider" "$r_model"; then why="denied"
+    elif [ -n "$deny" ] && { in_list "$deny" "$r_provider" "$r_model" || { [ "$r_provider" = agy ] && [[ "$r_model" == claude-* ]] && in_list "$deny" claude "$r_model"; }; }; then why="denied"
     elif [ "$mode" = review ] && { [ "$r_provider" = qwen ] || [ "$r_provider" = agy ]; }; then why="advisory reviewer"
     elif [ -n "$(cli_for "$r_provider")" ] && ! command -v "$(cli_for "$r_provider")" >/dev/null 2>&1; then why="CLI not installed"
     elif reset="$(tight_reset "$r_provider" "$r_model")"; then
