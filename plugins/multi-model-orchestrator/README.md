@@ -57,7 +57,7 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low, OpenCode GLM-5.3-Flash low |
 | T2 | Well-specified change with known tests | Sonnet 5.5 plan/API, Sonnet 5.5 via agy, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol, OpenCode GLM-5.3 high (all medium unless noted) |
 | T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.1 Sol, Gemini 4 Argon, OpenCode Kimi K3.1 Pro, OpenCode GLM-5.3 max (all high unless noted) |
-| T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 plan/API xhigh |
+| T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 plan xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
 agy), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
@@ -65,7 +65,9 @@ order and moves past any that exit 75 (busy, down, or at a limit). T1 and T2 fal
 higher tiers' workers; T3 and T4 never fall to a weaker tier and exit 75 with the earliest reset
 instead.
 
-`claude-api` follows each Claude plan row at the same model/effort and runs only after that plan
+T4 excludes API overflow because API legs skip project deny rules and hooks.
+
+`claude-api` follows each T2/T3 Claude plan row at the same model/effort and runs only after that plan
 window is tight or the matching plan leg returns `exit=75 failure=limit`; transient failures do not
 enable API spending. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organization's key file;
 `run-claude.sh --api` uses it only in the leg, bypasses plan-window gates, and exits 75 when
