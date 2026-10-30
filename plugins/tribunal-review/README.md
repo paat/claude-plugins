@@ -10,7 +10,7 @@ process before merge.
 
 ## Prerequisites
 
-- Bash 4+, git 2.41+ (sealed collection uses `--attr-source`), and standard `awk`/`sed`/coreutils commands
+- Bash 4+, git 2.42+ (sealed collection uses `--attr-source` and `cat-file -Z`), and standard `awk`/`sed`/coreutils commands
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
 - [Antigravity CLI](https://antigravity.google/docs/cli/install/) (`agy`) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default). Sign in once with a Google AI Pro/Ultra account, or set `GEMINI_API_KEY` for API-key mode. Gemini CLI no longer serves personal Google accounts
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`, npm package `@deepseek-ai/dsh`; Node `^22.19 || >=24`) — **optional**, for the opt-in DeepSeek leg (`TRIBUNAL_DEEPSEEK=on`). Default model: `deepseek-v4-pro`; override with `TRIBUNAL_DEEPSEEK_MODEL`. Configure the key in the environment (`DEEPSEEK_API_KEY`), in `${DSH_HOME:-$HOME/.dsh}/.credentials.yaml` (`refs.DEEPSEEK_API_KEY`), or in `${DSH_HOME:-$HOME/.dsh}/.env`; dsh resolves the key, and preflight checks presence without printing it. The default model pin is not covered by the repository's daily model-ID refresh (`scripts/refresh-model-versions.sh` has no DeepSeek catalog source); bump `deepseek-v4-pro` by hand when DeepSeek ships a successor.

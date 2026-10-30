@@ -6216,13 +6216,13 @@ EOF
     _ "$plugin/scripts/surface-functions.sh" "$repo"
   rm -rf "$work/home"
   mkdir "$work/version-bin"
-  printf '#!/usr/bin/env bash\nprintf "git version 2.40.4\\n"\n' > "$work/version-bin/git"
+  printf '#!/usr/bin/env bash\nprintf "git version 2.41.0\\n"\n' > "$work/version-bin/git"
   chmod +x "$work/version-bin/git"
   ec=0
   PATH="$work/version-bin:$PATH" bash -c '. "$1"; require_git_version' _ "$plugin/scripts/surface-functions.sh" \
     > "$work/version.out" 2> "$work/version.err" || ec=$?
-  tr_check "round 2 T-002: git 2.40 is rejected with 2.41 requirement" \
-    bash -c '[ "$1" = 1 ] && grep -Fq "git 2.41+ is required" "$2"' _ "$ec" "$work/version.err"
+  tr_check "round 2 T-002: git 2.41 is rejected with 2.42 requirement" \
+    bash -c '[ "$1" = 1 ] && grep -Fq "git 2.42+ is required" "$2"' _ "$ec" "$work/version.err"
 
   local main_repo="$repo" root_gitdir target phase saved
   git -C "$main_repo" worktree add --detach -q "$work/linked" "$head"
