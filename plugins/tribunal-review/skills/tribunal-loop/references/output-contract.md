@@ -69,7 +69,13 @@ missing it was not produced by a runner: it counts as `failed`, not `ok`, in
 own revision, so a leg stamped over a different range seals as `failed`.
 Every review-shaped leg also lists `files_examined` (repository-relative paths
 actually read); empty-findings APPROVE with no overlap against the changed paths
-is sealed `failed` (issue #518).
+is sealed `failed` (issue #518). For non-empty ranges, every examined path,
+after stripping leading `./` segments, must exist in the pinned `base_oid` or
+`head_oid` tree, regardless of findings. Deleted paths present only in base and
+added paths present only in head are valid. An absent path or unavailable pinned
+tree becomes a named provider failure excluded from quorum; there is no worktree
+fallback (issue #671). A truly empty range is exempt from both checks. Existence
+does not attest that a file was read or that review conclusions are sound.
 
 For sealed PR delivery, this is an exact schema: unknown keys, unknown enum
 values, duplicate IDs/providers, invalid counts, provider status that differs

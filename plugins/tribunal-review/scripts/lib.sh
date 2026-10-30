@@ -926,10 +926,12 @@ tribunal_take_diff_stat() {
 # empty-findings APPROVE whose list intersects none of the paths changed in
 # base_oid...head_oid, become provider errors excluded from quorum. A genuine
 # empty range (diff_stat.files_changed==0, as from tribunal_empty) is exempt.
+# Every examined path must also exist in either pinned tree, with or without
+# findings (issue #671); unavailable trees fail closed.
 # $1 pinned range from `tribunal_take_diff_stat`
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local stat="$1" json provider root base_oid head_oid files_changed tmpdir
+  local stat="$1" json provider root base_oid head_oid files_changed tmpdir range absent
   json="$(cat)"
   # Error and disabled legs carry no diff_stat.
   if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
@@ -951,34 +953,79 @@ tribunal_stamp_diff_stat() {
   fi
   files_changed="$(printf '%s' "$stat" | jq -r '.files_changed // empty')"
   # Empty-range exemption: tribunal_empty synthesizes APPROVE with files_examined:[].
-  if [ "$files_changed" != "0" ] \
-    && printf '%s' "$json" | jq -e '((.findings // []) | length) == 0' >/dev/null 2>&1; then
-    base_oid="$(printf '%s' "$stat" | jq -r '.base_oid // empty')"
-    head_oid="$(printf '%s' "$stat" | jq -r '.head_oid // empty')"
-    root="$(tribunal_repo_root)"
-    # Changed paths travel via a temp file (--rawfile), not argv: a large
-    # --name-only -z list exceeds MAX_ARG_STRLEN when passed as --argjson.
-    tmpdir="$(mktemp -d)" || {
+  if [ "$files_changed" != "0" ]; then
+    if ! range="$(printf '%s' "$stat" | jq -er '
+        [.base_oid, .head_oid] |
+        select(all(.[]; type == "string" and test("^([0-9a-f]{40}|[0-9a-f]{64})$"))) |
+        join(" ")' 2>/dev/null)" || ! root="$(tribunal_repo_root)"; then
       tribunal_error "$provider" \
-        "blind APPROVE: cannot verify files_examined against the reviewed range; excluded from quorum"
-      return
-    }
-    if [ -z "$base_oid" ] || [ -z "$head_oid" ] \
-      || ! git -C "$root" diff --name-only --no-renames -z "$base_oid...$head_oid" \
-            --no-ext-diff --no-textconv > "$tmpdir/changed" 2>/dev/null; then
-      rm -rf "$tmpdir"
-      tribunal_error "$provider" \
-        "blind APPROVE: cannot verify files_examined against the reviewed range; excluded from quorum"
+        "cannot verify files_examined: pinned base/head objects unavailable; excluded from quorum"
       return
     fi
-    if ! printf '%s' "$json" | jq -e --rawfile changed_raw "$tmpdir/changed" '
-        ($changed_raw | split("\u0000") | map(select(length > 0))) as $changed |
-        (.files_examined | any((sub("^(\\./)+"; "")) as $f | $changed | index($f) != null))
-      ' >/dev/null 2>&1; then
+    read -r base_oid head_oid <<< "$range"
+    # Path lists travel via temp files, not argv: large lists exceed
+    # MAX_ARG_STRLEN when passed as --argjson.
+    tmpdir="$(mktemp -d)" || {
+      tribunal_error "$provider" \
+        "cannot verify files_examined against the pinned trees; excluded from quorum"
+      return
+    }
+    # Query exact JSON path bytes instead of decoding a tree listing (invalid
+    # UTF-8 filenames would otherwise alias U+FFFD). Git 2.43's -Z preserves
+    # embedded newlines in both requests and responses. Check both roots first.
+    if ! printf '%s' "$json" | jq '[.files_examined[] | sub("^(\\./)+"; "")]' > "$tmpdir/paths" \
+      || ! jq -j --arg base "$base_oid" --arg head "$head_oid" '
+        ($base + "^{tree}\u0000"), ($head + "^{tree}\u0000"),
+        (.[] | if contains("\u0000") then error("NUL in examined path")
+          else ($base + ":" + . + "\u0000"), ($head + ":" + . + "\u0000") end)
+      ' "$tmpdir/paths" > "$tmpdir/requests" 2>/dev/null \
+      || ! git -C "$root" cat-file --batch-check='%(objectname)' -Z \
+        < "$tmpdir/requests" > "$tmpdir/objects" 2>/dev/null; then
       rm -rf "$tmpdir"
       tribunal_error "$provider" \
-        "blind APPROVE: findings empty and files_examined lists no path changed in the reviewed range; excluded from quorum"
+        "cannot verify files_examined: pinned base/head objects unavailable; excluded from quorum"
       return
+    fi
+    if ! absent="$(jq -c --rawfile objects "$tmpdir/objects" '
+        def oid: test("^([0-9a-f]{40}|[0-9a-f]{64})$");
+        . as $paths | ($objects | split("\u0000")) as $results |
+        if ($results | length) != (3 + 2 * ($paths | length))
+          or $results[-1] != "" or ($results[0] | oid | not) or ($results[1] | oid | not)
+        then error("pinned objects unavailable or incomplete batch response") else
+          [range($paths | length) | . as $i |
+            select(($results[2 + 2*$i] | oid | not) and ($results[3 + 2*$i] | oid | not)) |
+            $paths[$i]][:3] |
+          map(if length > 200 then .[:200] + "..." else . end)
+        end
+      ' "$tmpdir/paths" 2>/dev/null)"; then
+      rm -rf "$tmpdir"
+      tribunal_error "$provider" \
+        "cannot verify files_examined against the pinned trees; excluded from quorum"
+      return
+    fi
+    if [ "$absent" != "[]" ]; then
+      rm -rf "$tmpdir"
+      tribunal_error "$provider" \
+        "files_examined paths absent from both pinned trees (first 3, capped at 200 characters each): $absent; excluded from quorum"
+      return
+    fi
+    if printf '%s' "$json" | jq -e '((.findings // []) | length) == 0' >/dev/null 2>&1; then
+      if ! git -C "$root" diff --name-only --no-renames -z "$base_oid...$head_oid" \
+            --no-ext-diff --no-textconv > "$tmpdir/changed" 2>/dev/null; then
+        rm -rf "$tmpdir"
+        tribunal_error "$provider" \
+          "blind APPROVE: cannot verify files_examined against the reviewed range; excluded from quorum"
+        return
+      fi
+      if ! printf '%s' "$json" | jq -e --rawfile changed_raw "$tmpdir/changed" '
+          ($changed_raw | split("\u0000") | map(select(length > 0))) as $changed |
+          (.files_examined | any((sub("^(\\./)+"; "")) as $f | $changed | index($f) != null))
+        ' >/dev/null 2>&1; then
+        rm -rf "$tmpdir"
+        tribunal_error "$provider" \
+          "blind APPROVE: findings empty and files_examined lists no path changed in the reviewed range; excluded from quorum"
+        return
+      fi
     fi
     rm -rf "$tmpdir"
   fi

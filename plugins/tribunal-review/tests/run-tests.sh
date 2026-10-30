@@ -3960,6 +3960,140 @@ EOF
   rm -rf "$work"
 }
 
+# Issue #671: every examined path must exist in at least one pinned tree.
+test_examined_paths_pinned() {
+  local work scenario label stat examined findings expectation git_bin path name
+  work="$(mktemp -d)"
+  git_bin="$(command -v git)"
+  (
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    mkdir -p directory
+    printf 'base\n' > changed.txt
+    printf 'deleted\n' > deleted.txt
+    printf 'tree child\n' > directory/child.txt
+    git add .
+    git commit -q -m base
+    printf 'head\n' > changed.txt
+    rm deleted.txt
+    printf 'added\n' > added.txt
+    printf 'invalid UTF-8 filename\n' > $'bad-\377.txt'
+    for name in 'space name.txt' $'line\nbreak.txt' $'tab\tname.txt' 'colon:name.txt' 'back\slash.txt'; do
+      printf 'unusual\n' > "$name"
+    done
+    git add .
+    git commit -q -m head
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=HEAD~1 tribunal_prepare_diff "$work/d.diff"
+    tribunal_take_diff_stat "$work/d.diff" > "$work/stat.json"
+    # A tracked ambient revision must not rescue a path absent from pinned trees.
+    printf 'ambient\n' > ambient.txt
+    git add ambient.txt
+    git commit -q -m ambient
+  )
+  mkdir "$work/bin"
+  cat > "$work/bin/git" <<'GIT'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    ls-tree|cat-file)
+      printf '%s\n' "$arg" >> "$LOOKUP_LOG"
+      [ "${FAIL_LOOKUP:-0}" != 1 ] || exit 1
+      ;;
+  esac
+done
+exec "$REAL_GIT" "$@"
+GIT
+  chmod +x "$work/bin/git"
+  for scenario in absent_empty absent_findings valid_findings ambient deleted added prefixed unusual directory \
+    missing_base missing_head omitted_base omitted_head lookup_failure empty_range large_list bounded_error \
+    invalid_utf8_alias valid_with_invalid_bytes nul_path; do
+    label="pinned examined paths: $scenario"
+    if (
+      cd "$work"
+      . "$PLUGIN_ROOT/scripts/lib.sh"
+      export REAL_GIT="$git_bin" LOOKUP_LOG="$work/lookups" PATH="$work/bin:$PATH" FAIL_LOOKUP=0
+      : > "$LOOKUP_LOG"
+      stat="$(cat "$work/stat.json")"
+      examined='["changed.txt"]'
+      findings='[]'
+      expectation=ok
+      case "$scenario" in
+        absent_empty|absent_findings)
+          examined='["changed.txt","invented.txt"]'; expectation=absent ;;
+        ambient) examined='["changed.txt","ambient.txt"]'; expectation=ambient ;;
+        deleted) examined='["deleted.txt"]' ;;
+        added) examined='["added.txt"]' ;;
+        prefixed) examined='["././changed.txt"]' ;;
+        unusual) examined='["changed.txt","space name.txt","line\nbreak.txt","tab\tname.txt","colon:name.txt","back\\slash.txt"]' ;;
+        directory) examined='["changed.txt","directory"]' ;;
+        invalid_utf8_alias) examined='["changed.txt","bad-\ufffd.txt"]'; expectation=utf8_alias ;;
+        nul_path) examined='["changed.txt","changed.txt\u0000"]'; expectation=unavailable ;;
+        missing_base|missing_head)
+          stat="$(printf '%s' "$stat" | jq --arg key "${scenario#missing_}_oid" '.[$key] = ("0" * 40)')"
+          expectation=unavailable ;;
+        omitted_base|omitted_head)
+          stat="$(printf '%s' "$stat" | jq --arg key "${scenario#omitted_}_oid" 'del(.[$key])')"
+          expectation=unavailable ;;
+        lookup_failure) export FAIL_LOOKUP=1; expectation=unavailable ;;
+        empty_range)
+          stat="$(printf '%s' "$stat" | jq '.files_changed = 0 | .head_oid = .base_oid')"
+          examined='[]' ;;
+        large_list) examined='["changed.txt"]' ;;
+        bounded_error) expectation=bounded ;;
+      esac
+      case "$scenario" in
+        absent_findings|valid_findings|missing_*|omitted_*|lookup_failure)
+          findings='[{"severity":"medium","category":"logic","file":"changed.txt","line":1,"title":"fixture","description":"fixture defect","suggestion":"fix fixture","confidence":0.9}]' ;;
+      esac
+      jq -nc --argjson examined "$examined" --argjson findings "$findings" \
+        '{provider:"codex",model:"fixture",files_examined:$examined,findings:$findings,
+          summary:{total_findings:($findings|length),critical:0,high:0,medium:($findings|length),low:0,
+                   quality_score:8,verdict:(if ($findings|length)==0 then "APPROVE" else "NEEDS_WORK" end)}}' > review.json
+      if [ "$scenario" = large_list ]; then
+        jq '.files_examined = [range(20000) | "changed.txt"]' review.json > large.json
+        mv large.json review.json
+        [ "$(wc -c < review.json)" -gt 131072 ] || exit 1
+      elif [ "$scenario" = bounded_error ]; then
+        jq '.files_examined += [range(100) | "invented-\(.).txt"]' review.json > many.json
+        mv many.json review.json
+      fi
+      tribunal_stamp_diff_stat "$stat" < review.json > out.json
+      case "$expectation" in
+        ok)
+          jq -e --argjson stat "$stat" --slurpfile review review.json \
+            '.provider=="codex" and (has("error")|not) and .diff_stat==$stat
+             and .files_examined==$review[0].files_examined' out.json >/dev/null || exit 1 ;;
+        absent|ambient|bounded|utf8_alias)
+          case "$expectation" in
+            absent) path=invented.txt ;; ambient) path=ambient.txt ;;
+            bounded) path=invented-0.txt ;; utf8_alias) path=$'bad-\xef\xbf\xbd.txt' ;;
+          esac
+          jq -e --arg path "$path" '.provider=="codex" and (.error|contains($path))
+            and (has("diff_stat")|not)' out.json >/dev/null || exit 1
+          if [ "$expectation" = bounded ]; then
+            jq -e '(.error|length)<2000 and (.error|contains("invented-99.txt")|not)' out.json >/dev/null || exit 1
+          fi ;;
+        unavailable)
+          jq -e '.provider=="codex" and (.error|type)=="string" and (has("diff_stat")|not)' out.json >/dev/null || exit 1 ;;
+      esac
+      if [ "$scenario" = large_list ]; then
+        # One batch or one traversal per oid, independent of examined-list size.
+        [ "$(wc -l < "$LOOKUP_LOG")" -ge 1 ] && [ "$(wc -l < "$LOOKUP_LOG")" -le 2 ] || exit 1
+      elif [ "$scenario" = empty_range ]; then
+        [ ! -s "$LOOKUP_LOG" ] || exit 1
+      fi
+    ); then
+      echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+    fi
+  done
+  rm -rf "$work"
+}
+
 test_sealed_panel_quorum() {
   local work repo fake plugin collection manifest_sha base head ec=0
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
@@ -4475,12 +4609,13 @@ test_codex_line_bounds_guard
 test_line_check_pinned_range moving "line check uses captured tree after branch and worktree move"
 test_line_check_pinned_range sibling "line check rejects outside files without a writable paths sibling"
 test_line_check_unavailable_range
-assert_json_field "pruned reviewed head marks all positioned findings without losing the leg" "bash '$PLUGIN_ROOT/tests/line-check-degradation.sh' '$PLUGIN_ROOT/scripts/lib.sh' pruned"
+assert_json_field "pruned reviewed head marks findings then fails the leg at stamping" "bash '$PLUGIN_ROOT/tests/line-check-degradation.sh' '$PLUGIN_ROOT/scripts/lib.sh' pruned"
 assert_json_field "healthy position check preserves output bytes" "bash '$PLUGIN_ROOT/tests/line-check-degradation.sh' '$PLUGIN_ROOT/scripts/lib.sh' healthy"
 assert_json_field "arbiter requires produced legs and verifies pinned evidence" "python3 '$PLUGIN_ROOT/tests/test-arbiter-evidence.py' '$PLUGIN_ROOT'"
 test_wrapper_owned_provider_envelope
 test_wrapper_stamped_diff_stat
 test_blind_approve_guard
+test_examined_paths_pinned
 test_ignored_path_additions
 test_ignored_path_diff_failures
 test_ignored_path_validation
