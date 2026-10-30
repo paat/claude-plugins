@@ -14,26 +14,9 @@ if [ -z "$api_key" ] || [[ "$api_key" == *$'\n'* || "$api_key" == *$'\r'* ]]; th
   exit 75
 fi
 
-# Redact before any output reaches the runner's files, including CLI error text.
-redact() {
-  local line
-  while IFS= read -r line; do
-    printf '%s\n' "${line//"$api_key"/[REDACTED]}"
-  done
-  printf '%s' "${line//"$api_key"/[REDACTED]}"
-}
-exec 3> >(redact >&2)
-stderr_pid=$!
-set +e
-(
-  export ANTHROPIC_API_KEY="$api_key"
-  exec "$@" 3>&-
-) 2>&3 | redact
-cli_rc=${PIPESTATUS[0]} redact_rc=${PIPESTATUS[1]}
-exec 3>&-
-wait "$stderr_pid"
-stderr_rc=$?
-set -e
-[ "$cli_rc" -eq 0 ] || exit "$cli_rc"
-[ "$redact_rc" -eq 0 ] || exit "$redact_rc"
-exit "$stderr_rc"
+# Only the path reaches CLI/tool environments; Claude reads the key privately.
+unset api_key
+export MMO_CLAUDE_API_KEY_FILE="$key_file"
+# Excluding settings also skips memory; explicitly reload project-root CLAUDE.md.
+exec "$@" --setting-sources '' --add-dir "$PWD" \
+  --settings '{"apiKeyHelper":"cat -- \"$MMO_CLAUDE_API_KEY_FILE\"","env":{"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD":"1"}}' 3>&-

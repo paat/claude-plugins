@@ -67,8 +67,10 @@ instead.
 plan window is tight or the matching plan leg returns `exit=75 failure=limit`; transient
 failures do not enable API spending. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organization's key file;
 `run-claude.sh --api` uses it only in the leg, bypasses plan-window gates, and exits 75 when
-unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables and use
-the file key while retaining CLAUDE.md, the system prompt, and normal tools. It remains Claude for restrictions and reviewer
+unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables and deliver the file key through
+`apiKeyHelper` without exporting it to CLI or tool environments, retaining the system prompt and normal tools.
+They ignore user/project/local settings and explicitly load project-root CLAUDE.md and rules; nested/local instruction
+files are not auto-loaded. It remains Claude for restrictions and reviewer
 independence. To deny API spend, unset `MMO_CLAUDE_API_KEY_FILE`. This uses monthly plan API credit, separate from subscription limits; purchased
 credits/auto-reload can extend usage ([credit terms](https://support.claude.com/en/articles/17154008),
 [`claude -p` eligibility](https://support.claude.com/en/articles/15036540), read 2026-10-30).
