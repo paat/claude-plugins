@@ -4078,6 +4078,7 @@ EOF
 
 test_required_checks() {
   local work fake sha out ec mutated
+  local scenario branch rules checks error expected predicate args
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   sha="$(python3 -c 'print("a" * 40)')"
 
@@ -4105,12 +4106,60 @@ done
 endpoint=""
 for arg in "$@"; do
   case "$arg" in
-    repos/*/commits/*/check-runs*) endpoint="$arg" ;;
+    repos/*) endpoint="$arg" ;;
   esac
 done
-[ -n "$endpoint" ] || { printf 'missing check-runs endpoint: %s\n' "$*" >&2; exit 2; }
+[ -n "$endpoint" ] || { printf 'missing REST endpoint: %s\n' "$*" >&2; exit 2; }
+printf '%s\n' "$endpoint" >> "${FIXTURE_CALLS:-/dev/null}"
+case "$endpoint" in
+  repos/example/fixture)
+    if [ "${FIXTURE_ERROR:-}" = default ]; then
+      printf 'repository unavailable\n' >&2; exit 1
+    fi
+    printf '%s\n' '{"default_branch":"main"}'
+    exit 0
+    ;;
+  repos/example/fixture/rules/branches/*)
+    if [ "${FIXTURE_ERROR:-}" = rules ]; then
+      printf 'rules unavailable (HTTP 403)\n' >&2; exit 1
+    fi
+    printf '%s\n' "${FIXTURE_RULES:-[]}"
+    exit 0
+    ;;
+  repos/example/fixture/branches/*)
+    if [ "${FIXTURE_ERROR:-}" = protection ]; then
+      printf 'branch unavailable (HTTP 404)\n' >&2; exit 1
+    fi
+    if [ -n "${FIXTURE_BRANCH:-}" ]; then
+      printf '%s\n' "$FIXTURE_BRANCH"
+    else
+      printf '%s\n' '{"protected":false,"protection":{"enabled":false,"required_status_checks":{"enforcement_level":"off","contexts":[],"checks":[]}}}'
+    fi
+    exit 0
+    ;;
+  repos/example/fixture/commits/*/check-runs*) ;;
+  *) printf 'unexpected endpoint: %s\n' "$endpoint" >&2; exit 2 ;;
+esac
 
 case "${FIXTURE_CHECKS:-empty}" in
+  configured_extra_failure)
+    jq -nc '{check_runs:[
+      {name:"payment-contract",status:"completed",conclusion:"success"},
+      {name:"regression-test-gate",status:"completed",conclusion:"success"},
+      {name:"full-regression",status:"completed",conclusion:"success"},
+      {name:"optional",status:"completed",conclusion:"failure"}
+    ]} | .total_count = (.check_runs | length)'
+    ;;
+  issue_missing|issue_success|issue_pending|issue_failure|issue_skipped|issue_neutral)
+    jq -nc --arg fixture "$FIXTURE_CHECKS" '{check_runs:([
+      {name:"payment-contract",status:"completed",conclusion:"success"},
+      {name:"regression-test-gate",status:"completed",conclusion:"success"}
+    ] + (if $fixture == "issue_missing" then [] else [{
+      name:"full-regression",
+      status:(if $fixture == "issue_pending" then "queued" else "completed" end),
+      conclusion:(if $fixture == "issue_pending" then null else ($fixture | sub("issue_"; "")) end)
+    }] end))} | .total_count = (.check_runs | length)'
+    ;;
   empty)
     jq -nc '{total_count:0,check_runs:[]}'
     ;;
@@ -4250,6 +4299,90 @@ EOF
     echo -e "  ${RED}FAIL${NC} required-checks fails loud on missing --sha"; FAIL=$((FAIL+1))
     FAILURES+=("required-checks bad args")
   fi
+
+  # Required contexts are configured independently of the currently visible runs.
+  for scenario in missing contexts checks rules union rules_pages configured_success \
+      configured_extra_failure \
+      configured_pending configured_failure configured_skipped configured_neutral \
+      retry_configured_success retry_configured_failure default_base explicit_base \
+      protection_error rules_error default_error malformed_branch malformed_rules; do
+    branch='{"protected":true,"protection":{"enabled":true,"required_status_checks":{"enforcement_level":"non_admins","contexts":["full-regression","regression-test-gate","payment-contract"],"checks":[{"context":"full-regression","app_id":15368},{"context":"regression-test-gate","app_id":15368},{"context":"payment-contract","app_id":15368}]}}}'
+    rules='[]'; checks=issue_missing; error=''; expected=1; args=()
+    predicate='.ok == false and any(.checks[]; .name == "full-regression" and .status == "missing")'
+    case "$scenario" in
+      contexts) branch='{"protected":true,"protection":{"required_status_checks":{"contexts":["full-regression"]}}}' ;;
+      checks) branch='{"protected":true,"protection":{"required_status_checks":{"checks":[{"context":"full-regression","app_id":15368}]}}}' ;;
+      rules|rules_pages)
+        branch='{"protected":false,"protection":{"enabled":false,"required_status_checks":{"contexts":[],"checks":[]}}}'
+        rules='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"full-regression","integration_id":15368}],"strict_required_status_checks_policy":false}}]'
+        if [ "$scenario" = rules_pages ]; then rules="[]
+$rules"; fi
+        ;;
+      union)
+        branch='{"protected":true,"protection":{"required_status_checks":{"contexts":["payment-contract"],"checks":[{"context":"regression-test-gate"}]}}}'
+        rules='[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"full-regression"}]}}]'
+        ;;
+      configured_success)
+        checks=issue_success; expected=0
+        predicate='.ok == true and ([.checks[].name] | length == (unique | length))'
+        ;;
+      configured_extra_failure)
+        checks=configured_extra_failure
+        predicate='.ok == false and any(.checks[]; .name == "optional" and .conclusion == "failure") and all(.checks[] | select(.name != "optional"); .status == "completed" and .conclusion == "success")'
+        ;;
+      configured_pending|configured_failure|configured_skipped|configured_neutral)
+        checks="issue_${scenario#configured_}"
+        predicate='.ok == false and any(.checks[]; .name == "full-regression")'
+        ;;
+      retry_configured_success|retry_configured_failure)
+        branch='{"protected":true,"protection":{"required_status_checks":{"contexts":["plugin-checks"]}}}'
+        checks="${scenario/retry_configured/retry}"
+        if [ "$scenario" = retry_configured_success ]; then expected=0; predicate='.ok == true'; else predicate='.ok == false'; fi
+        ;;
+      default_base|explicit_base)
+        checks=issue_success; expected=0; predicate='.ok == true'
+        if [ "$scenario" = explicit_base ]; then args=(--base 'release/next'); fi
+        ;;
+      protection_error|rules_error|default_error)
+        error="${scenario%_error}"; checks=issue_success; expected=2; predicate=''
+        ;;
+      malformed_branch) branch='{}'; checks=issue_success; expected=2; predicate='' ;;
+      malformed_rules) rules='{}'; checks=issue_success; expected=2; predicate='' ;;
+    esac
+    : > "$work/calls"
+    ec=0
+    out="$(PATH="$fake:$PATH" FIXTURE_BRANCH="$branch" FIXTURE_RULES="$rules" \
+      FIXTURE_CHECKS="$checks" FIXTURE_ERROR="$error" FIXTURE_CALLS="$work/calls" \
+      bash "$PLUGIN_ROOT/scripts/required-checks.sh" --repo example/fixture --sha "$sha" \
+      "${args[@]}" 2>"$work/error")" || ec=$?
+    if [ "$ec" -eq "$expected" ] && {
+      if [ "$expected" -eq 2 ]; then
+        [ -z "$out" ] && grep -Eq 'required-checks:.*(protection|branch|rules|default)' "$work/error"
+      else
+        printf '%s' "$out" | jq -e "$predicate" >/dev/null
+      fi
+    } && {
+      case "$scenario" in
+        default_base)
+          grep -Fxq 'repos/example/fixture' "$work/calls" &&
+          grep -Fxq 'repos/example/fixture/branches/main' "$work/calls" &&
+          grep -Eq '^repos/example/fixture/rules/branches/main(\?|$)' "$work/calls"
+          ;;
+        explicit_base)
+          ! grep -Fxq 'repos/example/fixture' "$work/calls" &&
+          grep -Fxq 'repos/example/fixture/branches/release%2Fnext' "$work/calls" &&
+          grep -Eq '^repos/example/fixture/rules/branches/release%2Fnext(\?|$)' "$work/calls"
+          ;;
+        *) true ;;
+      esac
+    }; then
+      echo -e "  ${GREEN}PASS${NC} required-checks protection $scenario"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} required-checks protection $scenario (exit $ec, expected $expected)"; FAIL=$((FAIL+1))
+      FAILURES+=("required-checks protection $scenario")
+      printf '%s\n' "$out" >&2; cat "$work/error" >&2
+    fi
+  done
 
   # Mutation RED (one copy): delete only the latest-per-name collapse from a
   # copy of required-checks.sh; retry_success must then exit 1 / ok=false.
