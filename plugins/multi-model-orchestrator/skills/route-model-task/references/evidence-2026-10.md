@@ -31,6 +31,17 @@ local result changes a routing decision, not on every dispatch.
 - The local `default` route serves whichever model the endpoint exposes. Record that actual
   identity; historical provider/plugin names do not establish its current task capabilities.
 
+## OpenCode Go (checked 2026-10-30)
+
+| Source | What it supports | What it does not establish |
+|---|---|---|
+| [OpenCode Go limits](https://opencode.ai/docs/go) | 30 Go models; per-model monthly dollar allowances with 20% per 5h and 50% per week (Go Plus: GLM-5.3-Flash $180, GLM-5.3 $120, Kimi K3.1 Pro $60). | Remaining allowance through an API key: responses report only each request's charge. |
+| [Terminal-Bench 4.0](https://www.tbench.ai/) leaderboard rows | GLM-5.3 `max` 41.8% and GLM-5.3-Flash 35.8% (Claude Code harness), above Grok 4.7 `xhigh` 37.6% and GPT-6 Luna `max` 16.4%; GLM-5.3-Flash's run cost $119. | Results in this plugin's OpenCode harness; Kimi K3.1 Pro has no row. |
+| [Arena agent and WebDev](https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset) (published 2026-10-28) | Kimi K3.1 Pro (Max) is the highest Go-only model: agent #13 (above GPT-5.6 Sol), WebDev #9; GLM-5.3 agent #29. | Agentic task success; Arena is preference. |
+
+Live `opencode models` (v2.2.4) listed every routed id, and minimal GLM-5.3-Flash runs succeeded.
+Go also serves Argon, Grok 4.7, Luna and Haiku; those keep their own provider routes here.
+
 ## Calibrating preferences
 
 [SWE-bench](https://www.swebench.com/) separates model-only comparisons using a fixed agent from

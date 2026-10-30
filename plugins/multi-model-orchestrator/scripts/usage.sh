@@ -4,7 +4,7 @@
 # Codex: newest rate_limits event by that event's own timestamp, among the 20 newest session
 # logs from the last 8 days (free). Claude: newest rate_limit_event in a run-claude.sh --stream-log (free) or,
 # with --probe-claude, one tiny claude -p call. agy: its local /usage command (free; one
-# window per quota pool). Grok and Muse have no source. A provider with no data prints "<provider> unknown <why>".
+# window per quota pool). Grok, Muse, and OpenCode have no source. A provider with no data prints "<provider> unknown <why>".
 # Always exits 0 unless misused.
 # claude-api uses monthly plan API credit, not these windows; pool.sh gates it separately.
 set -euo pipefail
@@ -209,3 +209,4 @@ fi
 
 printf 'grok unknown (Grok CLI exposes no plan-limit data)\n'
 printf 'muse unknown (Muse CLI exposes no plan-limit data)\n'
+printf 'opencode unknown (OpenCode exposes no plan-limit data; Go limits surface as exit 75)\n'
