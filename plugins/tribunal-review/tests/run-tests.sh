@@ -4142,6 +4142,14 @@ case "$endpoint" in
 esac
 
 case "${FIXTURE_CHECKS:-empty}" in
+  configured_extra_failure)
+    jq -nc '{check_runs:[
+      {name:"payment-contract",status:"completed",conclusion:"success"},
+      {name:"regression-test-gate",status:"completed",conclusion:"success"},
+      {name:"full-regression",status:"completed",conclusion:"success"},
+      {name:"optional",status:"completed",conclusion:"failure"}
+    ]} | .total_count = (.check_runs | length)'
+    ;;
   issue_missing|issue_success|issue_pending|issue_failure|issue_skipped|issue_neutral)
     jq -nc --arg fixture "$FIXTURE_CHECKS" '{check_runs:([
       {name:"payment-contract",status:"completed",conclusion:"success"},
@@ -4294,6 +4302,7 @@ EOF
 
   # Required contexts are configured independently of the currently visible runs.
   for scenario in missing contexts checks rules union rules_pages configured_success \
+      configured_extra_failure \
       configured_pending configured_failure configured_skipped configured_neutral \
       retry_configured_success retry_configured_failure default_base explicit_base \
       protection_error rules_error default_error malformed_branch malformed_rules; do
@@ -4316,6 +4325,10 @@ $rules"; fi
       configured_success)
         checks=issue_success; expected=0
         predicate='.ok == true and ([.checks[].name] | length == (unique | length))'
+        ;;
+      configured_extra_failure)
+        checks=configured_extra_failure
+        predicate='.ok == false and any(.checks[]; .name == "optional" and .conclusion == "failure") and all(.checks[] | select(.name != "optional"); .status == "completed" and .conclusion == "success")'
         ;;
       configured_pending|configured_failure|configured_skipped|configured_neutral)
         checks="issue_${scenario#configured_}"

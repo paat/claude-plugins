@@ -12,8 +12,9 @@
 # Exit 2 on bad args or transport/API failure.
 #
 # Required names = base branch protection contexts/checks plus branch rulesets.
-# Base defaults to the repository default branch. With no configured names,
-# required = every check-run whose conclusion is not skipped/neutral.
+# Base defaults to the repository default branch. Required checks union configured
+# names with every check-run whose conclusion is not skipped/neutral.
+# A required name whose latest run is skipped/neutral fails (stricter than GitHub; deliberately fail-closed).
 # Empty check-runs list ⇒ ok=false (unearned green).
 # Legacy commit statuses are unsupported; status-only required contexts count as missing.
 # Does not use `gh pr checks` (can mis-label required vs optional).
@@ -189,12 +190,11 @@ OUT="$(printf '%s\n' "$RAW" | jq -sce --arg sha "$SHA" --argjson names "$REQUIRE
   | ($present + [$names[] as $name
       | select(all($present[]; .name != $name))
       | {name: $name, status: "missing", conclusion: ""}]) as $checks
-  | (if ($names | length) > 0 then
-       $checks | map(select(.name as $name | $names | index($name)))
-     else $checks | map(select(
-      (.conclusion | ascii_downcase) != "skipped"
-      and (.conclusion | ascii_downcase) != "neutral"
-    )) end) as $required
+  | ($checks | map(select(
+      (.name as $name | $names | index($name)) != null
+      or ((.conclusion | ascii_downcase) != "skipped"
+          and (.conclusion | ascii_downcase) != "neutral")
+    ))) as $required
   | {
       sha: $sha,
       checks: $checks,
