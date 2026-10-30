@@ -269,7 +269,8 @@ one outcome with exit 143, 129, or 130 respectively.
 
 - bash 4+
 - git and GNU coreutils (`timeout`, `date -d`, `stat -c`, `realpath -m`)
-- `ps`, `awk`, and `setsid` (util-linux) for forwarding stops through nested provider watchdogs
+- `ps` (procps) to stop nested provider watchdogs (`claude-api`, local Qwen) on a leg stop; without it the root watchdog is still signalled
+- `awk` and `setsid` (util-linux) for forwarding stops through nested provider watchdogs
 - The authenticated CLI for each selected route:
   - Claude Code (`claude`)
   - OpenAI Codex CLI (`codex`)
