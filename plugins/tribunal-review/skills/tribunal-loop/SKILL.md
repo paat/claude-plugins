@@ -235,14 +235,15 @@ finding consensus, and the `blocking_proof` required by 3b-0 for critical/high f
 For a merge gate, save that JSON to `arbitration.json`, then have the delivery
 controller finalize the collection with its retained manifest digest:
 
-Invoke `collect` and `finalize` via the same unchanged plugin root (including a source checkout); `TRIBUNAL_PLUGIN_ROOT` selects the script path above, not a different bundle for an already invoked script.
-
 ```bash
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.sh" finalize \
   --collection "$CONTROLLER_OWNED_COLLECTION" \
   --expected-manifest-sha256 "$manifest_sha" \
   --arbitration arbitration.json
 ```
+
+Invoke `collect` and `finalize` from the same unchanged plugin root, including source checkouts.
+`TRIBUNAL_PLUGIN_ROOT` selects the script path; it cannot switch an invoked script’s bundle.
 
 Only the emitted `tribunal-proof/v1` digest is a delivery proof. Finalization
 rechecks live PR drift, all artifact/provenance digests, provider status, finding
