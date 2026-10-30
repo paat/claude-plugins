@@ -869,7 +869,7 @@ tribunal_emit_review() {
   fi
   # Provider identity belongs to the wrapper, not model-authored JSON. The
   # aggregate evidence runner relies on this assignment when it seals each leg.
-  printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error, .diff_stat)'
+  printf '%s\n' "$json" | jq -c --arg provider "$provider" '.provider = $provider | del(.status, .error, .diff_stat, .grok_execution)'
 }
 
 # Stamp a wrapper-resolved model only when it belongs to the requested provider

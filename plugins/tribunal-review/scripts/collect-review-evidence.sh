@@ -539,6 +539,14 @@ validate_provider() {
       and (.head_oid | test("^[0-9a-f]{40}$|^[0-9a-f]{64}$"))
       and ($want_base == "" or .base_oid == $want_base)
       and ($want_head == "" or .head_oid == $want_head);
+    def grok_execution:
+      exact(["verdict_phase","inspect_exit_code","requested_effort","verdict_effort"];
+            ["verdict_phase","inspect_exit_code","requested_effort","verdict_effort"])
+      and (.verdict_phase | . == null or IN("inspect","finalize"))
+      and (.inspect_exit_code | . == null or (uint and . <= 255))
+      and (.requested_effort | . == null or text)
+      and (.verdict_effort | . == null or text)
+      and (.verdict_phase != "finalize" or .verdict_effort == "low");
     .provider == $p and (
       (exact(["provider","status","note"];["provider","status","note"])
        and .status == "disabled" and (.note | text))
@@ -546,8 +554,10 @@ validate_provider() {
       (exact(["provider","error"];["provider","error"])
        and (.error | text))
       or
-      (exact(["provider","model","findings","summary","diff_stat","files_examined"];
-             ["provider","model","findings","summary","diff_stat","files_examined"])
+      ((["provider","model","findings","summary","diff_stat","files_examined"]
+          + (if $p == "grok" then ["grok_execution"] else [] end)) as $keys
+       | exact($keys; $keys)
+       and ($p != "grok" or (.grok_execution | grok_execution))
        and (.model | text) and (.findings | type == "array" and all(.[]; finding))
        and (.findings as $findings | .summary | summary($findings))
        and (.diff_stat | diff_stat)
@@ -696,8 +706,20 @@ wait_wrappers() {
   REVIEW_PIDS=(); REVIEW_NAMES=()
 }
 
+grok_recovery_allowed() {
+  local policy="$1" file="$2"
+  [ "$policy" = permit ] && return 0
+  [ "$policy" = reject ] || return 1
+  jq -e '
+    .provider != "grok" or has("error") or .status == "disabled"
+    or .grok_execution.verdict_phase == "inspect"
+    or (.grok_execution.verdict_phase == null and .diff_stat.files_changed == 0)
+  ' "$file" >/dev/null
+}
+
 normalize_single() {
   local provider="$1" raw="$2" rc="$3" out="$4" want_base="${5:-}" want_head="${6:-}" count
+  local grok_recovery="${7:-permit}"
   if [ "$rc" -ne 0 ]; then
     write_failed_provider "$provider" "$(wrapper_exit_message "$rc")" "$out"
     return
@@ -710,7 +732,12 @@ normalize_single() {
   jq -S -s --arg p "$provider" '.[0] | .provider = $p' "$raw" > "$out.tmp" 2>/dev/null \
     || { rm -f "$out.tmp"; write_failed_provider "$provider" "provider wrapper emitted malformed JSON" "$out"; return; }
   if validate_provider "$provider" "$out.tmp" "$want_base" "$want_head"; then
-    mv "$out.tmp" "$out"
+    if grok_recovery_allowed "$grok_recovery" "$out.tmp"; then
+      mv "$out.tmp" "$out"
+    else
+      rm -f "$out.tmp"
+      write_failed_provider "$provider" "grok_recovery_rejected: inspection verdict required by TRIBUNAL_GROK_RECOVERY=reject" "$out"
+    fi
   else
     rm -f "$out.tmp"
     write_failed_provider "$provider" "provider wrapper output failed schema validation" "$out"
@@ -738,7 +765,7 @@ collect() {
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json sensitive_paths sensitive_paths_sha256="" source line path content
   local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
-  local min_ok_legs backup_legs backups backup limited
+  local min_ok_legs backup_legs backups backup limited grok_recovery
   local -A mutation_errors=() review_gitdirs=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -752,6 +779,11 @@ collect() {
   case "$pr" in ''|*[!0-9]*|0) die "invalid PR number" ;; esac
   # Fail closed on an invalid floor before any provider leg runs (issue #519).
   min_ok_legs="$(tribunal_min_ok_legs)" || exit 1
+  grok_recovery="${TRIBUNAL_GROK_RECOVERY:-permit}"
+  case "$grok_recovery" in
+    permit|reject) ;;
+    *) die "invalid TRIBUNAL_GROK_RECOVERY: $grok_recovery (allowed: permit, reject)" ;;
+  esac
   tribunal_risk_tier >/dev/null || exit 1
   backup_legs="$(tribunal_backup_legs)" || exit 1
   root="$(real_dir "$root")"
@@ -847,7 +879,7 @@ collect() {
   for name in $PROVIDERS; do
     rc="$(cat "$STAGING/wrappers/$name.exit")"
     normalize_single "$name" "$STAGING/wrappers/$name.raw" "$rc" "$STAGING/providers/$name.json" \
-      "$base_oid" "$head_oid"
+      "$base_oid" "$head_oid" "$grok_recovery"
   done
   fail_mutated_providers "$head_oid" "$STAGING"
 
@@ -879,7 +911,7 @@ collect() {
     wait_wrappers
     for backup in $backups; do
       normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
-          "$STAGING/providers/$backup.json" "$base_oid" "$head_oid"
+          "$STAGING/providers/$backup.json" "$base_oid" "$head_oid" "$grok_recovery"
     done
     fail_mutated_providers "$head_oid" "$STAGING"
   fi
@@ -943,7 +975,7 @@ collect() {
     --arg library_path "$SCRIPT_DIR/lib.sh" --arg library_sha256 "$(sha_file "$SCRIPT_DIR/lib.sh")" \
     --arg bundle_manifest_path "$PLUGIN_ROOT/integrity/runner-bundle.json" \
     --arg bundle_manifest_sha256 "$(printf '%s' "$bundle" | jq -r .sha256)" \
-    --argjson min_ok_legs "$min_ok_legs" \
+    --argjson min_ok_legs "$min_ok_legs" --arg grok_recovery "$grok_recovery" \
     --slurpfile providers "$providers_json" \
     '{schema:$schema,started_at:$started_at,completed_at:$completed_at,
       repository:$binding.repository,
@@ -957,7 +989,7 @@ collect() {
         bundle_manifest_path:$bundle_manifest_path,bundle_manifest_sha256:$bundle_manifest_sha256},
       providers:$providers,
       containment:(if all($providers[]; .containment == "pid-namespace") then "pid-namespace" else "session" end),
-      panel_policy:{min_ok_legs:$min_ok_legs,source:"env"}}
+      panel_policy:{min_ok_legs:$min_ok_legs,source:"env"},grok_recovery:$grok_recovery}
       + (if $ignored_paths_sha256 == "" then {} else
           {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes},
            sensitive_paths:{path:"sensitive-paths.json",sha256:$sensitive_paths_sha256,bytes:$sensitive_paths_bytes}} end)
@@ -993,8 +1025,9 @@ validate_manifest_shape() {
     def snapshot: exact(["sha256","bytes","mode"];["sha256","bytes","mode"])
       and (.sha256|sha) and (.bytes|uint) and (.mode|type=="string" and test("^[0-7]{3,4}$"));
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy","containment"];
-          ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers"])
+    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy","containment","grok_recovery"];
+          ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","grok_recovery"])
+    and (.grok_recovery | IN("permit","reject"))
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
     and (if has("containment") then
       all(.providers[]; .containment|IN("pid-namespace","session"))
@@ -1122,7 +1155,7 @@ verify_live_binding() {
 }
 
 verify_collection_internal() {
-  local dir="$1" expected_sha="$2" manifest provider path status wrapper roots
+  local dir="$1" expected_sha="$2" manifest provider path status wrapper grok_recovery roots
   [ ! -L "$dir" ] || die "collection directory must not be symbolic"
   dir="$(real_dir "$dir")"; manifest="$dir/manifest.json"
   [ -f "$manifest" ] && [ ! -L "$manifest" ] || die "collection manifest missing or symbolic"
@@ -1133,6 +1166,7 @@ verify_collection_internal() {
   jq -e '.git_surface.schema == "tribunal-git-surface/v2"' "$manifest" >/dev/null \
     || die "collection manifest lacks git_surface identity; recollect with this runner (older manifests are unsupported)"
   validate_manifest_shape "$manifest" || die "collection manifest schema invalid"
+  grok_recovery="$(jq -r .grok_recovery "$manifest")"
   load_git_surface "$manifest"
   load_safe_directories
   require_git_version
@@ -1206,6 +1240,8 @@ verify_collection_internal() {
     [ "$(bytes_file "$dir/$path")" = "$(jq -r --arg p "$provider" '.providers[]|select(.provider==$p)|.artifact.bytes' "$manifest")" ] \
       || die "provider artifact size mismatch: $provider"
     validate_provider "$provider" "$dir/$path" || die "provider artifact schema invalid: $provider"
+    grok_recovery_allowed "$grok_recovery" "$dir/$path" \
+      || die "grok_recovery_rejected: artifact violates sealed recovery policy"
     status="$(provider_status "$dir/$path")"
     [ "$status" = "$(jq -r --arg p "$provider" '.providers[]|select(.provider==$p)|.status' "$manifest")" ] \
       || die "provider status mismatch: $provider"

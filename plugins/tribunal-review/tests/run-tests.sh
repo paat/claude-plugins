@@ -10,6 +10,7 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 # Pin product defaults so host shell exports cannot flip panel membership mid-suite.
 # Per-test prefixes still override (e.g. TRIBUNAL_GROK=off for disabled-marker cases).
 export TRIBUNAL_GROK=on
+export TRIBUNAL_GROK_RECOVERY=permit
 # Muse is on by default in product; off here so a real muse on PATH never answers a fixture.
 export TRIBUNAL_MUSE=off
 export TRIBUNAL_GEMINI=off
@@ -4244,6 +4245,80 @@ EOF
     FAILURES+=("sealed panel_policy integrity")
   fi
 
+  # Recovery policy is fixed at collection, including when ambient settings change.
+  cat > "$plugin/scripts/run-grok-review.sh" <<'EOF_GROK'
+#!/usr/bin/env bash
+bash "$(dirname "$0")/run-codex-review.sh" | jq '.provider="grok" | .grok_execution={verdict_phase:"finalize",inspect_exit_code:124,requested_effort:"high",verdict_effort:"low"}'
+EOF_GROK
+  "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
+  local recovery_policy recovery_status opposite
+  for recovery_policy in permit reject; do
+    collection="$work/recovery-$recovery_policy"
+    recovery_status=ok; opposite=reject
+    if [ "$recovery_policy" = reject ]; then recovery_status=failed; opposite=permit; fi
+    PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      TRIBUNAL_MIN_OK_LEGS=2 TRIBUNAL_GROK_RECOVERY="$recovery_policy" \
+      "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
+        --output "$collection" > "$work/collect-recovery.json"
+    manifest_sha="$(jq -r .manifest_sha256 "$work/collect-recovery.json")"
+    if jq -e --arg policy "$recovery_policy" --arg status "$recovery_status" '
+      .grok_recovery==$policy and .panel_policy.min_ok_legs==2 and (.providers|length)==7
+      and any(.providers[]; .provider=="grok" and .status==$status)' "$collection/manifest.json" >/dev/null \
+      && { [ "$recovery_policy" = permit ] || jq -e '.error|contains("grok_recovery_rejected")' "$collection/providers/grok.json" >/dev/null; }; then
+      echo -e "  ${GREEN}PASS${NC} collector seals $recovery_policy recovery policy, named status and unchanged panel floor"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} collector seals $recovery_policy recovery policy, named status and unchanged panel floor"; FAIL=$((FAIL+1))
+      FAILURES+=("sealed $recovery_policy recovery policy")
+    fi
+    jq '{tribunal_verdict:{decision:"APPROVE",confidence:(if any(.providers[];.status=="failed") then 0.9 else 0.95 end),rationale:"Fixture review."},
+      findings:[],scope_findings:[],conflicts_resolved:[],summary:"Fixture review.",
+      provider_assessment:(.providers|map({key:.provider,value:{status:.status,findings_accepted:0,findings_rejected:0,false_positives:[]}})|from_entries)}' \
+      "$collection/manifest.json" > "$work/arbitration-recovery.json"
+    ec=0
+    PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      TRIBUNAL_MIN_OK_LEGS=1 TRIBUNAL_GROK_RECOVERY="$opposite" \
+      "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+        --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/arbitration-recovery.json" \
+        > "$work/finalize-recovery.json" 2> "$work/finalize-recovery.err" || ec=$?
+    if { [ "$recovery_policy" = permit ] && [ "$ec" -eq 0 ]; } \
+      || { [ "$recovery_policy" = reject ] && [ "$ec" -ne 0 ] && grep -q 'arbitration' "$work/finalize-recovery.err"; }; then
+      echo -e "  ${GREEN}PASS${NC} sealed $recovery_policy recovery and quorum survive opposite finalize environment"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} sealed $recovery_policy recovery and quorum survive opposite finalize environment"; FAIL=$((FAIL+1))
+      FAILURES+=("sealed $recovery_policy recovery finalize")
+    fi
+  done
+
+  # Substitute a valid recovered verdict and reseal it to reach policy verification.
+  collection="$work/recovery-reject"
+  chmod u+w "$collection/providers/grok.json" "$collection/manifest.json"
+  cp "$work/recovery-permit/providers/grok.json" "$collection/providers/grok.json"
+  jq --arg digest "$(sha256sum "$collection/providers/grok.json" | awk '{print $1}')" \
+    --argjson bytes "$(wc -c < "$collection/providers/grok.json")" '
+    (.providers[]|select(.provider=="grok")) |=
+      (.status="ok" | .artifact.sha256=$digest | .artifact.bytes=$bytes)
+    ' "$collection/manifest.json" > "$work/resealed-manifest.json"
+  cat "$work/resealed-manifest.json" > "$collection/manifest.json"
+  chmod 0444 "$collection/providers/grok.json" "$collection/manifest.json"
+  manifest_sha="$(sha256sum "$collection/manifest.json" | awk '{print $1}')"
+  local command
+  for command in verify-collection finalize; do
+    local recovery_args=()
+    [ "$command" != finalize ] || recovery_args=(--arbitration "$work/arbitration-recovery.json")
+    ec=0
+    PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      TRIBUNAL_GROK_RECOVERY=permit \
+      "$plugin/scripts/collect-review-evidence.sh" "$command" --collection "$collection" \
+        --expected-manifest-sha256 "$manifest_sha" "${recovery_args[@]}" \
+        >/dev/null 2> "$work/substituted-recovery.err" || ec=$?
+    if [ "$ec" -ne 0 ] && grep -Fq 'grok_recovery_rejected: artifact violates sealed recovery policy' "$work/substituted-recovery.err"; then
+      echo -e "  ${GREEN}PASS${NC} $command rejects resealed recovery despite ambient permit"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $command rejects resealed recovery despite ambient permit"; FAIL=$((FAIL+1))
+      FAILURES+=("$command sealed recovery policy verification")
+    fi
+  done
+
   if bash "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" | jq -e '.status=="valid"' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} runner bundle valid after panel quorum changes"; PASS=$((PASS+1))
   else
@@ -5455,6 +5530,131 @@ EOF
   rm -rf "$work"
 }
 
+test_grok_recovery_provenance() {
+  local work fake host_grok
+  work="$(mktemp -d)"; fake="$work/bin"; host_grok="$work/host-grok"; mkdir -p "$fake"
+  install_grok_auth_fixture "$host_grok"
+  (
+    cd "$work" && git init -q && git config user.email t@t && git config user.name t
+    printf 'one\n' > file.txt && git add file.txt && git commit -q -m base
+    printf 'two\n' > file.txt && git commit -q -am change
+  )
+  cat > "$fake/grok" <<'CLI'
+#!/usr/bin/env bash
+phase=inspect
+for arg in "$@"; do [ "$arg" != --resume ] || phase=finalize; done
+printf '%s\n' "$phase" >> "$FIXTURE_STATE/phases"
+if [ "$phase" = inspect ] && [ "$FIXTURE_SCENARIO" != direct ]; then
+  printf '%s\n' '{"text":"still reviewing","sessionId":"44444444-4444-4444-4444-444444444444"}'
+  if [ "$FIXTURE_SCENARIO" = quota ]; then
+    printf 'usage limit exceeded\n' >&2
+    exit 1
+  fi
+  exit 124
+fi
+case "$FIXTURE_SCENARIO" in
+  progress) printf '%s\n' '{"text":"still reviewing"}'; exit 0 ;;
+  failure) printf 'fixture recovery failed\n' >&2; exit 1 ;;
+esac
+# A model-authored provenance claim must be discarded before runner stamping.
+cat <<'JSON'
+{"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},"grok_execution":{"verdict_phase":"inspect","inspect_exit_code":77,"requested_effort":"forged","verdict_effort":"forged"}},"modelUsage":{"grok-fixture-model":{}}}
+JSON
+CLI
+  chmod +x "$fake/grok"
+  run_provenance_fixture() {
+    : > "$work/phases"
+    (cd "$work" && env -u XAI_API_KEY -u TRIBUNAL_GROK_RECOVERY -u TRIBUNAL_RISK -u TRIBUNAL_GROK_EFFORT \
+      PATH="$fake:$PATH" GROK_HOME="$host_grok" TRIBUNAL_BASE_REF=HEAD~1 FIXTURE_STATE="$work" \
+      FIXTURE_SCENARIO=timeout "$@" bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/out.json")
+  }
+  run_provenance_fixture FIXTURE_SCENARIO=direct TRIBUNAL_GROK_EFFORT=high
+  tr_check "Grok direct inspection stamps runner-owned phase, exit and efforts" jq -e \
+    '.summary.verdict=="APPROVE" and .grok_execution=={verdict_phase:"inspect",inspect_exit_code:0,requested_effort:"high",verdict_effort:"high"}' "$work/out.json"
+  run_provenance_fixture FIXTURE_SCENARIO=direct
+  tr_check "Grok CLI-default inspection effort stays explicitly unknown" jq -e \
+    '.grok_execution=={verdict_phase:"inspect",inspect_exit_code:0,requested_effort:null,verdict_effort:null}' "$work/out.json"
+  run_provenance_fixture TRIBUNAL_GROK_EFFORT=high
+  tr_check "Grok timeout APPROVE recovery is distinguishable and permitted by default" jq -e \
+    '.summary.verdict=="APPROVE" and (has("error")|not) and .grok_execution=={verdict_phase:"finalize",inspect_exit_code:124,requested_effort:"high",verdict_effort:"low"}' "$work/out.json"
+  run_provenance_fixture TRIBUNAL_GROK_RECOVERY=permit
+  tr_check "Grok explicit permit retains recovery with unknown requested effort" jq -e \
+    '.summary.verdict=="APPROVE" and .grok_execution=={verdict_phase:"finalize",inspect_exit_code:124,requested_effort:null,verdict_effort:"low"}' "$work/out.json"
+  run_provenance_fixture TRIBUNAL_GROK_RECOVERY=reject
+  tr_check "Grok strict recovery is a named failed leg, never an ok APPROVE" jq -e \
+    '.provider=="grok" and (.error|contains("grok_recovery_rejected")) and (has("summary")|not) and (has("status")|not)' "$work/out.json"
+  tr_check "Grok strict timeout records required phase and inspect exit in the standard error shape" jq -e \
+    'keys==["error","provider"] and (.error|contains("(inspect_rc=124, phase=finalize required)"))' "$work/out.json"
+  tr_check "Grok strict timeout never invokes finalize" test "$(cat "$work/phases")" = inspect
+  for name in validate_provider write_failed_provider grok_recovery_allowed normalize_single provider_status; do
+    sed -n "/^$name() {/,/^}/p" "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" >> "$work/helpers.sh"
+  done
+  bash -c '. "$1/helpers.sh"; normalize_single grok "$1/out.json" 0 "$1/grok.json" "" "" reject
+    provider_status "$1/grok.json" > "$1/status"' _ "$work"
+  tr_check "collector preserves the wrapper timeout rejection and diagnostics" jq -e \
+    '.provider=="grok" and (.error|startswith("grok_recovery_rejected")) and (.error|contains("(inspect_rc=124, phase=finalize required)"))' "$work/grok.json"
+  tr_check "collector classifies the wrapper timeout rejection as failed" test "$(cat "$work/status")" = failed
+  tr_check "collector rejection never invokes Grok finalize" test "$(cat "$work/phases")" = inspect
+  run_provenance_fixture FIXTURE_SCENARIO=quota TRIBUNAL_GROK_RECOVERY=reject
+  bash -c '. "$1/helpers.sh"; normalize_single grok "$1/out.json" 0 "$1/grok.json" "" "" reject' _ "$work"
+  tr_check "collector preserves plan-limit diagnostics for strict partial-output inspect failure" jq -e \
+    '.provider=="grok" and (.error|startswith("plan limit:"))' "$work/grok.json"
+  tr_check "Grok strict quota failure never invokes finalize" test "$(cat "$work/phases")" = inspect
+  run_provenance_fixture FIXTURE_SCENARIO=direct TRIBUNAL_GROK_RECOVERY=reject
+  tr_check "Grok strict policy still accepts a completed direct inspection" jq -e \
+    '.summary.verdict=="APPROVE" and .grok_execution.verdict_phase=="inspect" and (has("error")|not)' "$work/out.json"
+  run_provenance_fixture FIXTURE_SCENARIO=progress
+  tr_check "Grok progress-only recovery remains a failed leg" jq -e \
+    '.provider=="grok" and (.error|contains("progress_only")) and (has("summary")|not)' "$work/out.json"
+  run_provenance_fixture FIXTURE_SCENARIO=failure
+  tr_check "Grok failed recovery remains a failed leg" jq -e \
+    '.provider=="grok" and (.error|contains("finalize_rc=1")) and (has("summary")|not)' "$work/out.json"
+  run_provenance_fixture TRIBUNAL_BASE_REF=HEAD TRIBUNAL_GROK_RECOVERY=reject
+  tr_check "Grok empty diff records no invented inspection or effort" jq -e \
+    '.diff_stat.files_changed==0 and .grok_execution=={verdict_phase:null,inspect_exit_code:null,requested_effort:null,verdict_effort:null}' "$work/out.json"
+  tr_check "provider normalization strips model-authored Grok provenance" bash -c '
+    . "$1/scripts/lib.sh"
+    jq -n '\''{provider:"claude",findings:[],summary:{verdict:"APPROVE"},grok_execution:{verdict_phase:"inspect"}}'\'' | tribunal_emit_review claude | jq -e '\''has("grok_execution")|not'\''
+  ' _ "$PLUGIN_ROOT"
+  tr_check "provider output schema forbids model-authored Grok provenance" jq -e \
+    '.additionalProperties==false and (.properties|has("grok_execution")|not)' "$PLUGIN_ROOT/schemas/review-output.json"
+  run_provenance_fixture TRIBUNAL_GROK_RECOVERY=typo
+  invalid_recovery_policy() {
+    [ ! -s "$work/phases" ] && jq -e '.provider=="grok" and has("error") and (has("summary")|not)' "$work/out.json" >/dev/null
+  }
+  tr_check "Grok invalid recovery policy fails before invoking the CLI" invalid_recovery_policy
+  rm -rf "$work"
+}
+
+test_grok_collector_provenance() {
+  local work
+  work="$(mktemp -d)"
+  for name in validate_provider write_failed_provider grok_recovery_allowed normalize_single; do
+    sed -n "/^$name() {/,/^}/p" "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" >> "$work/helpers.sh"
+  done
+  jq -n '{provider:"grok",model:"grok-fixture",files_examined:["file.txt"],findings:[],
+    summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"},
+    diff_stat:{files_changed:1,insertions:1,deletions:1,base:"HEAD~1",base_oid:("a"*40),head_oid:("b"*40),truncated:false},
+    grok_execution:{verdict_phase:"finalize",inspect_exit_code:124,requested_effort:null,verdict_effort:"low"}}' > "$work/recovered.json"
+  tr_check "collector accepts complete Grok runner provenance" bash -c '. "$1/helpers.sh"; validate_provider grok "$1/recovered.json"' _ "$work"
+  jq 'del(.grok_execution)' "$work/recovered.json" > "$work/missing.json"
+  tr_check "collector rejects successful Grok without runner provenance" bash -c '. "$1/helpers.sh"; ! validate_provider grok "$1/missing.json"' _ "$work"
+  jq '.provider="claude"' "$work/recovered.json" > "$work/foreign.json"
+  tr_check "collector forbids Grok provenance on another provider" bash -c '. "$1/helpers.sh"; ! validate_provider claude "$1/foreign.json"' _ "$work"
+  jq 'del(.grok_execution.requested_effort)' "$work/recovered.json" > "$work/partial.json"
+  tr_check "collector requires explicit null for unknown effort" bash -c '. "$1/helpers.sh"; ! validate_provider grok "$1/partial.json"' _ "$work"
+  jq '.grok_execution.verdict_effort="high"' "$work/recovered.json" > "$work/wrong-effort.json"
+  tr_check "collector rejects finalize provenance claiming a non-low effort" bash -c '. "$1/helpers.sh"; ! validate_provider grok "$1/wrong-effort.json"' _ "$work"
+  bash -c '. "$1/helpers.sh"; normalize_single grok "$1/recovered.json" 0 "$1/permit.json" "" "" permit' _ "$work"
+  tr_check "collector permit preserves recovered APPROVE and provenance" jq -e '.summary.verdict=="APPROVE" and .grok_execution.verdict_phase=="finalize"' "$work/permit.json"
+  bash -c '. "$1/helpers.sh"; normalize_single grok "$1/recovered.json" 0 "$1/reject.json" "" "" reject' _ "$work"
+  tr_check "collector strict normalization excludes recovery from quorum" jq -e '.provider=="grok" and (.error|contains("grok_recovery_rejected")) and (has("summary")|not)' "$work/reject.json"
+  jq '.grok_execution.verdict_phase=null' "$work/recovered.json" > "$work/unknown.json"
+  bash -c '. "$1/helpers.sh"; normalize_single grok "$1/unknown.json" 0 "$1/reject-unknown.json" "" "" reject' _ "$work"
+  tr_check "collector strict normalization cannot accept unknown inspection phase" jq -e '.provider=="grok" and (.error|contains("grok_recovery_rejected")) and (has("summary")|not)' "$work/reject-unknown.json"
+  rm -rf "$work"
+}
+
 test_preflight_risk_and_backups() {
   local work fake out ec
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
@@ -5666,7 +5866,7 @@ HOOK
     many) for i in {01..25}; do printf 'scratch\n' > "scratch-$i.txt"; done ;;
   esac
 fi
-printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
+printf '%s\n' "{\"provider\":\"$1\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}" | jq --arg provider "$1" 'if $provider == "grok" then .grok_execution={verdict_phase:"inspect",inspect_exit_code:0,requested_effort:null,verdict_effort:null} else . end'
 if [ "$1" = claude ]; then
   case "${FIXTURE_MUTATION:-}" in
     config-fifo-race)
@@ -6309,6 +6509,8 @@ echo "Risk tier, effort, and backup legs"
 test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok
 test_grok_finalize_effort
+test_grok_recovery_provenance
+test_grok_collector_provenance
 test_preflight_risk_and_backups
 test_backup_leg_collection
 test_collector_completion_order
