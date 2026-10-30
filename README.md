@@ -139,7 +139,8 @@ and its data licence is **UNKNOWN**. Failed/incomplete feeds preserve the whole
 last good table while catalog detection continues. Pending trigger rows survive
 an open PR or failed pass; repeated unchanged feeds add none. Run
 `XDG_STATE_HOME=$(mktemp -d) bash scripts/refresh-model-versions.sh --feeds-only`
-for an isolated live fetch/build with trigger counts and no model calls.
+for an isolated live fetch/build with no model calls.
+The first run only seeds fresh state; triggers require a later run against the same state directory.
 
 State, the handled catalog, and the last run log live in `~/.local/state/model-refresh/`.
 It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and all four provider CLIs; it
