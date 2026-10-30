@@ -28,6 +28,8 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Local Qwen | `default` | Runs whatever model the local endpoint serves (a pinned id must be served). Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
 | agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate; review remains advisory | `low`, `medium`, `high` |
+| agy (Antigravity) | `claude-sonnet-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
+| agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
 
 Use `task-fit.md` to select model and effort from the task's acceptance criteria. A newer
 flagship does not retire cheaper tiers. Explicit model requests still take precedence.
@@ -93,7 +95,8 @@ silently; select a supported level or return an incompatibility.
 - Local Qwen (`qwen`) and agy are providers like any other: an allow/deny list that excludes them
   removes them from the pool, and a provider-only restriction (`Codex only`, `Claude only`,
   `Grok only`, `Muse only`) excludes them too. Pass restrictions to `pool.sh` as `--allow`/`--deny` lists of
-  providers or models.
+  providers or models. `--deny claude` also removes agy's `claude-*` rows; `--allow claude` admits
+  them only if `agy` or the model is listed too.
 
 ## Availability
 
@@ -103,7 +106,12 @@ pinned model not served (or several served and none pinned), or no wrapper. Loca
 worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and
 agy reviews remain advisory. Local implementation stays bounded and mechanical; agy
-Flash stays in T1/T2 while Argon is a T3 implementation candidate. Neither is a T4 route.
+Flash stays in T1/T2 while Argon is a T3 implementation candidate. agy Sonnet 5.5 (T2) and Opus
+5.5 (T3) sit right after the same model on Claude, so a spent Claude plan window (a tight usage
+line or exit `75`) moves the leg to that model through agy before another vendor. agy's three
+quota pools (Gemini Flash, Claude, Argon) each gate only their own models. None of agy's routes is
+a T4 route. For reviewer independence an `agy/claude-*` worker counts as Claude: its reviewer must
+be another vendor.
 
 ## Evidence basis
 
