@@ -21,6 +21,7 @@ mmo_signal_init() {
 
 mmo_stop() {
   if [ "${mmo_running:-0}" = 1 ]; then
+    [ "$mmo_stop_code" -ne 0 ] || mmo_stop_deadline=$((SECONDS + 12))
     mmo_stop_signal="$1"
     mmo_stop_code="$2"
     [ -z "${mmo_timeout_pid:-}" ] || mmo_forward_stop "$1" "$mmo_timeout_pid"
@@ -45,6 +46,7 @@ mmo_forward_stop() {
       } while (changed)
       for (p in seen) if (p != root && command[p] == "timeout") print p
     }')"
+  mmo_stop_pids+=("$pid" $nested)
   if [ -n "$nested" ]; then
     # ps supplies only numeric PIDs.
     kill -s "$sig" $nested 2>/dev/null || :
@@ -59,7 +61,9 @@ mmo_forward_stop() {
 mmo_run() {
   local kind="$1" stream="$2" err="$3"
   shift 3
-  local state control output_fd job rc=0 read_rc
+  local state control output_fd job rc=0 read_rc pid alive
+  local mmo_stop_deadline=0
+  local -a mmo_stop_pids=()
   local mmo_running=0 mmo_timeout_pid="" mmo_stop_signal="" mmo_stop_code=0
   state="$(mktemp -d)" || return
   exec {output_fd}>&1
@@ -104,6 +108,17 @@ mmo_run() {
     # An interrupted wait leaves the job alive; a second wait must reap it.
     kill -0 "$job" 2>/dev/null || break
   done
+  # A killed supervisor can exit before timeout finishes its kill-after grace.
+  if [ "$mmo_stop_code" -ne 0 ]; then
+    while [ "$SECONDS" -lt "$mmo_stop_deadline" ]; do
+      alive=0
+      for pid in "${mmo_stop_pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+      done
+      [ "$alive" -ne 0 ] || break
+      sleep 0.1 || :
+    done
+  fi
   mmo_pipe_status=()
   [ ! -f "$state/status" ] || mapfile -t mmo_pipe_status < "$state/status"
   rm -rf "$state"

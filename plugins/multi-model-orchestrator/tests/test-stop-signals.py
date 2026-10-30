@@ -145,9 +145,10 @@ def check(case):
                 os.killpg(proc.pid, sig)
             else:
                 os.kill(proc.pid, sig)
-            assert select.select([pid_fd], [], [], 12)[0], "provider still alive 12s after stop"
-            assert select.select([runner_fd], [], [], max(0.01, 12 - (time.monotonic() - started)))[0], "runner did not exit within 12s"
-            proc.wait(timeout=max(0.01, 12 - (time.monotonic() - started)))
+            proc.wait(timeout=13)
+            assert time.monotonic() - started < 13, "runner did not exit within 13s"
+            assert select.select([pid_fd], [], [], 0)[0], "provider still alive when runner returned"
+            assert select.select([runner_fd], [], [], 0)[0], "runner still alive when caller returned"
             expected = 128 + sig
             # A group stop may terminate pool itself by signal; the runner must still record.
             allowed = (expected, -sig) if provider == "pool" and target == "group" else (expected,)
