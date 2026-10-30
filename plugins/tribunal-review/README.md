@@ -10,7 +10,7 @@ process before merge.
 
 ## Prerequisites
 
-- Bash 4+, git 2.41+ (sealed collection uses `--attr-source`), and standard `awk`/`sed`/coreutils commands
+- Bash 4+, git 2.42+ (sealed collection uses `--attr-source` and `cat-file -Z`), and standard `awk`/`sed`/coreutils commands
 - [OpenAI Codex CLI](https://github.com/openai/codex) (`npm install -g @openai/codex`)
 - [Antigravity CLI](https://antigravity.google/docs/cli/install/) (`agy`) — **optional**, only for the Gemini leg (opt-in via `TRIBUNAL_GEMINI=on`; off by default). Sign in once with a Google AI Pro/Ultra account, or set `GEMINI_API_KEY` for API-key mode. Gemini CLI no longer serves personal Google accounts
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`, npm package `@deepseek-ai/dsh`; Node `^22.19 || >=24`) — **optional**, for the opt-in DeepSeek leg (`TRIBUNAL_DEEPSEEK=on`). Default model: `deepseek-v4-pro`; override with `TRIBUNAL_DEEPSEEK_MODEL`. Configure the key in the environment (`DEEPSEEK_API_KEY`), in `${DSH_HOME:-$HOME/.dsh}/.credentials.yaml` (`refs.DEEPSEEK_API_KEY`), or in `${DSH_HOME:-$HOME/.dsh}/.env`; dsh resolves the key, and preflight checks presence without printing it. The default model pin is not covered by the repository's daily model-ID refresh (`scripts/refresh-model-versions.sh` has no DeepSeek catalog source); bump `deepseek-v4-pro` by hand when DeepSeek ships a successor.
@@ -273,7 +273,15 @@ counted as a provider failure regardless of its verdict, so a fabricated clean
 pass cannot satisfy a merge gate. Every review-shaped leg also lists
 `files_examined`, and an empty-findings APPROVE that names no path changed in
 the reviewed range is counted as a provider failure (a truly empty range is
-exempt). For sealed PR evidence,
+exempt). For every non-empty range, with or without findings, each examined
+path must exist in the pinned `base_oid`, `head_oid`, or their merge-base tree
+after stripping leading `./` segments. Deleted paths present only at the
+merge-base and head-only added paths are valid. `.` and paths through a
+symlinked directory are not tree entries and are rejected. An absent path or
+an unavailable pinned tree produces a named provider failure excluded from
+quorum, with no worktree fallback (issue #671). This checks existence, not
+whether a file was read or a conclusion is sound.
+For sealed PR evidence,
 `collect-review-evidence.sh` additionally requires the stamped `base_oid` and
 `head_oid` to be the collection's own — a well-formed leg for another revision
 seals as `failed`, not `ok`.

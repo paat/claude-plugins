@@ -420,8 +420,8 @@ require_git_version() {
   local version
   version="$(command git --version)"
   [[ "$version" =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] \
-    && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 41) )) \
-    || die "git 2.41+ is required for --attr-source (found: $version)"
+    && (( BASH_REMATCH[1] > 2 || (BASH_REMATCH[1] == 2 && BASH_REMATCH[2] >= 42) )) \
+    || die "git 2.42+ is required for --attr-source and cat-file -Z (found: $version)"
 }
 
 real_dir() {
