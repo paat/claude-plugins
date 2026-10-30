@@ -349,7 +349,7 @@ fi
 if [ "$haiku" -eq 1 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
 if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="${out_dev:-$output_file}"; fi
 
-cli_error_pattern="^API Error: [0-9]{3}|^You've hit your .*limit\b|^(Your )?Credit balance (is )?too low"
+cli_error_pattern="API Error: [0-9]{3}|^You've hit your .*limit\b|^(Your )?Credit balance (is )?too low"
 : > "$classify_file"
 if [ "$provider_rc" -ne 0 ] || { [ "$api" -eq 1 ] && [ "$rc" -eq 1 ]; }; then
   if [ "$stream_log_set" -eq 1 ] && [ -f "$stream_file" ]; then
