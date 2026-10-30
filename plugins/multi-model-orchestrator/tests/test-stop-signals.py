@@ -38,6 +38,11 @@ try:
     fd3_open = True
 except OSError:
     fd3_open = False
+config = os.environ.get("CLAUDE_CONFIG_DIR")
+config_info = {"path": config, "mode": Path(config).stat().st_mode & 0o777,
+               "empty": not any(Path(config).iterdir())} if config else None
+if config and "api" in os.environ["STOP_CASE"]:
+    Path(config, "cli-state").touch()
 ancestor = os.getppid()
 runner_pid = None
 while ancestor > 1 and ancestor != int(os.environ["STOP_HARNESS_PID"]):
@@ -45,7 +50,7 @@ while ancestor > 1 and ancestor != int(os.environ["STOP_HARNESS_PID"]):
     if any(Path(os.fsdecode(arg)).name == os.environ["STOP_RUNNER"] for arg in command):
         runner_pid = ancestor
     ancestor = int(Path(f"/proc/{ancestor}/stat").read_text().rsplit(") ", 1)[1].split()[1])
-os.write(int(os.environ["STOP_READY_FD"]), (json.dumps({"pid": os.getpid(), "pgid": os.getpgrp(), "fd3_open": fd3_open, "runner_pid": runner_pid}) + "\\n").encode())
+os.write(int(os.environ["STOP_READY_FD"]), (json.dumps({"pid": os.getpid(), "pgid": os.getpgrp(), "fd3_open": fd3_open, "runner_pid": runner_pid, "config": config_info}) + "\\n").encode())
 while True:
     signal.pause()
 ''')
@@ -88,6 +93,9 @@ def check(case):
                     "user.email=test@example.invalid", "commit", "-qm", "base"], check=True)
     for directory in ("home", "tmp"):
         (fixture / directory).mkdir()
+    host_config = fixture / "home" / ".claude"
+    host_config.mkdir()
+    (host_config / ".credentials.json").write_text('{"fixture":"host-oauth"}')
     key = fixture / "api-key"
     key.write_text("dummy-test-key\n")
     tiers = fixture / "tiers.tsv"
@@ -95,7 +103,7 @@ def check(case):
     output = fixture / "outcomes.tsv"
     read_fd, write_fd = readiness_pipe()
     env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin",
-           "HOME": str(fixture / "home"), "TMPDIR": str(fixture / "tmp"),
+           "HOME": str(fixture / "home"), "CLAUDE_CONFIG_DIR": str(host_config), "TMPDIR": str(fixture / "tmp"),
            "MMO_OUTCOMES_FILE": str(output), "MMO_POOL_TIERS": str(tiers),
            "MMO_QWEN_LOCAL_RUN": str(bin_dir / "qwen-wrapper"),
            "MMO_CLAUDE_API_KEY_FILE": str(key), "STOP_READY_FD": str(write_fd),
@@ -147,6 +155,10 @@ def check(case):
             runner_fd = os.pidfd_open(info["runner_pid"])
             if "api" in name:
                 assert not info["fd3_open"], "FD 3 leaked to CLI"
+                assert info["config"] and info["config"]["path"] != str(host_config), "host config inherited"
+                assert info["config"]["mode"] == 0o700 and info["config"]["empty"], info["config"]
+            elif provider == "claude":
+                assert info["config"]["path"] == str(host_config), "plan config changed"
             started = time.monotonic()
             if target == "group":
                 os.killpg(proc.pid, sig)
@@ -156,6 +168,9 @@ def check(case):
             assert time.monotonic() - started < 13, "runner did not exit within 13s"
             assert select.select([pid_fd], [], [], 0)[0], "provider still alive when runner returned"
             assert select.select([runner_fd], [], [], 0)[0], "runner still alive when caller returned"
+            if "api" in name:
+                assert not Path(info["config"]["path"]).exists(), "API config survived stop"
+            assert (host_config / ".credentials.json").read_text() == '{"fixture":"host-oauth"}'
             expected = 128 + sig
             # A group stop may terminate pool itself by signal; the runner must still record.
             allowed = (expected, -sig) if provider == "pool" and target == "group" else (expected,)

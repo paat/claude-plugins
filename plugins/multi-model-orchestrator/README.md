@@ -71,7 +71,8 @@ T4 excludes API overflow because API legs skip project deny rules and hooks.
 window is tight or the matching plan leg returns `exit=75 failure=limit`; transient failures do not
 enable API spending. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organization's key file;
 `run-claude.sh --api` uses it only in the leg, bypasses plan-window gates, and exits 75 when
-unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables, and
+unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables and use an
+empty, private per-leg `CLAUDE_CONFIG_DIR`, removed on exit or stop, to isolate the host OAuth login.
 `apiKeyHelper` sends the file key in both `x-api-key` and `Authorization` (as documented) without
 exporting it to CLI or tool environments. They explicitly load root `CLAUDE.md` and `.claude/` rules;
 with settings sources disabled, only unconditional rules load, while rules with `paths:` frontmatter

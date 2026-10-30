@@ -4,7 +4,9 @@ set +x
 set -euo pipefail
 
 key_file="$1"
-shift
+# Set after environment scrubbing so no host login can service non-model calls.
+export CLAUDE_CONFIG_DIR="$2"
+shift 2
 api_key=""
 if [ -f "$key_file" ] && [ -r "$key_file" ]; then
   api_key="$(< "$key_file")"
