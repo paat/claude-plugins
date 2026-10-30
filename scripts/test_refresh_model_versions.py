@@ -331,6 +331,25 @@ eval_get() {
         self.assertEqual(len(changes), 1)
         self.assertTrue(changes[0].startswith("unmapped\t"))
 
+    def test_openrouter_dated_canonical_slug_change_does_not_trigger(self):
+        row = self.parse("openrouter")[0]
+        v1 = row.copy()
+        v1[0] = ""
+        v1[1] = "openai/test-model:free"
+        v1[11] = "openai/test-model-20260929:free"
+        v2 = v1.copy()
+        v2[11] = "openai/test-model-20261030:free"
+        self.assertEqual(self.changes([v1], [v2]), [])
+
+    def test_openrouter_lost_mapping_on_exact_id_triggers(self):
+        old = self.parse("openrouter")[0]
+        self.assertTrue(len(old[0]) > 0)
+        new = old.copy()
+        new[0] = ""
+        changes = self.changes([old], [new])
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes, ["unmapped\t" + "\t".join(new)])
+
     def test_lost_mapping_triggers_even_for_existing_name(self):
         old = self.parse("terminal")[0]
         new = old.copy()
@@ -625,6 +644,21 @@ esac
         self.assertIn("would trigger: no", result.stdout)
         self.assertEqual((self.state / "eval-pending.txt").read_text(), "")
         self.assertEqual(calls, ["curl"] * 4)
+
+    def test_main_openrouter_canonical_slug_bump_does_not_trigger(self):
+        self.main_baseline()
+        self.add_openrouter_model("openai/gpt-6.1-sol:free", canonical_slug="openai/gpt-6.1-sol-20260929:free")
+        result, _ = self.main_script("--feeds-only")
+        self.assertEqual(result.returncode, 0)
+        data = fixture("openrouter")
+        for row in data["data"]:
+            if row["id"] == "openai/gpt-6.1-sol:free":
+                row["canonical_slug"] = "openai/gpt-6.1-sol-20261030:free"
+        self.write_fixture("openrouter", data)
+        result, calls = self.main_script("--feeds-only")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("would trigger: no", result.stdout)
+        self.assertEqual((self.state / "eval-pending.txt").read_text(), "")
 
     def test_feed_text_is_allowlisted_and_capped_in_claude_prompt(self):
         self.main_baseline()

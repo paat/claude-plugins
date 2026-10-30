@@ -2,17 +2,21 @@
 def rows: split("\n") | map(select(length > 0) | split("\t")) | .[1:];
 def key: [.[1], .[3], .[8], .[9], .[12]] | tojson;
 def unmapped_id:
-  [(if .[12] == "openrouter" then (.[11] | sub(":[a-zA-Z0-9_-]+$"; "")) else .[1] end), .[12]];
+  [(if .[12] == "openrouter" then (.[1] | sub(":[a-zA-Z0-9_-]+$"; "")) else .[1] end), .[12]];
+def is_variant: .[12] == "openrouter" and (.[1] | test(":[a-zA-Z0-9_-]+$"));
 ($old | rows | group_by(key) | map({key: (.[0]|key), value: .}) | from_entries) as $before
 | ($pool | split("\n") | map(select(startswith("#")|not) | split("\t") | .[2] // "")
    | map(if startswith("gpt-") then "openai" elif startswith("claude-") then "anthropic"
      elif startswith("gemini-") then "google" elif startswith("grok-") then "x-ai"
      elif startswith("muse-") then "meta" elif . == "default" then "qwen" else empty end) | unique) as $vendors
-| ($old | rows | map(select(.[12] == "openrouter" or .[0] == "") | unmapped_id | tojson) | unique) as $unmapped
+| ($old | rows | map(select(.[0] == "") | unmapped_id | tojson) | unique) as $unmapped
+| ($old | rows | map(select(.[12] == "openrouter" and .[0] != "") | unmapped_id | tojson) | unique) as $mapped_bases
 | ($old | rows | map(.[0]) | unique) as $models
 | [$new | rows | group_by(key)[] | . as $group | .[] | . as $row
 | $before[key] as $previous | $previous[0] as $prev
-| if .[0] == "" and ($vendors | index($row[2])) != null and ($unmapped | index($row | unmapped_id | tojson)) == null then
+| if .[0] == "" and ($vendors | index($row[2])) != null
+    and ($unmapped | index($row | unmapped_id | tojson)) == null
+    and (($row | is_variant | not) or ($mapped_bases | index($row | unmapped_id | tojson)) == null) then
     "unmapped\t" + ($row | join("\t"))
   elif .[0] != "" and ($models | index($row[0])) == null and ($vendors | index($row[2])) != null then
     "new_model\t" + ($row | join("\t"))
