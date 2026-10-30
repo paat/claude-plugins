@@ -107,11 +107,14 @@ worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55`
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and
 agy reviews remain advisory. Local implementation stays bounded and mechanical; agy
 Flash stays in T1/T2 while Argon is a T3 implementation candidate. agy Sonnet 5.5 (T2) and Opus
-5.5 (T3) sit right after the same model on Claude, so a spent Claude plan window (a tight usage
-line or exit `75`) moves the leg to that model through agy before another vendor. agy's three
+5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
+a plan leg returning `75` with `failure=limit` enables matching API overflow; transient
+failures fall through to agy. agy's three
 quota pools (Gemini Flash, Claude, Argon) each gate only their own models. None of agy's routes is
 a T4 route. For reviewer independence an `agy/claude-*` worker counts as Claude: its reviewer must
 be another vendor.
+
+For `claude-api` eligibility, authentication, identity, and credit policy, see [README routing policy](../../../README.md#routing-policy).
 
 ## Evidence basis
 

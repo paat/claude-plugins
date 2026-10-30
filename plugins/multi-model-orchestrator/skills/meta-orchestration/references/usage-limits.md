@@ -26,6 +26,8 @@ exit 75. Not before every leg.
 Save the `usage.sh` output to a file in the run directory and record one `Usage:` line in the
 handoff State (per provider: tightest window %, its reset UTC, as-of).
 
+For `claude-api` eligibility, authentication, identity, and credit policy, see [README routing policy](../../../README.md#routing-policy).
+
 ## Act
 
 A window is **tight** at ≥ 90% used when it resets after the leg would finish (its timeout).
