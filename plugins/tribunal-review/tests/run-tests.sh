@@ -4802,6 +4802,9 @@ test_mutation_gate
 test_trusted_evidence_collection
 test_sealed_panel_quorum
 test_required_checks
+source "$PLUGIN_ROOT/tests/test-required-checks-portability.sh"
+test_required_checks_portability
+assert_json_field "source-checkout collection and root-drift regressions" "bash '$PLUGIN_ROOT/tests/test-collector-portability.sh'"
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"

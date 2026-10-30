@@ -5,7 +5,7 @@
 #   required-checks.sh --repo owner/name --sha <40-hex> [--base <branch>]
 #
 # Prints one JSON object to stdout:
-#   {sha, checks:[{name,status,conclusion}], ok:bool}
+#   {sha, checks:[{name,status,conclusion}], ok:bool, ci, reason?}
 #
 # Exit 0 iff every required check is completed+success and at least one
 # required check exists. Exit 1 on empty / pending / failed required checks.
@@ -16,6 +16,7 @@
 # names with every check-run whose conclusion is not skipped/neutral.
 # A required name whose latest run is skipped/neutral fails (stricter than GitHub; deliberately fail-closed).
 # Empty check-runs list ⇒ ok=false (unearned green).
+# With no configured names either, ci=none and reason="no CI configured".
 # Legacy commit statuses are unsupported; status-only required contexts count as missing.
 # Does not use `gh pr checks` (can mis-label required vs optional).
 set -euo pipefail
@@ -96,13 +97,33 @@ ERR="$(mktemp)"
 trap 'rm -f "$ERR"' EXIT HUP INT TERM
 
 api() {
-  local reason="$1"
+  local reason="$1" response doc='' empty=''
   shift
-  if ! gh api -H 'Accept: application/vnd.github+json' "$@" 2>"$ERR"; then
+  if ! response="$(gh api -H 'Accept: application/vnd.github+json' "$@" 2>"$ERR")"; then
+    case "$reason" in
+      'branch protection')
+        doc='https://docs.github.com/rest/branches/branches#get-a-branch'
+        empty='{"protected":false}' ;;
+      rules)
+        doc='https://docs.github.com/rest/repos/rules#get-rules-for-a-branch'
+        empty='[]' ;;
+    esac
+    # GitHub's free-private-plan denial, probed 2026-10-30 on the rules API.
+    # Match the API JSON, not stderr: permission/rate-limit/partial-page failures stay closed.
+    if [ -n "$doc" ] && printf '%s' "$response" | jq -se --arg doc "$doc" '
+      length == 1 and (.[0] |
+        .status == "403"
+        and .message == "Upgrade to GitHub Pro or make this repository public to enable this feature."
+        and .documentation_url == $doc)
+    ' >/dev/null 2>&1; then
+      printf '%s\n' "$empty"
+      return 0
+    fi
     printf 'required-checks: %s API failed for %s\n' "$reason" "$REPO" >&2
     cat "$ERR" >&2
     return 2
   fi
+  printf '%s\n' "$response"
 }
 
 invalid_response() {
@@ -207,6 +228,9 @@ OUT="$(printf '%s\n' "$RAW" | jq -sce --arg sha "$SHA" --argjson names "$REQUIRE
         )
       )
     }
+  + (if ($raw_runs | length) == 0 and ($names | length) == 0
+     then {ci: "none", reason: "no CI configured"}
+     else {ci: "checks"} end)
 ')" || invalid_response 'check-runs'
 
 printf '%s\n' "$OUT"

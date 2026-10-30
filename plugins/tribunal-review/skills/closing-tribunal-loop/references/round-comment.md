@@ -9,7 +9,7 @@ round are decided. Use the stable HTML marker so rounds are greppable.
 
 - **PR:** #<number>
 - **HEAD:** `<full sha>`
-- **CI:** <name=conclusion (or status if conclusion is empty, including missing), … from `scripts/required-checks.sh` JSON for this HEAD; include ok>
+- **CI:** <name=conclusion (or status if conclusion is empty, including missing), … from `scripts/required-checks.sh` JSON for this HEAD; include ok; for ci="none", copy "no CI configured" verbatim and include the full JSON>
 - **Decision:** …
 - **Confidence:** …
 - **Critical/high remaining:** <count>

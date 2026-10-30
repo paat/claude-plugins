@@ -10,7 +10,7 @@
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "0da9957b3834c7e8dc4797c59d5c9d17d55134ba2c2ca878452567c4c728366b"
+      "sha256": "3ad7ff6efc48aa0bf34af4503a27e1d27d028a034eb15dccc5387aab93ea578a"
     },
     {
       "path": "scripts/dsh-review.patch.yml",

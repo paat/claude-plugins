@@ -33,7 +33,7 @@ verdict it carries (issue #487).
 Set the plugin root and a per-run scratch dir for the provider JSON, then run preflight:
 
 ```bash
-TRIBUNAL_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"   # this plugin's root
+TRIBUNAL_PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}" # this plugin's root
 RUN_DIR="$(mktemp -d)"                          # collects one JSON file per leg
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/preflight.sh"
 ```
@@ -234,6 +234,8 @@ finding consensus, and the `blocking_proof` required by 3b-0 for critical/high f
 
 For a merge gate, save that JSON to `arbitration.json`, then have the delivery
 controller finalize the collection with its retained manifest digest:
+
+Invoke `collect` and `finalize` via the same unchanged plugin root (including a source checkout); `TRIBUNAL_PLUGIN_ROOT` selects the script path above, not a different bundle for an already invoked script.
 
 ```bash
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.sh" finalize \
