@@ -51,14 +51,14 @@ mmo_separate_glued_verdict() {
 }
 
 # Classify provider failure text from a single error-text file the runner built
-# (Codex last ERROR: line, Claude api_error_status / API Error line, Grok stderr,
+# (Codex last ERROR: line, Claude failed result / terminal error line, Grok stderr,
 # Muse failed-run reason and stderr).
 # Prints "limit" (plan window or balance used up), "transient", "auth", or nothing.
 # Callers must not pass model stdout bodies.
 mmo_classify_provider_failure() {
   local f="${1:-}"
   [ -n "$f" ] && [ -s "$f" ] || return 0
-  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|credit balance (is )?too low|billing_error' "$f"; then
+  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|hit your .*limit\b|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|credit balance (is )?too low|billing_error' "$f"; then
     printf 'limit\n'
     return 0
   fi

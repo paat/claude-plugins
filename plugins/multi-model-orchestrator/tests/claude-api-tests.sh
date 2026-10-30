@@ -62,6 +62,8 @@ case "$result" in
   rate) message='API Error: 429 rate limit' ;;
   overloaded) message='API Error: 529 overloaded' ;;
   limit) message='API Error: 429 usage limit reached' ;;
+  native) message="You've hit your 5-hour limit · resets 4pm (UTC)" ;;
+  generic) message='Unexpected task execution failure' ;;
   *) message='' ;;
 esac
 if [ -n "$message" ]; then
@@ -176,6 +178,37 @@ common+=(STUB_PLAN_RESULT=limit)
 run_pool --tier T3 --usage "$work/unknown"
 check 'unknown usage and runtime plan limit run plan then API successfully' \
   bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2/calls")" = "$(printf "plan\napi")" ] && grep -q "^run-claude: exit=75 failure=limit " "$2/stderr"' _ "$rc" "$artifacts"
+for error in native generic; do
+  for key in present missing; do
+    prepare "plan-$error-$key"
+    common+=(STUB_PLAN_RESULT="$error")
+    [ "$key" = present ] || common+=(MMO_CLAUDE_API_KEY_FILE="$work/absent-key")
+    run_pool --tier T3 --allow claude --usage "$work/unknown"
+    expected_rc=1; expected_calls=plan
+    if [ "$error" = native ]; then
+      expected_rc=75
+      if [ "$key" = present ]; then expected_rc=0; expected_calls="$(printf 'plan\napi')"; fi
+    fi
+    check "$error plan failure with $key key: rc=$expected_rc and expected calls" \
+      bash -c '[ "$1" -eq "$2" ] && [ "$(cat "$3/calls")" = "$4" ]' _ "$rc" "$expected_rc" "$artifacts" "$expected_calls"
+    if [ "$error" = native ]; then
+      check "native plan failure with $key key reports failure=limit" has "$artifacts/stderr" 'run-claude: exit=75 failure=limit'
+    fi
+  done
+done
+for error in native generic; do
+  prepare "plan-stream-$error"
+  common+=(STUB_PLAN_RESULT="$error")
+  rc=0
+  printf 'bounded task\n' | "${common[@]}" bash "$scripts/run-claude.sh" --mode implement \
+    --repo "$work/repo" --timeout 30 --out "$artifacts/out" --stream-log "$artifacts/stream" \
+    > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
+  if [ "$error" = native ]; then
+    check 'native failed stream result reports exit 75 failure=limit' limit
+  else
+    check 'generic failed stream result retains exit 1' test "$rc" -eq 1
+  fi
+done
 prepare plan-runtime-no-usage
 common+=(STUB_PLAN_RESULT=limit)
 run_pool --tier T3 --allow claude --prefer claude-api

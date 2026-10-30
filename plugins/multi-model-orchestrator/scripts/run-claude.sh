@@ -356,15 +356,13 @@ if [ "$provider_rc" -ne 0 ] || { [ "$api" -eq 1 ] && [ "$rc" -eq 1 ]; }; then
     if [ -n "$result_event" ]; then
       api_status="$(printf '%s\n' "$result_event" | jq -r '.api_error_status // empty')"
       [ -z "$api_status" ] || printf '%s\n' "$api_status" > "$classify_file"
-      if [ "$api" -eq 1 ]; then
-        printf '%s\n' "$result_event" | jq -r '
-          select(.is_error == true or .subtype != "success")
-          | (.errors[]?, .error?, .result?) | strings' >> "$classify_file"
-      fi
+      printf '%s\n' "$result_event" | jq -r '
+        select(.is_error == true or .subtype != "success")
+        | (.errors[]?, .error?, .result?) | strings' >> "$classify_file"
     fi
   elif [ -s "$output_file" ]; then
     last_line="$(grep -Ev '^[[:space:]]*$' "$output_file" | tail -n 1 || true)"
-    if printf '%s\n' "$last_line" | grep -Eq 'API Error: [0-9]{3}' ||
+    if printf '%s\n' "$last_line" | grep -Eq "API Error: [0-9]{3}|^You've hit your .*limit\b" ||
        { [ "$api" -eq 1 ] && printf '%s\n' "$last_line" | grep -Eiq '^(Your )?Credit balance (is )?too low'; }; then
       printf '%s\n' "$last_line" > "$classify_file"
     fi
