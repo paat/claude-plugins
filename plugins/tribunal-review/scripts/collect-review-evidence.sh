@@ -1193,7 +1193,7 @@ verify_collection_internal() {
   [ "$(jq -r .runner.bundle_manifest_path "$manifest")" = "$PLUGIN_ROOT/integrity/runner-bundle.json" ] \
     || die "collection runner bundle manifest path differs from installed bundle ($roots)"
   [ "$(jq -r .runner.bundle_manifest_sha256 "$manifest")" = "$(sha_file "$PLUGIN_ROOT/integrity/runner-bundle.json")" ] \
-    || die "collection runner bundle manifest digest differs from installed bundle ($roots)"
+    || die "runner bundle changed since collect at $PLUGIN_ROOT"
   bash "$SCRIPT_DIR/check-runner-bundle.sh" \
     --expected-manifest-sha256 "$(jq -r .runner.bundle_manifest_sha256 "$manifest")" >/dev/null \
     || die "installed tribunal runner bundle failed integrity validation"

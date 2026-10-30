@@ -84,11 +84,9 @@ check 'cross-install finalize names collection and invoked roots despite root en
 cp "$plugin/integrity/runner-bundle.json" "$work/bundle.saved"
 printf '\n' >> "$plugin/integrity/runner-bundle.json"
 bundle_drift() {
-  ! finalize "$plugin" && grep -q 'collection runner bundle manifest digest differs' "$work/finalize.err" \
-    && grep -Fq "collection root=$plugin" "$work/finalize.err" \
-    && grep -Fq "invoked root=$plugin" "$work/finalize.err"
+  ! finalize "$plugin" && grep -Fq "runner bundle changed since collect at $plugin" "$work/finalize.err"
 }
-check 'same-root bundle drift names both roots and refuses finalize' bundle_drift
+check 'same-root bundle drift names changed bundle root and refuses finalize' bundle_drift
 cp "$work/bundle.saved" "$plugin/integrity/runner-bundle.json"
 printf '\n# fixture drift\n' >> "$plugin/scripts/lib.sh"
 stale_collect() {
