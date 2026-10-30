@@ -44,10 +44,8 @@ case "$FINALIZE_MAX_TURNS" in ''|*[!0-9]*) FINALIZE_MAX_TURNS=6 ;; esac
 stamp_grok_execution() {
   local phase="$1" inspect_rc="$2" requested="$3" executed="$4"
   jq -c --arg phase "$phase" --argjson inspect_rc "$inspect_rc" \
-    --arg requested "$requested" --arg executed "$executed" --arg policy "$GROK_RECOVERY" '
+    --arg requested "$requested" --arg executed "$executed" '
     if has("error") or .status == "disabled" then .
-    elif $phase == "finalize" and $policy == "reject" then
-      {provider:"grok",error:"grok_recovery_rejected: tools-off finalize verdict excluded from quorum (TRIBUNAL_GROK_RECOVERY=reject)"}
     else .grok_execution = {
       verdict_phase:(if $phase == "" then null else $phase end),
       inspect_exit_code:$inspect_rc,
@@ -296,6 +294,14 @@ fi
 if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ ! -s "$INSPECT_OUT" ]; then
   tribunal_error_with_diagnostics grok "Grok execution failed or timed out" execution \
     "$rc" "$INSPECT_OUT" "$INSPECT_ERR"
+  exit 0
+fi
+
+if [ "$GROK_RECOVERY" = reject ]; then
+  jq -nc --argjson inspect_rc "$rc" --arg requested "$GROK_EFFORT" '
+    {provider:"grok",error:"grok_recovery_rejected: tools-off finalize required but excluded from quorum (TRIBUNAL_GROK_RECOVERY=reject)",
+     grok_execution:{verdict_phase:"finalize",inspect_exit_code:$inspect_rc,
+       requested_effort:(if $requested == "" then null else $requested end),verdict_effort:null}}'
   exit 0
 fi
 

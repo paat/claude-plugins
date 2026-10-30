@@ -5538,6 +5538,9 @@ CLI
   run_provenance_fixture TRIBUNAL_GROK_RECOVERY=reject
   tr_check "Grok strict recovery is a named failed leg, never an ok APPROVE" jq -e \
     '.provider=="grok" and (.error|contains("grok_recovery_rejected")) and (has("summary")|not) and (has("status")|not)' "$work/out.json"
+  tr_check "Grok strict timeout records required phase and inspect exit without claimed verdict effort" jq -e \
+    '.grok_execution=={verdict_phase:"finalize",inspect_exit_code:124,requested_effort:null,verdict_effort:null}' "$work/out.json"
+  tr_check "Grok strict timeout never invokes finalize" test "$(cat "$work/phases")" = inspect
   run_provenance_fixture FIXTURE_SCENARIO=direct TRIBUNAL_GROK_RECOVERY=reject
   tr_check "Grok strict policy still accepts a completed direct inspection" jq -e \
     '.summary.verdict=="APPROVE" and .grok_execution.verdict_phase=="inspect" and (has("error")|not)' "$work/out.json"
