@@ -119,7 +119,7 @@ ROUND=$((PRIOR_MAX + 1))
 
 Before each re-collection, carry earlier entries in `$PRIOR_REJECTIONS` (initially `[]`), and save only rejected/dropped conflicts or triage outcomes as `{title,file,reason}` objects in `$ROUND_REJECTIONS` (empty list if none):
 ```bash
-jq -s '.[0] + [.[1].provider_assessment[].false_positives[] | {title:.,file:"",reason:.}] + .[2] | unique' "$PRIOR_REJECTIONS" "$PREVIOUS_ARBITRATION" "$ROUND_REJECTIONS" > "$NEXT_REJECTIONS"
+jq -s '.[0] + [.[1].provider_assessment[].false_positives[] | select(length > 0) | {title:.,file:"",reason:.}] + .[2] | unique' "$PRIOR_REJECTIONS" "$PREVIOUS_ARBITRATION" "$ROUND_REJECTIONS" > "$NEXT_REJECTIONS"
 ```
 Resolve original titles/files from retained provider findings where possible; keep rejection evidence in `reason`, and leave unknown files empty. Pass `--prior-rejections "$NEXT_REJECTIONS"` to `collect` and retain that list for the next round. Accepted conflicts must never enter it.
 

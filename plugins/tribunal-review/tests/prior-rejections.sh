@@ -75,6 +75,17 @@ STUB
     TRIBUNAL_LEG_ENV='FIXTURE_*' GEMINI_API_KEY=fixture XAI_API_KEY=fixture
     TRIBUNAL_PLUGIN_ROOT="$plugin")
   printf '[{"title":"Disproved splitlines claim","file":"app.txt","reason":"Execution returns one line"}]\n' > "$work/prior.json"
+  local rejection_merge
+  rejection_merge="$(sed -n "/^jq -s '/p" "$plugin/skills/closing-tribunal-loop/SKILL.md")"
+  printf '[]\n' > "$work/old.json"
+  printf '[]\n' > "$work/round.json"
+  jq -n '{provider_assessment:{codex:{false_positives:["","Disproved splitlines claim"]}}}' > "$work/rejected.json"
+  PRIOR_REJECTIONS="$work/old.json" PREVIOUS_ARBITRATION="$work/rejected.json" \
+    ROUND_REJECTIONS="$work/round.json" NEXT_REJECTIONS="$work/merged.json" bash -c "$rejection_merge"
+  tr_check 'tribunal T-001 skill jq filters empty false positives' \
+    jq -e 'length == 1 and .[0] == {title:"Disproved splitlines claim",file:"",reason:"Disproved splitlines claim"}' "$work/merged.json"
+  # Feed the skill output through collect's real prior-rejections validator.
+  cp "$work/merged.json" "$work/prior.json"
   "${fixture_env[@]}" bash "$plugin/scripts/collect-review-evidence.sh" collect \
     --repo-root "$repo" --pr 7 --output "$work/collection" --prior-rejections "$work/prior.json" \
     > "$work/collect.json" 2> "$work/collect.err" || rc=$?
@@ -82,7 +93,7 @@ STUB
     bash -c '[ "$1" = 0 ] && cmp -s "$2/prior.json" "$2/collection/prior-rejections.json" && jq -e --arg sha "$(sha256sum "$2/prior.json" | cut -d " " -f 1)" --argjson bytes "$(wc -c < "$2/prior.json")" '\'' .prior_rejections == {path:"prior-rejections.json",sha256:$sha,bytes:$bytes} '\'' "$2/collection/manifest.json" >/dev/null' _ "$rc" "$work"
   for provider in codex gemini deepseek qwen grok muse claude; do
     tr_check "#667 $provider stub receives rejected finding and execution-evidence reminder" \
-      bash -c 'test -f "$1" && grep -Fq "Already rejected in earlier rounds — do not re-raise without NEW execution evidence:" "$1" && grep -Fq "Disproved splitlines claim — app.txt — Execution returns one line" "$1"' _ "$work/prompts/$provider"
+      bash -c 'test -f "$1" && grep -Fq "Already rejected in earlier rounds — do not re-raise without NEW execution evidence:" "$1" && grep -Fq "Disproved splitlines claim —  — Disproved splitlines claim" "$1"' _ "$work/prompts/$provider"
   done
   jq -n '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"All seven fixture legs reviewed the diff."},findings:[],scope_findings:[],provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","claude"]|map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:"ok"}})|from_entries),conflicts_resolved:[],summary:"All seven legs are clean."}' > "$work/arbitration.json"
   local clean_finalize=1 tamper_rc=0
