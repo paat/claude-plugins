@@ -71,10 +71,10 @@ enable API spending. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organizat
 `run-claude.sh --api` uses it only in the leg, bypasses plan-window gates, and exits 75 when
 unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables, and
 `apiKeyHelper` sends the file key in both `x-api-key` and `Authorization` (as documented) without
-exporting it to CLI or tool environments; runner artifacts are redacted after the API leg ends. They
-explicitly load root `CLAUDE.md` and `.claude/` rules; with settings sources disabled, only
-unconditional rules load, while rules with `paths:` frontmatter require project settings. They do
-not load nested or ancestor `CLAUDE.md`, `CLAUDE.local.md`, `~/.claude/CLAUDE.md`,
+exporting it to CLI or tool environments. They explicitly load root `CLAUDE.md` and `.claude/` rules;
+with settings sources disabled, only unconditional rules load, while rules with `paths:` frontmatter
+require project settings. They do not load nested or ancestor `CLAUDE.md`, `CLAUDE.local.md`,
+`~/.claude/CLAUDE.md`,
 user/project/local hooks, settings `env`, or project permission rules (including `deny`); runner
 `--allowedTools`/`--disallowedTools` still apply. They retain the system prompt and normal tools,
 and remain Claude for restrictions and reviewer independence. To deny API spend, unset
@@ -82,6 +82,8 @@ and remain Claude for restrictions and reviewer independence. To deny API spend,
 purchased credits/auto-reload can extend usage ([credit
 terms](https://support.claude.com/en/articles/17154008), [`claude -p`
 eligibility](https://support.claude.com/en/articles/15036540), read 2026-10-30).
+A same-uid agent can still read the key file (as with plan legs' OAuth credentials); API-leg output
+is not redacted, so treat it as sensitive.
 
 ```bash
 pool.sh pick --tier T2 --deny claude              # one "tier provider model effort" line per worker
@@ -281,7 +283,6 @@ one outcome with exit 143, 129, or 130 respectively.
 ## Prerequisites
 
 - bash 4+
-- `python3` only for `claude-api` (`run-claude.sh --api`) legs, to redact the key from runner artifacts after the leg
 - git and GNU coreutils (`timeout`, `date -d`, `stat -c`, `realpath -m`)
 - `ps` (procps) to stop nested provider watchdogs (`claude-api`, local Qwen) on a leg stop; without it the root watchdog is still signalled
 - `awk` and `setsid` (util-linux) for forwarding stops through nested provider watchdogs
@@ -296,7 +297,7 @@ one outcome with exit 143, 129, or 130 respectively.
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   the pool moves to the next worker.
 
-Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings and Python 3 for literal artifact redaction.
+Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings.
 
 ## Configuration
 
