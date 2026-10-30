@@ -17,16 +17,21 @@ approximate.
    ≤5% of correction prompts; misread intent (~45%) and environment conventions (~30%) drove most
    (leg). The cheapest lever is one rule set delivered to every agent home, not a knowledge base.
 2. **The universal share that matters is perishable facts**: AI models and CLIs change fastest (~41%
-   of agent web searches on the infrastructure side; runner model catalogs hand-edited 4 times in 10
-   weeks), then laws and rates, then vendor API capabilities. A shared legal store served Estonia's
-   old 22% VAT rate after 24% took effect on 2025-07-01 (verified in transcript). Every incident
-   turned on the as-of date and provenance, not on knowing the rule.
+   of agent web searches on the infrastructure side; runner model catalogs are hand-edited at each
+   model release), then laws and rates, then vendor API capabilities. A shared legal store served
+   Estonia's old 22% VAT rate after 24% took effect on 2025-07-01 (verified in transcript), and an
+   act was claimed in force before its effective date (leg); both legal incidents turned on dates and
+   provenance, not on knowing the rule. Agent tooling changes the same way: Claude Code reads
+   `AGENTS.md` on its own since v2.1.277 when no `CLAUDE.md` exists in the directory or above
+   [C1, verified, B], while fleet transcripts still contain agents asserting the opposite (leg).
 3. **Curated stores go stale too**, so every stored fact needs a source, an as-of or effective date,
    and an expiry when one is known. For the most volatile facts, live state beats any stored copy:
    the existing `scripts/refresh-model-versions.sh` reads each CLI's model catalog directly.
 4. **A compact precomputed index beats skills for knowledge the model lacks.** Vercel's Next.js 16
    evals: an 8 KB docs index in `AGENTS.md` passed 100%; a skill passed 53% (no gain over baseline;
    never invoked in 56% of cases) and 79% with explicit instructions to use it [V1, verified, C].
+   This fits the North star only as an index of pointers, each with a source and as-of date, to
+   documents read on demand; the facts themselves stay out of always-loaded prompts.
    Curated skills raised SkillsBench pass rates from 33.9% to 50.5% (+16.6 pp) [V2, verified, C].
    Skill selection degrades past roughly 50–100 skills and with near-duplicate descriptions [S14, leg, C].
 5. **Knowledge graphs: not now.** Graphiti is the one option with bi-temporal validity and source
@@ -37,11 +42,16 @@ approximate.
 6. **Public skill hubs: copy, review, pin — never auto-install.** About 26% of 31,132 marketplace
    skills had at least one vulnerability [S44, leg, C]; 341 of 2,857 skills on one hub were
    malicious [S46, leg, C]. The Agent Skills spec has no signing or provenance field [S1, leg, A].
-7. **Model routing: public feeds shortlist and flag staleness; local results decide.** The live
-   OpenRouter catalog lists Claude Sonnet 5.5 (2026-09-28), GPT-6 Luna (2026-09-22), Gemini 4 Argon
-   (2026-10-13) and GPT-6.1 Terra (2026-10-26) [E3, verified, A], all newer than this plugin's
-   catalog. Terminal-Bench 4.0: Sonnet 5 (Claude Code, max) 12.4% vs Sonnet 5.5 61.8%; GPT-5.6 Terra
-   (Codex, max) 21.5% vs GPT-6 Astra 58.2% [E5, verified from the raw leaderboard pull, B].
+7. **Model routing: public feeds shortlist and flag staleness; local results decide.** New model IDs
+   already reach the catalog through `scripts/refresh-model-versions.sh` and hand edits: main lists
+   Sonnet 5.5 and GPT-6 Luna, while GPT-6.1 Terra (2026-10-26, open PR #668) and Gemini 4 Argon
+   (2026-10-13) are not yet in it [E3, verified, A]. What no job supplies is quality evidence for tier
+   order and retirement: main's T2 pool still lists Sonnet 5 as a fallback, which Terminal-Bench 4.0
+   scores 12.4% against Sonnet 5.5's 61.8% (both Claude Code, max); GPT-5.6 Terra (Codex, max) scores
+   21.5% against GPT-6 Astra's 58.2% [E5, verified from the raw leaderboard pull, B]. Installed copies
+   lag further: a host that had not refreshed the marketplace since 2026-10-02 still routed with
+   0.17.5's older catalog; auto-update is off by default for third-party marketplaces
+   [C2, verified, B].
 
 ## Usage evidence
 
@@ -49,9 +59,9 @@ approximate.
 |---|---|
 | Volume | ~23.7k typed Claude prompts; 16,006 Codex threads (78% `codex exec`, 18% Codex-spawned subagents, 3.3% interactive) |
 | Frustration themes | Stalling and nudging, needless escalation, over-engineering, routing orders — process, not knowledge |
-| Prompt-inlined project conventions | Peaked July 2026 (518 Codex threads); ~0 since August, after #321 (closed 2026-07-18) capped tribunal `AGENTS.md` injection — likely cause, not proven; resolved |
+| Prompt-inlined project conventions | Codex threads whose first message carries an inlined conventions block: 518 in July 2026, 7 in August, 69 in September, 0 in October. #321 (closed 2026-07-18) capped tribunal `AGENTS.md` injection — a likely cause of the drop, not proven |
 | Built-in knowledge features | Codex memories: 0 rows everywhere; a docs MCP installed but ~0 calls; web search in 1.2% of Codex sessions, mostly reviewers |
-| Invalid model IDs | 13 Codex threads launched on retired or nonexistent IDs ran with 0 tokens, unnoticed (latest 2026-09-07, a direct `codex exec`); `run-codex.sh` now rejects unknown IDs against a hand-edited catalog |
+| Invalid model IDs | 19 Codex threads used one of 11 model IDs that never produced a token in any thread (filter: every thread with that ID has `tokens_used` 0); latest 2026-09-28; unnoticed. `run-codex.sh` now rejects IDs outside a hand-edited catalog |
 | Model identity | 0 of 1,838 Codex reviewer JSON outputs named the model that actually ran (leg) |
 
 ## Live evaluation feeds (as of 2026-10-30)
@@ -112,3 +122,5 @@ local llama.cpp build.
 - [E5] Terminal-Bench 4.0 leaderboard (tbench.ai, Harbor Hub `leaderboard-read`) — rows to 2026-10-23 — B
 - [E7] artificialanalysis.ai/documentation — read 2026-10-30 — A
 - [E29] arxiv.org/abs/2601.07206 (LLMRouterBench) — 2026-01-12 — C
+- [C1] code.claude.com/docs/en/memory ("When Claude Code reads AGENTS.md") — modified 2026-10-27 — B
+- [C2] code.claude.com/docs/en/discover-plugins ("Keep plugins updated") — read 2026-10-30 — B
