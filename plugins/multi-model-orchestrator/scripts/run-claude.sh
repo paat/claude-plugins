@@ -117,8 +117,11 @@ if [ "$max_turns_set" -eq 1 ]; then
 fi
 command -v git >/dev/null 2>&1 || { printf 'run-claude: git not found\n' >&2; exit 127; }
 command -v claude >/dev/null 2>&1 || { printf 'run-claude: claude CLI not found\n' >&2; exit 127; }
-if [ "$stream_log_set" -eq 1 ]; then
-  command -v jq >/dev/null 2>&1 || { printf 'run-claude: jq not found (required for --stream-log)\n' >&2; exit 127; }
+if [ "$api" -eq 1 ]; then
+  command -v python3 >/dev/null 2>&1 || { printf 'run-claude: python3 not found (required for --api)\n' >&2; exit 127; }
+fi
+if [ "$stream_log_set" -eq 1 ] || [ "$api" -eq 1 ]; then
+  command -v jq >/dev/null 2>&1 || { printf 'run-claude: jq not found (required for --stream-log or --api)\n' >&2; exit 127; }
 fi
 mcp_config='{"mcpServers":{}}'
 if [ "${#mcp_names[@]}" -gt 0 ]; then
@@ -147,7 +150,52 @@ esac
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 fi
-trap 'mmo_outcome_exit "$?"; rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"; [ -z "$out_dev" ] || rm -f "$output_file" "${output_file}.stderr"' EXIT
+api_started=0
+redact_api_artifacts() {
+  [ "$api_started" -eq 1 ] || return 0
+  # Post-execution only: no redaction pipe or extra CLI file descriptor.
+  python3 - "$api_key_file" "$output_file" "$stream_file" "${output_file}.stderr" <<'PY_REDACT'
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+try:
+    key = Path(sys.argv[1]).read_bytes().rstrip(b"\n")
+    if key:
+        for name in sys.argv[2:]:
+            if not name or not Path(name).is_file():
+                continue
+            path = Path(name)
+            original = path.read_bytes()
+            redacted = original.replace(key, b"[REDACTED]")
+            if redacted == original:
+                continue
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+                    temporary = output.name
+                    output.write(redacted)
+                    os.fchmod(output.fileno(), path.stat().st_mode & 0o777)
+                os.replace(temporary, path)
+            finally:
+                if temporary and os.path.exists(temporary):
+                    os.unlink(temporary)
+except OSError:
+    print("run-claude: failed to redact API artifacts", file=sys.stderr)
+    sys.exit(1)
+PY_REDACT
+}
+cleanup() {
+  local exit_code="$?"
+  # mmo_run exits directly on a stop, after reaping the provider.
+  redact_api_artifacts || exit_code=1
+  mmo_outcome_exit "$exit_code"
+  rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"
+  [ -z "$out_dev" ] || rm -f "$output_file" "${output_file}.stderr"
+  exit "$exit_code"
+}
+trap cleanup EXIT
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
 
@@ -266,12 +314,14 @@ run_cli() {
 }
 
 provider_rc=0
+api_started="$api"
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
   # NDJSON event stream to --stream-log while live; final message extracted into --out after success.
   : > "$output_file"
   mmo_run tee "$stream_file" "${output_file}.stderr" run_cli < "$prompt_file" > /dev/null
   provider_rc=${mmo_pipe_status[0]} tee_rc=${mmo_pipe_status[1]}
+  redact_api_artifacts || exit 1
   if [ "$provider_rc" -ne 0 ]; then
     rc=$provider_rc
   elif [ "$tee_rc" -ne 0 ]; then
@@ -319,6 +369,8 @@ else
   rc=$provider_rc
 fi
 set -e
+redact_api_artifacts
+api_started=0
 if [ "$stream_log_set" -eq 1 ]; then
   mmo_outcome_served_model="$(jq -rs '
     ([.[] | select(.type == "assistant") | .message.model | select(type == "string" and length > 0)] | last)
