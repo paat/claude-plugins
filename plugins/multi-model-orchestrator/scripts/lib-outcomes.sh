@@ -45,7 +45,7 @@ mmo_forward_stop() {
         }
       } while (changed)
       for (p in seen) if (p != root && command[p] == "timeout") print p
-    }')"
+    }')" || :
   mmo_stop_pids+=("$pid" $nested)
   if [ -n "$nested" ]; then
     # ps supplies only numeric PIDs.

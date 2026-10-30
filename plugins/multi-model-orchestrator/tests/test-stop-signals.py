@@ -102,6 +102,13 @@ def check(case):
            "STOP_CASE": name, "STOP_REPO": str(repo),
            "STOP_HARNESS_PID": str(os.getpid()),
            "MMO_LEG_ENV": "STOP_READY_FD STOP_CASE STOP_REPO STOP_RUNNER STOP_HARNESS_PID"}
+    if name == "codex-no-ps":
+        shim_dir = fixture / "bin"
+        shim_dir.mkdir()
+        ps = shim_dir / "ps"
+        ps.write_text("#!/bin/sh\nexit 127\n")
+        ps.chmod(0o755)
+        env["PATH"] = f"{shim_dir}:{env['PATH']}"
     for var in tuple(env):
         if var.startswith(("MMO_GROK_", "MMO_CODEX_", "MMO_CLAUDE_MODEL", "MMO_OPUS_", "MMO_AGY_", "MMO_MUSE_")):
             env.pop(var)
@@ -235,7 +242,8 @@ names = ("codex", "claude", "claude-api", "claude-stream", "claude-api-stream",
          "grok", "grok-stream", "grok-resume", "grok-resume-stream", "agy", "muse", "qwen", "qwen-nested")
 cases = [(name, sig, "pid") for name in names
          for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)]
-cases += [("codex-stubborn", signal.SIGTERM, "pid"),
+cases += [("codex-no-ps", signal.SIGTERM, "pid"),
+          ("codex-stubborn", signal.SIGTERM, "pid"),
           ("claude-api-stubborn", signal.SIGTERM, "pid"),
           ("claude-api-stream-stubborn", signal.SIGTERM, "pid"),
           ("qwen-nested-stubborn", signal.SIGTERM, "pid"),
