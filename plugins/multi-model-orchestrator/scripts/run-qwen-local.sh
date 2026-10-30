@@ -269,7 +269,8 @@ else
 fi
 
 rc=0
-printf '%s\n' "$prompt_text" | "$wrapper" "${wrapper_args[@]}" > "$output_file" 2>"$runtime_dir/err.txt" || rc=$?
+# The wrapper owns a nested timeout; keep it outside the runner's signal group.
+mmo_run direct "" "" setsid "$wrapper" "${wrapper_args[@]}" <<< "$prompt_text" > "$output_file" 2>"$runtime_dir/err.txt" || rc=$?
 cat "$runtime_dir/err.txt" >&2
 
 # The wrapper reports a missing/too-old qwen CLI as 127: that is the local engine
