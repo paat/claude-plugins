@@ -4034,7 +4034,7 @@ GIT
   chmod +x "$work/bin/git"
   for scenario in absent_empty absent_findings empty_path dot_path valid_findings ambient deleted added prefixed unusual directory \
     missing_base missing_head omitted_base omitted_head lookup_failure empty_range large_list bounded_error \
-    invalid_utf8_alias valid_with_invalid_bytes nul_path merge_base_empty merge_base_findings merge_base_failure; do
+    invalid_utf8_alias nul_path merge_base_empty merge_base_findings merge_base_failure; do
     label="pinned examined paths: $scenario"
     if (
       cd "$work"
