@@ -290,8 +290,8 @@ if [ "$rc" -eq 0 ] && emit_from_envelope "$INSPECT_OUT" "$INSPECT_ERR" "$rc" ins
   exit 0
 fi
 
-# Hard failure with no session artifact: do not pretend we can resume.
-if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ ! -s "$INSPECT_OUT" ]; then
+# Preserve hard-failure diagnostics when recovery is forbidden or no session artifact exists.
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && { [ "$GROK_RECOVERY" = reject ] || [ ! -s "$INSPECT_OUT" ]; }; then
   tribunal_error_with_diagnostics grok "Grok execution failed or timed out" execution \
     "$rc" "$INSPECT_OUT" "$INSPECT_ERR"
   exit 0

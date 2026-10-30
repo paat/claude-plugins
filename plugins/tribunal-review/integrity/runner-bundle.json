@@ -38,7 +38,7 @@
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "2eadade180fce7a3a2d11e4fd84fcd7622d3411ddac7119c881da3a9fdae6609"
+      "sha256": "65ec02dbcddb2631d692b56a5c1e29a74dd850f5aa255520783e649c6d32c717"
     },
     {
       "path": "scripts/run-muse-review.sh",

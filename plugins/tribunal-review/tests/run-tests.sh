@@ -5535,6 +5535,10 @@ for arg in "$@"; do [ "$arg" != --resume ] || phase=finalize; done
 printf '%s\n' "$phase" >> "$FIXTURE_STATE/phases"
 if [ "$phase" = inspect ] && [ "$FIXTURE_SCENARIO" != direct ]; then
   printf '%s\n' '{"text":"still reviewing","sessionId":"44444444-4444-4444-4444-444444444444"}'
+  if [ "$FIXTURE_SCENARIO" = quota ]; then
+    printf 'usage limit exceeded\n' >&2
+    exit 1
+  fi
   exit 124
 fi
 case "$FIXTURE_SCENARIO" in
@@ -5580,6 +5584,11 @@ CLI
     '.provider=="grok" and (.error|startswith("grok_recovery_rejected")) and (.error|contains("(inspect_rc=124, phase=finalize required)"))' "$work/grok.json"
   tr_check "collector classifies the wrapper timeout rejection as failed" test "$(cat "$work/status")" = failed
   tr_check "collector rejection never invokes Grok finalize" test "$(cat "$work/phases")" = inspect
+  run_provenance_fixture FIXTURE_SCENARIO=quota TRIBUNAL_GROK_RECOVERY=reject
+  bash -c '. "$1/helpers.sh"; normalize_single grok "$1/out.json" 0 "$1/grok.json" "" "" reject' _ "$work"
+  tr_check "collector preserves plan-limit diagnostics for strict partial-output inspect failure" jq -e \
+    '.provider=="grok" and (.error|startswith("plan limit:"))' "$work/grok.json"
+  tr_check "Grok strict quota failure never invokes finalize" test "$(cat "$work/phases")" = inspect
   run_provenance_fixture FIXTURE_SCENARIO=direct TRIBUNAL_GROK_RECOVERY=reject
   tr_check "Grok strict policy still accepts a completed direct inspection" jq -e \
     '.summary.verdict=="APPROVE" and .grok_execution.verdict_phase=="inspect" and (has("error")|not)' "$work/out.json"
