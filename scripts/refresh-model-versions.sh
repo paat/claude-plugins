@@ -38,7 +38,8 @@ agy_ids() { timeout 120 agy models </dev/null | awk -F'\t' 'NF > 1 { print $1 }'
 section "codex (~/.codex/models_cache.json)" codex_ids
 section "grok (grok models)" grok_ids
 section "agy (agy models)" agy_ids
-refresh_feeds "$STATE/catalog.new" "$pool" || true
+stale_feeds=''
+refresh_feeds "$STATE/catalog.new" "$pool" || stale_feeds='openrouter, arena-webdev, arena-agent, terminal'
 # A CLI addition must belong to a vendor family represented in the pool.
 : >"$STATE/catalog-changes.txt"
 while IFS= read -r id; do
@@ -51,7 +52,11 @@ while IFS= read -r id; do
 done < <(comm -13 <(sort -u "$facts") <(sort -u "$STATE/catalog.new"))
 if [[ ! -s $STATE/catalog-changes.txt && ! -s $STATE/eval-pending.txt ]]; then
   mv "$STATE/catalog.new" "$facts"
-  log 'no material model change; zero model calls'
+  if [[ -n $stale_feeds ]]; then
+    log "no material catalog change; stale eval feeds: $stale_feeds; zero model calls"
+  else
+    log 'no material model change; zero model calls'
+  fi
   exit 0
 fi
 
@@ -70,7 +75,7 @@ git -C "$REPO" worktree add -q -B "$branch" "$wt" origin/main
 trap 'git -C "$REPO" worktree remove --force "$wt" || true; git -C "$REPO" branch -q -D "$branch" || true' EXIT
 
 log "material model change; running refresh on $branch"
-# Feed the prompt on stdin: bootstrap evidence can exceed the argv size limit.
+# Feed the prompt on stdin: accumulated evidence can exceed the argv size limit.
 cat <<PROMPT | (cd "$wt" && timeout 90m claude --model opus --effort high --dangerously-skip-permissions -p) | tee "$STATE/last-run.log"
 Refresh superseded model IDs in this repository's plugins. $STATE/catalog.new
 lists, per provider CLI, the model IDs available right now. It is the only

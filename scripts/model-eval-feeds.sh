@@ -58,7 +58,13 @@ refresh_feeds() {
     return 1
   fi
   old="$STATE/evals.tsv"
-  [[ -f $old ]] || old=/dev/null
+  if [[ ! -f $old ]]; then
+    : >"$STATE/eval-pending.txt" || return
+    mv "$scratch/evals.tsv" "$old" || return
+    log 'eval feeds seeded; 0 pending rows'
+    rm -rf "$scratch"
+    return 0
+  fi
   if ! jq -nr --rawfile old "$old" --rawfile new "$scratch/evals.tsv" --rawfile pool "$pool" \
     -f "$REPO/scripts/model-eval-changes.jq" >"$scratch/changes"; then
     log 'FAIL: eval comparison; keeping last good evals.tsv'
