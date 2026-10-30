@@ -535,6 +535,8 @@ fi
 printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6.1-sol --effort high --timeout 5 >/dev/null 2>&1 || fail 'gpt-6.1-sol accepted'
 contains "$WORK/codex.args" 'gpt-6.1-sol' 'current Sol pin forwarded'
 printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6-sol --effort high --timeout 5 >/dev/null 2>&1 || fail 'prior-generation gpt-6-sol stays routable'
+printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6.1-terra --effort high --timeout 5 >/dev/null 2>&1 || fail 'gpt-6.1-terra accepted'
+contains "$WORK/codex.args" 'gpt-6.1-terra' 'current Terra pin forwarded'
 pass 'Codex runner enforces the GPT-5.6/GPT-6 catalog and Astra-only Ultra'
 
 if printf x | STUB_CODEX_RESULT=empty "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" >/dev/null 2>&1; then
@@ -3064,7 +3066,7 @@ rm "$PL/bin/claude"
 out="$(pick --tier T2 --deny agy 2>"$PL/err")" || true
 contains "$PL/err" 'skip T2 claude/claude-sonnet-5: CLI not installed' 'pick skips a provider whose CLI is missing'
 printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/claude"; chmod +x "$PL/bin/claude"
-for compat in gpt-5.6-luna gpt-6-sol claude-sonnet-5 gpt-5.6-terra; do
+for compat in gpt-5.6-luna gpt-6-sol claude-sonnet-5 gpt-6.1-terra gpt-5.6-terra; do
   out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T1 --allow "$compat" --usage /dev/null 2>/dev/null)" || true
   [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = "$compat" ] || fail "shipped table keeps an allowlisted prior-generation model routable: $compat ($out)"
 done

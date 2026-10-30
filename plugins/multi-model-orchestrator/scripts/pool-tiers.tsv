@@ -14,6 +14,7 @@ T2	agy	gemini-3.8-flash	high
 T2	codex	gpt-6.1-sol	medium
 T2	codex	gpt-6-sol	medium
 T2	claude	claude-sonnet-5	medium
+T2	codex	gpt-6.1-terra	medium
 T2	codex	gpt-5.6-terra	medium
 T3	codex	gpt-6-astra	high
 T3	claude	claude-opus-5-5	high

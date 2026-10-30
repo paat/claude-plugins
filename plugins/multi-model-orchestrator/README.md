@@ -27,7 +27,7 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Provider | Models | Typical role |
 |---|---|---|
 | Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
-| Codex | `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`; prior-generation `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
+| Codex | `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra`; prior-generation `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
