@@ -158,7 +158,12 @@ summary="$(jq -Rn '
   | ([$ev[] | select(.type == "step_start")] | last | .part.messageID) as $last
   | [$ev[] | select(.type == "step_finish")] as $fin
   | ([$ev[] | select(.type == "error")] | last | .error) as $err
-  | {text: (if $last == null then "" else ([$ev[] | select(.type == "text" and .part.messageID == $last) | .part.text // ""] | join("\n")) end),
+  # A part may be re-emitted with the same id; its last event holds the final text.
+  | ([$ev[] | select(.type == "text" and .part.messageID == $last) | .part]
+     | reduce .[] as $p ({ids: [], by: {}};
+         (if .by | has($p.id // "") then . else .ids += [$p.id // ""] end) | .by[$p.id // ""] = ($p.text // ""))
+     | [.by[.ids[]]] | join("\n")) as $text
+  | {text: $text,
      finish: ([$fin[] | select(.part.messageID == $last)] | last | .part.reason // ""),
      err_type: ($err.type // ""),
      err_line: (if $err == null then "" else [$err.type, $err.status, $err.message | select(. != null) | tostring] | join(" ") end),
@@ -184,6 +189,8 @@ if [ "$rc" -eq 1 ] && [ "$err_type" = provider.auth ]; then
 elif [ "$rc" -eq 1 ] && [ "$err_type" = provider.no-route ]; then
   printf 'run-opencode: model or variant %s is not routable here (unknown id or variant, or no OpenCode Go credential)\n' "$model_arg" >&2
   rc=75
+  # mmo_finish reclassifies 75; this text must not turn it into auth.
+  : > "$classify_file"
 fi
 if [ "$mode" = review ] && [ "$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")" != "$tree_before" ]; then
   printf 'run-opencode: the review leg changed %s; inspect git status before trusting it\n' "$repo_dir" >&2

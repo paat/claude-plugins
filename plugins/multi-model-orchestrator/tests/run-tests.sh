@@ -3002,9 +3002,10 @@ printf '%s\n' '{"type":"step_start","part":{"messageID":"msg_A"}}' \
   '{"type":"text","part":{"messageID":"msg_A","type":"text","text":"thinking aloud"}}' \
   '{"type":"step_finish","part":{"messageID":"msg_A","reason":"tool-calls","tokens":{"input":100,"output":10,"reasoning":5,"cache":{"read":1,"write":2}}}}' \
   '{"type":"step_start","part":{"messageID":"msg_B"}}'
+[ -z "${STUB_OPENCODE_DRAFT:-}" ] || jq -cn --arg t "$STUB_OPENCODE_DRAFT" '{type:"text",part:{id:"prt_B1",messageID:"msg_B",type:"text",text:$t}}'
 jq -cn --arg t "${STUB_OPENCODE_RESPONSE-done
 
-APPROVE}" '{type:"text",part:{messageID:"msg_B",type:"text",text:$t}}'
+APPROVE}" '{type:"text",part:{id:"prt_B1",messageID:"msg_B",type:"text",text:$t}}'
 jq -cn --arg r "${STUB_OPENCODE_FINISH:-stop}" '{type:"step_finish",part:{messageID:"msg_B",reason:$r,tokens:{input:50,output:4,reasoning:1,cache:{read:0,write:0}}}}'
 STUB
 chmod +x "$OC/bin/opencode"
@@ -3050,6 +3051,10 @@ oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.go-limit STUB_OPENCODE_ERROR_MESSAGE=
 contains "$OC/err" 'failure=limit' 'opencode Go limit is classified as a plan limit'
 oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.no-route STUB_OPENCODE_ERROR_MESSAGE='Model unavailable: opencode-go/x' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
 contains "$OC/err" 'not routable here' 'opencode no-route names the cause'
+oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.no-route STUB_OPENCODE_ERROR_STATUS=401 STUB_OPENCODE_ERROR_MESSAGE='Model unavailable: opencode-go/glm-5.3#medium' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
+out="$(printf 'x\n' | "${oc_env[@]}" STUB_OPENCODE_DRAFT='partial draft' bash "$OC_RUN" --mode review --repo "$OR" --base HEAD --timeout 30 2>/dev/null)" \
+  || fail 'run-opencode review with a re-emitted text part succeeds'
+case "$out" in *'partial draft'*) fail "a re-emitted text part keeps only its last text: $out" ;; esac
 oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.rate-limit STUB_OPENCODE_ERROR_STATUS=429 STUB_OPENCODE_ERROR_MESSAGE='Rate limit exceeded' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
 oc_n="$(find "$OC/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
 oc_rc 127 STUB_OPENCODE_VERSION=1.19.5 bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
