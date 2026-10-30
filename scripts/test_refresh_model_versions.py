@@ -290,6 +290,47 @@ eval_get() {
         self.assertTrue(changes[0].startswith("unmapped\t"))
         self.assertEqual(self.changes([first], [first, second]), [])
 
+    def test_openrouter_unmapped_variant_does_not_trigger(self):
+        row = self.parse("openrouter")[0]
+        baseline = row.copy()
+        baseline[0] = ""
+        baseline[1] = "openai/test-model"
+        baseline[11] = "openai/test-model"
+
+        for suffix in (":free", ":thinking", ":beta", ":extended", ":custom"):
+            variant = baseline.copy()
+            variant[1] = f"openai/test-model{suffix}"
+            variant[11] = f"openai/test-model{suffix}"
+            self.assertEqual(self.changes([baseline], [variant]), [])
+
+        mapped_baseline = baseline.copy()
+        mapped_baseline[0] = "gpt-6.1-sol"
+        variant = baseline.copy()
+        variant[1] = "openai/test-model:free"
+        variant[11] = "openai/test-model:free"
+        self.assertEqual(self.changes([mapped_baseline], [variant]), [])
+
+        new_model = baseline.copy()
+        new_model[1] = "openai/new-model"
+        new_model[11] = "openai/new-model"
+        changes = self.changes([baseline], [new_model])
+        self.assertEqual(len(changes), 1)
+        self.assertTrue(changes[0].startswith("unmapped\t"))
+
+    def test_openrouter_multiple_unmapped_variants_deduplicated_to_one_trigger(self):
+        row = self.parse("openrouter")[0]
+        v1 = row.copy()
+        v1[0] = ""
+        v1[1] = "openai/new-model:free"
+        v1[11] = "openai/new-model:free"
+        v2 = row.copy()
+        v2[0] = ""
+        v2[1] = "openai/new-model:thinking"
+        v2[11] = "openai/new-model:thinking"
+        changes = self.changes([], [v1, v2])
+        self.assertEqual(len(changes), 1)
+        self.assertTrue(changes[0].startswith("unmapped\t"))
+
     def test_lost_mapping_triggers_even_for_existing_name(self):
         old = self.parse("terminal")[0]
         new = old.copy()
@@ -551,10 +592,10 @@ esac
         self.assertIn("seeded", result.stdout)
         self.assertTrue((self.state / "evals.tsv").exists())
 
-    def add_openrouter_model(self, model_id):
+    def add_openrouter_model(self, model_id, canonical_slug=None):
         data = fixture("openrouter")
         row = copy.deepcopy(data["data"][0])
-        row.update(id=model_id, canonical_slug=model_id)
+        row.update(id=model_id, canonical_slug=(canonical_slug or model_id))
         data["data"].append(row)
         data["total_count"] += 1
         self.write_fixture("openrouter", data)
@@ -574,6 +615,15 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("would trigger: yes", result.stdout)
         self.assertIn("unmapped\t", (self.state / "eval-pending.txt").read_text())
+        self.assertEqual(calls, ["curl"] * 4)
+
+    def test_main_unmapped_openrouter_variant_does_not_trigger(self):
+        self.main_baseline()
+        self.add_openrouter_model("openai/gpt-6.1-sol:free", canonical_slug="openai/gpt-6.1-sol-20260929:free")
+        result, calls = self.main_script("--feeds-only")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("would trigger: no", result.stdout)
+        self.assertEqual((self.state / "eval-pending.txt").read_text(), "")
         self.assertEqual(calls, ["curl"] * 4)
 
     def test_feed_text_is_allowlisted_and_capped_in_claude_prompt(self):
