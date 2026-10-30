@@ -71,6 +71,17 @@ Every review-shaped leg also lists `files_examined` (repository-relative paths
 actually read); empty-findings APPROVE with no overlap against the changed paths
 is sealed `failed` (issue #518).
 
+Successful Grok legs additionally carry runner-owned `grok_execution`:
+`verdict_phase` (`inspect` or `finalize`), `inspect_exit_code`, `requested_effort`,
+and `verdict_effort` (`low` for finalize). Unknown values are explicit `null`,
+including CLI-default effort and all fields on an empty diff. The provider schema
+forbids this field; normalization strips model-authored copies before the runner
+stamps it. Other providers cannot carry it. Arbiters must distinguish a permitted
+finalize verdict from completed inspection using this sealed input; no new
+arbitration keys are required. With manifest `grok_recovery: "reject"`, recovered
+verdicts are `failed`, never `ok`, and retain zero assessment counts. Verification
+and finalize enforce the sealed policy even if the environment later says `permit`.
+
 For sealed PR delivery, this is an exact schema: unknown keys, unknown enum
 values, duplicate IDs/providers, invalid counts, provider status that differs
 from the wrapper-owned collection, and critical/high findings without all three

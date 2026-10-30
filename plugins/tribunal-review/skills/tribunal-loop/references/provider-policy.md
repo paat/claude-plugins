@@ -33,6 +33,15 @@ and T2–T4 to `high`; unset uses `high`. Unset keeps other CLI defaults.
 `TRIBUNAL_MUSE_EFFORT` override it.
 Panel membership never depends on the tier.
 
+## Grok recovery
+
+`TRIBUNAL_GROK_RECOVERY=permit` (default) keeps tools-off, low-effort finalization
+when inspection times out or returns incomplete output. `reject` turns a recovered
+verdict into a named `grok_recovery_rejected` failed leg, excluded from quorum;
+unknown phase on a nonempty diff also fails. Only `permit` and `reject` are valid.
+The collector seals this policy as `grok_recovery`; later environment changes cannot
+weaken it. Neither policy lowers `TRIBUNAL_MIN_OK_LEGS` or changes panel membership.
+
 ## Plan-limited legs
 
 A leg whose CLI failed on a plan limit (402, usage limit, quota, resource/balance/credits

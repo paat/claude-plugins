@@ -7,6 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 if [ "${TRIBUNAL_GROK:-on}" = "off" ]; then tribunal_disabled grok "Grok leg disabled via TRIBUNAL_GROK=off"; exit 0; fi
+GROK_RECOVERY="${TRIBUNAL_GROK_RECOVERY:-permit}"
+case "$GROK_RECOVERY" in
+  permit|reject) ;;
+  *) tribunal_error grok "invalid TRIBUNAL_GROK_RECOVERY '$GROK_RECOVERY' (allowed: permit, reject)"; exit 0 ;;
+esac
 command -v grok >/dev/null 2>&1 || { tribunal_error grok "Grok CLI not on PATH"; exit 0; }
 # Dead OIDC sessions fail at execution with "Not signed in"; catch early like Claude (issue #374).
 tribunal_grok_authenticated || {
@@ -35,6 +40,22 @@ case "$FINALIZE_MAX_TURNS" in ''|*[!0-9]*) FINALIZE_MAX_TURNS=6 ;; esac
 [ "$FINALIZE_MAX_TURNS" -ge 1 ] || FINALIZE_MAX_TURNS=1
 [ "$FINALIZE_MAX_TURNS" -le 20 ] || FINALIZE_MAX_TURNS=20
 
+# Stamp only runner-observed execution; absent CLI effort flags leave effort unknown.
+stamp_grok_execution() {
+  local phase="$1" inspect_rc="$2" requested="$3" executed="$4"
+  jq -c --arg phase "$phase" --argjson inspect_rc "$inspect_rc" \
+    --arg requested "$requested" --arg executed "$executed" --arg policy "$GROK_RECOVERY" '
+    if has("error") or .status == "disabled" then .
+    elif $phase == "finalize" and $policy == "reject" then
+      {provider:"grok",error:"grok_recovery_rejected: tools-off finalize verdict excluded from quorum (TRIBUNAL_GROK_RECOVERY=reject)"}
+    else .grok_execution = {
+      verdict_phase:(if $phase == "" then null else $phase end),
+      inspect_exit_code:$inspect_rc,
+      requested_effort:(if $requested == "" then null else $requested end),
+      verdict_effort:(if $executed == "" then null else $executed end)}
+    end'
+}
+
 BASE_REF="$(tribunal_base_ref)"
 # Capture host auth path before HOME isolation. Copy (never symlink) so OIDC refresh
 # token rotation under the scratch home can be written back to the host (issue #374).
@@ -57,7 +78,10 @@ WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
   || { tribunal_error grok "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error grok "cannot diff against $BASE_REF"; exit 0; }
 DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
-[ -s "$DIFF_FILE" ] || { tribunal_empty grok "$GROK_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
+[ -s "$DIFF_FILE" ] || {
+  tribunal_empty grok "$GROK_MODEL" "$BASE_REF" "$DIFF_STAT" | stamp_grok_execution "" null "" ""
+  exit 0
+}
 tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
 tribunal_review_prompt grok "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 # Inline the diff so the leg does not depend on grok reading a path outside --cwd.
@@ -215,7 +239,7 @@ run_grok() {
 }
 
 emit_from_envelope() {
-  local out="$1" err="$2" rc="$3" response json actual_model sid
+  local out="$1" err="$2" rc="$3" phase="$4" inspect_rc="$5" effort="$6" response json actual_model sid
   response="$(tribunal_extract_grok_result < "$out" || true)"
   if ! printf '%s' "$response" | tribunal_review_payload_complete; then
     return 1
@@ -226,7 +250,8 @@ emit_from_envelope() {
     | tribunal_emit_review grok "" "$out" "$err" "$rc" \
     | tribunal_stamp_executed_model grok "$actual_model" "$out" "$err" "$rc" \
     | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
-    | tribunal_stamp_diff_stat "$DIFF_STAT"
+    | tribunal_stamp_diff_stat "$DIFF_STAT" \
+    | stamp_grok_execution "$phase" "$inspect_rc" "$GROK_EFFORT" "$effort"
   return 0
 }
 
@@ -263,7 +288,7 @@ LAST_ERR="$INSPECT_ERR"
 LAST_RC=$rc
 capture_session_id "$INSPECT_OUT"
 
-if [ "$rc" -eq 0 ] && emit_from_envelope "$INSPECT_OUT" "$INSPECT_ERR" "$rc"; then
+if [ "$rc" -eq 0 ] && emit_from_envelope "$INSPECT_OUT" "$INSPECT_ERR" "$rc" inspect "$rc" "$GROK_EFFORT"; then
   exit 0
 fi
 
@@ -284,7 +309,7 @@ LAST_ERR="$FINALIZE_ERR"
 LAST_RC=$frc
 capture_session_id "$FINALIZE_OUT"
 
-if [ "$frc" -eq 0 ] && emit_from_envelope "$FINALIZE_OUT" "$FINALIZE_ERR" "$frc"; then
+if [ "$frc" -eq 0 ] && emit_from_envelope "$FINALIZE_OUT" "$FINALIZE_ERR" "$frc" finalize "$rc" low; then
   exit 0
 fi
 
