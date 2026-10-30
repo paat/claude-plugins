@@ -4289,6 +4289,36 @@ EOF_GROK
     fi
   done
 
+  # Substitute a valid recovered verdict and reseal it to reach policy verification.
+  collection="$work/recovery-reject"
+  chmod u+w "$collection/providers/grok.json" "$collection/manifest.json"
+  cp "$work/recovery-permit/providers/grok.json" "$collection/providers/grok.json"
+  jq --arg digest "$(sha256sum "$collection/providers/grok.json" | awk '{print $1}')" \
+    --argjson bytes "$(wc -c < "$collection/providers/grok.json")" '
+    (.providers[]|select(.provider=="grok")) |=
+      (.status="ok" | .artifact.sha256=$digest | .artifact.bytes=$bytes)
+    ' "$collection/manifest.json" > "$work/resealed-manifest.json"
+  cat "$work/resealed-manifest.json" > "$collection/manifest.json"
+  chmod 0444 "$collection/providers/grok.json" "$collection/manifest.json"
+  manifest_sha="$(sha256sum "$collection/manifest.json" | awk '{print $1}')"
+  local command
+  for command in verify-collection finalize; do
+    local recovery_args=()
+    [ "$command" != finalize ] || recovery_args=(--arbitration "$work/arbitration-recovery.json")
+    ec=0
+    PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
+      TRIBUNAL_GROK_RECOVERY=permit \
+      "$plugin/scripts/collect-review-evidence.sh" "$command" --collection "$collection" \
+        --expected-manifest-sha256 "$manifest_sha" "${recovery_args[@]}" \
+        >/dev/null 2> "$work/substituted-recovery.err" || ec=$?
+    if [ "$ec" -ne 0 ] && grep -Fq 'grok_recovery_rejected: artifact violates sealed recovery policy' "$work/substituted-recovery.err"; then
+      echo -e "  ${GREEN}PASS${NC} $command rejects resealed recovery despite ambient permit"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} $command rejects resealed recovery despite ambient permit"; FAIL=$((FAIL+1))
+      FAILURES+=("$command sealed recovery policy verification")
+    fi
+  done
+
   if bash "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" | jq -e '.status=="valid"' >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} runner bundle valid after panel quorum changes"; PASS=$((PASS+1))
   else
