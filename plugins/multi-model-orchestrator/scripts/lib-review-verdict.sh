@@ -58,7 +58,7 @@ mmo_separate_glued_verdict() {
 mmo_classify_provider_failure() {
   local f="${1:-}"
   [ -n "$f" ] && [ -s "$f" ] || return 0
-  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted' "$f"; then
+  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|credit balance (is )?too low|billing_error' "$f"; then
     printf 'limit\n'
     return 0
   fi

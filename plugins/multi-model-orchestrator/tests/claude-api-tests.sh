@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+# Optional scripts directory permits running the same cases against an untouched baseline.
+set -euo pipefail
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
+scripts="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)}"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/bin" "$work/repo" "$work/home" "$work/login" "$work/artifacts"
+git -C "$work/repo" init -q
+printf 'base\n' > "$work/repo/file"
+git -C "$work/repo" add file
+git -C "$work/repo" -c user.name=Test -c user.email=test@example.com commit -qm base
+printf 'test-claude-api-%s-%s\n' "$$" "$RANDOM" > "$work/key"
+: > "$work/empty-key"
+printf '{"oauthAccount":{"accountUuid":"fixture"}}\n' > "$work/login/.claude.json"
+printf 'claude 7d 95%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" > "$work/spent"
+printf 'claude 7d 10%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" > "$work/available"
+for tier in T2 T3 T4; do
+  printf '%s\tclaude\tclaude-opus-5-5\thigh\n' "$tier"
+  printf '%s\tclaude-api\tclaude-opus-5-5\thigh\n' "$tier"
+  printf '%s\tcodex\tgpt-6-astra\thigh\n' "$tier"
+done > "$work/tiers"
+
+cat > "$work/bin/claude" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" >> "$STUB_ARTIFACTS/cli.argv"
+pid=$$
+for ancestor in 0 1 2 3; do
+  cat "/proc/$pid/cmdline" >> "$STUB_ARTIFACTS/process.argv"
+  pid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status")"
+  [ "$pid" -gt 0 ] || break
+done
+cat > "$STUB_ARTIFACTS/prompt"
+format=text
+bare=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output-format) format="$2"; shift 2 ;;
+    --bare) bare=1; shift ;;
+    *) shift ;;
+  esac
+done
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  [ "$ANTHROPIC_API_KEY" = "$(cat "$STUB_KEY_FILE")" ] || exit 91
+  [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || exit 92
+  [ "$bare" -eq 1 ] || [ "${CLAUDE_CONFIG_DIR:-}" != "$STUB_LOGIN" ] || exit 93
+  printf 'api\n' >> "$STUB_ARTIFACTS/calls"
+  result="${STUB_RESULT:-ok}"
+else
+  printf 'plan\n' >> "$STUB_ARTIFACTS/calls"
+  result="${STUB_PLAN_RESULT:-ok}"
+fi
+# Strings from installed Claude Code 2.1.314, inspected 2026-10-30.
+case "$result" in
+  credit) message='Credit balance is too low' ;;
+  credit_stderr) message='Credit balance too low · Add funds: https://platform.claude.com/settings/billing' ;;
+  billing) message='API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}' ;;
+  stream_billing|stream_billing_zero) message='Credit balance is too low' ;;
+  rate) message='API Error: 429 rate limit' ;;
+  *) message='' ;;
+esac
+if [ -n "$message" ]; then
+  if [ "$format" = stream-json ]; then
+    jq -nc --arg r "$message" '{type:"assistant",error:"billing_error",message:{content:[{type:"text",text:$r}]}}'
+    jq -nc --arg r "$message" '{type:"result",subtype:"error_during_execution",is_error:true,errors:[$r]}'
+  elif [ "$result" = credit_stderr ]; then
+    printf '%s\n' "$message" >&2
+  else
+    printf '%s\n' "$message"
+  fi
+  [ "$result" != stream_billing_zero ] || exit 0
+  exit 1
+fi
+if [ "$format" = stream-json ]; then
+  if [ "$result" = echo_key ]; then
+    printf '{"type":"result","subtype":"success","is_error":false,"result":"diagnostic %s\\nAPPROVE"}\n' "$ANTHROPIC_API_KEY"
+  else
+    printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"APPROVE"}'
+  fi
+else
+  [ "$result" != echo_key ] || printf 'diagnostic %s\n' "$ANTHROPIC_API_KEY"
+  printf 'APPROVE\n'
+fi
+[ "$result" != echo_key ] || printf 'diagnostic %s\n' "$ANTHROPIC_API_KEY" >&2
+exit 0
+STUB
+cat > "$work/bin/codex" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'codex\n' >> "$STUB_ARTIFACTS/calls"
+out=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac
+done
+cat >/dev/null
+printf 'APPROVE\n' > "$out"
+STUB
+chmod +x "$work/bin/claude" "$work/bin/codex"
+
+passed=0
+failed=0
+check() {
+  local label="$1"
+  shift
+  if "$@"; then
+    printf 'PASS: claude-api: %s\n' "$label"
+    passed=$((passed + 1))
+  else
+    printf 'FAIL: claude-api: %s\n' "$label" >&2
+    failed=$((failed + 1))
+  fi
+}
+prepare() {
+  artifacts="$work/artifacts/$1"
+  mkdir -p "$artifacts/tmp"
+  common=(env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work/home" TMPDIR="$artifacts/tmp"
+    MMO_POOL_TIERS="$work/tiers" MMO_CLAUDE_API_KEY_FILE="$work/key"
+    CLAUDE_CODE_OAUTH_TOKEN=fixture-oauth CLAUDE_CONFIG_DIR="$work/login"
+    MMO_LEG_ENV='STUB_ARTIFACTS STUB_KEY_FILE STUB_LOGIN STUB_RESULT STUB_PLAN_RESULT'
+    STUB_ARTIFACTS="$artifacts" STUB_KEY_FILE="$work/key" STUB_LOGIN="$work/login")
+}
+pick() {
+  rc=0
+  "${common[@]}" bash "$scripts/pool.sh" pick "$@" > "$artifacts/pick" 2> "$artifacts/stderr" || rc=$?
+}
+run_pool() {
+  rc=0
+  printf 'bounded task\n' | "${common[@]}" bash "$scripts/pool.sh" run --repo "$work/repo" --timeout 30 \
+    --out "$artifacts/out" "$@" > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
+}
+run_api() {
+  rc=0
+  printf 'bounded task\n' | "${common[@]}" bash "$scripts/run-claude.sh" --api --mode implement \
+    --repo "$work/repo" --timeout 30 --out "$artifacts/out" "$@" > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
+}
+has() { grep -Fq -- "$2" "$1"; }
+no_api() { ! grep -q $'\tclaude-api\t' "$artifacts/pick"; }
+limit() { [ "$rc" -eq 75 ] && has "$artifacts/stderr" 'failure=limit'; }
+api_success() { [ "$rc" -eq 0 ] && [ "$(cat "$artifacts/calls" 2>/dev/null)" = api ]; }
+
+check 'each shipped Claude row has an adjacent API row with matching tier/model/effort' \
+  awk -F '\t' '
+    pending { if ($1 != tier || $2 != "claude-api" || $3 != model || $4 != effort) exit 1; pending=0; pairs++ }
+    $2 == "claude" { tier=$1; model=$3; effort=$4; pending=1 }
+    END { if (pending || pairs != 4) exit 1 }
+  ' "$scripts/pool-tiers.tsv"
+
+for tier in T2 T3 T4; do
+  prepare "spent-$tier"
+  run_pool --tier "$tier" --allow claude --usage "$work/spent"
+  check "$tier spent plan dispatches API through --allow claude" api_success
+done
+
+prepare available
+pick --tier T3 --usage "$work/available"
+check 'available plan removes API from candidates' no_api
+run_pool --tier T3 --usage "$work/available"
+check 'available plan runs with subscription and never API' \
+  bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2")" = plan ]' _ "$rc" "$artifacts/calls"
+prepare prefer-api
+pick --tier T3 --usage "$work/available" --prefer claude-api
+check 'preference cannot force API while plan is available' no_api
+prepare plan-runtime-limit
+common+=(STUB_PLAN_RESULT=rate)
+run_pool --tier T3 --usage "$work/available"
+check 'plan runtime failure falls through without spending API credit' \
+  test "$(cat "$artifacts/calls" 2>/dev/null)" = $'plan\ncodex'
+
+for missing in unset missing empty; do
+  prepare "key-$missing"
+  case "$missing" in
+    unset)
+      filtered=()
+      for entry in "${common[@]}"; do
+        case "$entry" in MMO_CLAUDE_API_KEY_FILE=*) ;; *) filtered+=("$entry") ;; esac
+      done
+      common=("${filtered[@]}")
+      ;;
+    missing) common+=(MMO_CLAUDE_API_KEY_FILE="$work/absent-key") ;;
+    empty) common+=(MMO_CLAUDE_API_KEY_FILE="$work/empty-key") ;;
+  esac
+  run_api
+  check "$missing key returns named unavailable exit 75" \
+    bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2" && [ ! -e "$3" ]' \
+      _ "$rc" "$artifacts/stderr" "$artifacts/calls"
+done
+
+prepare missing-key-pick
+common+=(MMO_CLAUDE_API_KEY_FILE="$work/absent-key")
+pick --tier T3 --usage "$work/spent"
+check 'pool availability removes API without a readable key file' no_api
+
+for error in credit credit_stderr billing stream_billing stream_billing_zero; do
+  prepare "$error"
+  common+=(STUB_RESULT="$error")
+  case "$error" in stream_*) run_api --stream-log "$artifacts/stream" ;; *) run_api ;; esac
+  check "$error reports failure=limit and exit 75" limit
+done
+prepare credit-fallthrough
+common+=(STUB_RESULT=credit)
+run_pool --tier T3 --usage "$work/spent"
+check 'credit exhaustion falls through to the next independent provider' \
+  bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2")" = "$(printf "api\ncodex")" ] && grep -Fq "claude-api unavailable (exit 75)" "$3"' \
+    _ "$rc" "$artifacts/calls" "$artifacts/stderr"
+
+prepare denied
+pick --tier T3 --usage "$work/spent" --deny claude
+check '--deny claude excludes API for reviewer independence' no_api
+prepare api-denied
+pick --tier T3 --usage "$work/available" --deny claude-api
+check '--deny claude-api excludes the same Claude provider' \
+  bash -c '! grep -q "claude" "$1"' _ "$artifacts/pick"
+prepare review-api
+printf 'changed\n' > "$work/repo/file"
+run_pool --tier T3 --mode review --base HEAD --allow claude --usage "$work/spent"
+check 'API review uses Claude identity and returns a valid verdict' api_success
+git -C "$work/repo" checkout -q -- file
+
+prepare usage-independent
+cat "$work/spent" > "$work/api-usage"
+printf 'claude-api 7d 100%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" >> "$work/api-usage"
+run_pool --tier T3 --allow claude --usage "$work/api-usage"
+check 'API ignores plan usage windows including a claude-api usage row' api_success
+
+for format in text stream; do
+  prepare "canary-$format"
+  common+=(ANTHROPIC_API_KEY=wrong-inherited-key ANTHROPIC_AUTH_TOKEN=wrong-inherited-token
+    MMO_LEG_ENV='STUB_ARTIFACTS STUB_KEY_FILE STUB_LOGIN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR ANTHROPIC_*')
+  if [ "$format" = stream ]; then run_api --stream-log "$artifacts/stream"; else run_api; fi
+  check "$format API authenticates with file key and isolates OAuth/login" api_success
+  check "$format key never enters artifacts or CLI/ancestor argv" \
+    bash -c '[ -s "$1/process.argv" ] && ! grep -r -a -F -q -f "$2" "$1"' _ "$artifacts" "$work/key"
+done
+for format in text stream; do
+  prepare "echo-key-$format"
+  common+=(STUB_RESULT=echo_key)
+  if [ "$format" = stream ]; then run_api --stream-log "$artifacts/stream"; else run_api; fi
+  check "$format redacts a key echoed by the CLI from all artifacts" \
+    bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2/calls")" = api ] && ! grep -r -a -F -q -f "$3" "$2"' \
+      _ "$rc" "$artifacts" "$work/key"
+done
+prepare parent-env
+parent_key="${ANTHROPIC_API_KEY-unset}"
+parent_oauth="${CLAUDE_CODE_OAUTH_TOKEN-unset}"
+run_api
+check 'successful API leg leaves parent key and OAuth environment unchanged' \
+  test "$rc:${ANTHROPIC_API_KEY-unset}:${CLAUDE_CODE_OAUTH_TOKEN-unset}" = "0:$parent_key:$parent_oauth"
+check 'canary absent from every leg artifact across all cases' \
+  bash -c '! grep -r -a -F -q -f "$1" "$2"' _ "$work/key" "$work/artifacts"
+
+printf 'Claude API regression tests: %s passed, %s failed, %s total.\n' "$passed" "$failed" "$((passed + failed))"
+[ "$failed" -eq 0 ]

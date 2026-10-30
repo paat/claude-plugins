@@ -53,15 +53,24 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | Tier | Task evidence | Workers, in order |
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
-| T2 | Well-specified change with known tests | Sonnet 5.5, Sonnet 5.5 via agy, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol (all medium unless noted) |
-| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra, Opus 5.5, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.1 Sol, Gemini 4 Argon (all high) |
-| T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 xhigh |
+| T2 | Well-specified change with known tests | Sonnet 5.5 plan/API, Sonnet 5.5 via agy, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol (all medium unless noted) |
+| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.1 Sol, Gemini 4 Argon (all high) |
+| T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 plan/API xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
 agy), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
 order and moves past any that exit 75 (busy, down, or at a limit). T1 and T2 fall back to the
 higher tiers' workers; T3 and T4 never fall to a weaker tier and exit 75 with the earliest reset
 instead.
+
+`claude-api` follows each Claude plan row at the same model/effort and runs only after that
+plan row is skipped. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organization's key file;
+`run-claude.sh --api` uses it only in the leg, bypasses plan-window gates, and exits 75 when
+unavailable or credits are exhausted. API legs use `--bare` (no OAuth/login or automatic
+CLAUDE.md/hooks discovery); include required project context in the task. It remains Claude for restrictions and reviewer
+independence. This uses monthly plan API credit, separate from subscription limits; purchased
+credits/auto-reload can extend usage ([credit terms](https://support.claude.com/en/articles/17154008),
+[`claude -p` eligibility](https://support.claude.com/en/articles/15036540), read 2026-10-30).
 
 ```bash
 pool.sh pick --tier T2 --deny claude              # one "tier provider model effort" line per worker

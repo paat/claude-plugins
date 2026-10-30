@@ -26,6 +26,14 @@ exit 75. Not before every leg.
 Save the `usage.sh` output to a file in the run directory and record one `Usage:` line in the
 handoff State (per provider: tightest window %, its reset UTC, as-of).
 
+`claude-api` uses monthly plan API credit through `MMO_CLAUDE_API_KEY_FILE`, separately from
+subscription windows ([credits](https://support.claude.com/en/articles/17154008),
+[API-key headless usage](https://support.claude.com/en/articles/15036540), read 2026-10-30).
+Its plan row must be skipped first; plan-window gating never applies to the API row.
+Missing keys or exhausted credits return 75 so the pool continues; it still counts as Claude
+for restrictions and reviewer independence. Purchased credits or auto-reload can fund further
+usage after the monthly credit is spent.
+
 ## Act
 
 A window is **tight** at ≥ 90% used when it resets after the leg would finish (its timeout).

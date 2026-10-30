@@ -9,7 +9,8 @@
 # pool-tiers.tsv (or MMO_POOL_TIERS). This script only removes workers that cannot take the
 # task now: not allowed or denied (LIST = comma-separated providers or models), CLI not
 # installed, an advisory engine (local qwen, agy) on a review, or a plan window >= 90% used
-# that resets after the timeout. --deny claude also removes agy's claude-* rows (same model).
+# that resets after the timeout. claude-api shares Claude's identity, but not its plan windows.
+# --deny claude also removes agy's claude-* rows (same model).
 # Within each tier, --prefer's rows go first, then the rows a 7d window binds when it is
 # <= 60% used and resets within 24h (use it or lose it).
 # Usage comes from --usage (usage.sh output) or a fresh usage.sh run. T1 and T2 workers are
@@ -70,7 +71,10 @@ tiers_file="${MMO_POOL_TIERS:-$SCRIPT_DIR/pool-tiers.tsv}"
 [ -r "$tiers_file" ] || { printf 'pool: cannot read tier table %s\n' "$tiers_file" >&2; exit 2; }
 
 in_list() {  # in_list LIST provider model
-  case ",$1," in *",$2,"*|*",$3,"*) return 0 ;; *) return 1 ;; esac
+  local list=",$1," provider="$2"
+  list="${list//,claude-api,/,claude,}"
+  [ "$provider" != claude-api ] || provider=claude
+  case "$list" in *",$provider,"*|*",$3,"*) return 0 ;; *) return 1 ;; esac
 }
 
 # Tight windows as "provider window reset_epoch". A window named <w>_<x> (Claude's 7d_opus)
@@ -86,6 +90,7 @@ fi
 tight=""
 spare=""
 while read -r u_provider u_window u_used u_word u_reset _; do
+  [ "$u_provider" != claude-api ] || continue
   [ "$u_word" = resets ] || continue
   u_used="${u_used%\%}"
   [[ "$u_used" =~ ^[0-9]+$ ]] || continue
@@ -121,7 +126,7 @@ is_spare() {  # is_spare provider model
 }
 
 cli_for() {
-  case "$1" in claude|codex|grok|muse|agy) printf '%s' "$1" ;; *) printf '' ;; esac
+  case "$1" in claude-api) printf claude ;; claude|codex|grok|muse|agy) printf '%s' "$1" ;; *) printf '' ;; esac
 }
 
 candidates=()
@@ -148,6 +153,12 @@ for t in $chain; do
     elif [ -n "$deny" ] && { in_list "$deny" "$r_provider" "$r_model" || { [ "$r_provider" = agy ] && [[ "$r_model" == claude-* ]] && in_list "$deny" claude "$r_model"; }; }; then why="denied"
     elif [ "$mode" = review ] && { [ "$r_provider" = qwen ] || [ "$r_provider" = agy ]; }; then why="advisory reviewer"
     elif [ -n "$(cli_for "$r_provider")" ] && ! command -v "$(cli_for "$r_provider")" >/dev/null 2>&1; then why="CLI not installed"
+    elif [ "$r_provider" = claude-api ]; then
+      if ! tight_reset claude "$r_model" >/dev/null; then
+        why="Claude plan row available"
+      elif [ -z "${MMO_CLAUDE_API_KEY_FILE:-}" ] || [ ! -f "$MMO_CLAUDE_API_KEY_FILE" ] || [ ! -r "$MMO_CLAUDE_API_KEY_FILE" ] || [ ! -s "$MMO_CLAUDE_API_KEY_FILE" ]; then
+        why="MMO_CLAUDE_API_KEY_FILE unavailable"
+      fi
     elif reset="$(tight_reset "$r_provider" "$r_model")"; then
       why="plan window >= 90% until $(date -u -d "@$reset" +%Y-%m-%dT%H:%MZ)"
       [ -n "$earliest" ] && [ "$earliest" -le "$reset" ] || earliest="$reset"
@@ -190,7 +201,11 @@ for row in "${candidates[@]}"; do
   [ "$r_effort" = n/a ] || args+=(--effort "$r_effort")
   [ -z "$base_ref" ] || args+=(--base "$base_ref")
   [ -z "$output_file" ] || args+=(--out "$output_file")
-  case "$r_provider" in qwen) runner=run-qwen-local.sh ;; *) runner="run-$r_provider.sh" ;; esac
+  case "$r_provider" in
+    qwen) runner=run-qwen-local.sh ;;
+    claude-api) runner=run-claude.sh; args+=(--api) ;;
+    *) runner="run-$r_provider.sh" ;;
+  esac
   printf 'pool: %s -> %s/%s/%s\n' "$r_tier" "$r_provider" "$r_model" "$r_effort" >&2
   before="$(mmo_tree_state "$repo_dir" "$out_abs")"
   rc=0

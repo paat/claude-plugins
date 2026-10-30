@@ -251,7 +251,7 @@
     {
       "name": "multi-model-orchestrator",
       "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
-      "version": "0.24.0",
+      "version": "0.25.0",
       "author": {
         "name": "Andre Paat"
       },
