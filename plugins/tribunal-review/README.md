@@ -274,11 +274,13 @@ pass cannot satisfy a merge gate. Every review-shaped leg also lists
 `files_examined`, and an empty-findings APPROVE that names no path changed in
 the reviewed range is counted as a provider failure (a truly empty range is
 exempt). For every non-empty range, with or without findings, each examined
-path must exist in the pinned `base_oid` or `head_oid` tree after stripping
-leading `./` segments. Base-only deleted paths and head-only added paths are
-valid. An absent path or an unavailable pinned tree produces a named provider
-failure excluded from quorum, with no worktree fallback (issue #671). This
-checks existence, not whether a file was read or a conclusion is sound.
+path must exist in the pinned `base_oid`, `head_oid`, or their merge-base tree
+after stripping leading `./` segments. Deleted paths present only at the
+merge-base and head-only added paths are valid. `.` and paths through a
+symlinked directory are not tree entries and are rejected. An absent path or
+an unavailable pinned tree produces a named provider failure excluded from
+quorum, with no worktree fallback (issue #671). This checks existence, not
+whether a file was read or a conclusion is sound.
 For sealed PR evidence,
 `collect-review-evidence.sh` additionally requires the stamped `base_oid` and
 `head_oid` to be the collection's own — a well-formed leg for another revision

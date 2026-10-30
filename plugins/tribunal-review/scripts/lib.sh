@@ -926,12 +926,12 @@ tribunal_take_diff_stat() {
 # empty-findings APPROVE whose list intersects none of the paths changed in
 # base_oid...head_oid, become provider errors excluded from quorum. A genuine
 # empty range (diff_stat.files_changed==0, as from tribunal_empty) is exempt.
-# Every examined path must also exist in either pinned tree, with or without
-# findings (issue #671); unavailable trees fail closed.
+# Every examined path must also exist in a pinned base, head, or merge-base
+# tree, with or without findings (issue #671); unavailable trees fail closed.
 # $1 pinned range from `tribunal_take_diff_stat`
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local stat="$1" json provider root base_oid head_oid files_changed tmpdir range absent
+  local stat="$1" json provider root base_oid head_oid merge_base_oid files_changed tmpdir range absent
   json="$(cat)"
   # Error and disabled legs carry no diff_stat.
   if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
@@ -963,6 +963,12 @@ tribunal_stamp_diff_stat() {
       return
     fi
     read -r base_oid head_oid <<< "$range"
+    if ! merge_base_oid="$(git -C "$root" merge-base "$base_oid" "$head_oid" 2>/dev/null)" \
+      || [ -z "$merge_base_oid" ]; then
+      tribunal_error "$provider" \
+        "cannot verify files_examined: pinned merge-base unavailable; excluded from quorum"
+      return
+    fi
     # Path lists travel via temp files, not argv: large lists exceed
     # MAX_ARG_STRLEN when passed as --argjson.
     tmpdir="$(mktemp -d)" || {
@@ -971,13 +977,14 @@ tribunal_stamp_diff_stat() {
       return
     }
     # Query exact JSON path bytes instead of decoding a tree listing (invalid
-    # UTF-8 filenames would otherwise alias U+FFFD). Git 2.43's -Z preserves
-    # embedded newlines in both requests and responses. Check both roots first.
+    # UTF-8 filenames would otherwise alias U+FFFD). cat-file -Z preserves
+    # embedded newlines in both requests and responses. Check all three roots first.
     if ! printf '%s' "$json" | jq '[.files_examined[] | sub("^(\\./)+"; "")]' > "$tmpdir/paths" \
-      || ! jq -j --arg base "$base_oid" --arg head "$head_oid" '
-        ($base + "^{tree}\u0000"), ($head + "^{tree}\u0000"),
+      || ! jq -j --arg base "$base_oid" --arg head "$head_oid" --arg mb "$merge_base_oid" '
+        ($base + "^{tree}\u0000"), ($head + "^{tree}\u0000"), ($mb + "^{tree}\u0000"),
         (.[] | if contains("\u0000") then error("NUL in examined path")
-          else ($base + ":" + . + "\u0000"), ($head + ":" + . + "\u0000") end)
+          else ($base + ":" + . + "\u0000"), ($head + ":" + . + "\u0000"),
+            ($mb + ":" + . + "\u0000") end)
       ' "$tmpdir/paths" > "$tmpdir/requests" 2>/dev/null \
       || ! git -C "$root" cat-file --batch-check='%(objectname)' -Z \
         < "$tmpdir/requests" > "$tmpdir/objects" 2>/dev/null; then
@@ -989,11 +996,13 @@ tribunal_stamp_diff_stat() {
     if ! absent="$(jq -c --rawfile objects "$tmpdir/objects" '
         def oid: test("^([0-9a-f]{40}|[0-9a-f]{64})$");
         . as $paths | ($objects | split("\u0000")) as $results |
-        if ($results | length) != (3 + 2 * ($paths | length))
+        if ($results | length) != (4 + 3 * ($paths | length))
           or $results[-1] != "" or ($results[0] | oid | not) or ($results[1] | oid | not)
+          or ($results[2] | oid | not)
         then error("pinned objects unavailable or incomplete batch response") else
           [range($paths | length) | . as $i |
-            select(($results[2 + 2*$i] | oid | not) and ($results[3 + 2*$i] | oid | not)) |
+            select(($results[3 + 3*$i] | oid | not) and ($results[4 + 3*$i] | oid | not)
+              and ($results[5 + 3*$i] | oid | not)) |
             $paths[$i]][:3] |
           map(if length > 200 then .[:200] + "..." else . end)
         end
@@ -1006,7 +1015,7 @@ tribunal_stamp_diff_stat() {
     if [ "$absent" != "[]" ]; then
       rm -rf "$tmpdir"
       tribunal_error "$provider" \
-        "files_examined paths absent from both pinned trees (first 3, capped at 200 characters each): $absent; excluded from quorum"
+        "files_examined paths absent from pinned base/head/merge-base trees (first 3, capped at 200 characters each): $absent; excluded from quorum"
       return
     fi
     if printf '%s' "$json" | jq -e '((.findings // []) | length) == 0' >/dev/null 2>&1; then

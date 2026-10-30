@@ -3993,11 +3993,36 @@ test_examined_paths_pinned() {
     git add ambient.txt
     git commit -q -m ambient
   )
+  (
+    mkdir "$work/merge-base"
+    cd "$work/merge-base"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'gone\n' > gone.txt
+    git add gone.txt
+    git commit -q -m base
+    git branch main-fixture
+    git checkout -q -b feature-fixture
+    git rm -q gone.txt
+    git commit -q -m feature-delete
+    git checkout -q main-fixture
+    git rm -q gone.txt
+    git commit -q -m main-delete
+    git commit -q --allow-empty -m main-advance
+    git checkout -q feature-fixture
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    TRIBUNAL_BASE_REF=main-fixture tribunal_prepare_diff "$work/merge-base.diff"
+    tribunal_take_diff_stat "$work/merge-base.diff" > "$work/merge-base-stat.json"
+  )
   mkdir "$work/bin"
   cat > "$work/bin/git" <<'GIT'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
+    merge-base)
+      [ "${FAIL_MERGE_BASE:-0}" != 1 ] || exit 1
+      ;;
     ls-tree|cat-file)
       printf '%s\n' "$arg" >> "$LOOKUP_LOG"
       [ "${FAIL_LOOKUP:-0}" != 1 ] || exit 1
@@ -4009,12 +4034,12 @@ GIT
   chmod +x "$work/bin/git"
   for scenario in absent_empty absent_findings valid_findings ambient deleted added prefixed unusual directory \
     missing_base missing_head omitted_base omitted_head lookup_failure empty_range large_list bounded_error \
-    invalid_utf8_alias valid_with_invalid_bytes nul_path; do
+    invalid_utf8_alias valid_with_invalid_bytes nul_path merge_base_empty merge_base_findings merge_base_failure; do
     label="pinned examined paths: $scenario"
     if (
       cd "$work"
       . "$PLUGIN_ROOT/scripts/lib.sh"
-      export REAL_GIT="$git_bin" LOOKUP_LOG="$work/lookups" PATH="$work/bin:$PATH" FAIL_LOOKUP=0
+      export REAL_GIT="$git_bin" LOOKUP_LOG="$work/lookups" PATH="$work/bin:$PATH" FAIL_LOOKUP=0 FAIL_MERGE_BASE=0
       : > "$LOOKUP_LOG"
       stat="$(cat "$work/stat.json")"
       examined='["changed.txt"]'
@@ -4024,6 +4049,10 @@ GIT
         absent_empty|absent_findings)
           examined='["changed.txt","invented.txt"]'; expectation=absent ;;
         ambient) examined='["changed.txt","ambient.txt"]'; expectation=ambient ;;
+        merge_base_empty|merge_base_findings)
+          cd "$work/merge-base"
+          stat="$(cat "$work/merge-base-stat.json")"
+          examined='["gone.txt"]' ;;
         deleted) examined='["deleted.txt"]' ;;
         added) examined='["added.txt"]' ;;
         prefixed) examined='["././changed.txt"]' ;;
@@ -4037,6 +4066,7 @@ GIT
         omitted_base|omitted_head)
           stat="$(printf '%s' "$stat" | jq --arg key "${scenario#omitted_}_oid" 'del(.[$key])')"
           expectation=unavailable ;;
+        merge_base_failure) export FAIL_MERGE_BASE=1; expectation=unavailable ;;
         lookup_failure) export FAIL_LOOKUP=1; expectation=unavailable ;;
         empty_range)
           stat="$(printf '%s' "$stat" | jq '.files_changed = 0 | .head_oid = .base_oid')"
@@ -4045,9 +4075,12 @@ GIT
         bounded_error) expectation=bounded ;;
       esac
       case "$scenario" in
-        absent_findings|valid_findings|missing_*|omitted_*|lookup_failure)
+        absent_findings|valid_findings|missing_*|omitted_*|lookup_failure|merge_base_findings)
           findings='[{"severity":"medium","category":"logic","file":"changed.txt","line":1,"title":"fixture","description":"fixture defect","suggestion":"fix fixture","confidence":0.9}]' ;;
       esac
+      if [ "$scenario" = merge_base_findings ]; then
+        findings="$(printf '%s' "$findings" | jq '.[0].file = "gone.txt"')"
+      fi
       jq -nc --argjson examined "$examined" --argjson findings "$findings" \
         '{provider:"codex",model:"fixture",files_examined:$examined,findings:$findings,
           summary:{total_findings:($findings|length),critical:0,high:0,medium:($findings|length),low:0,
@@ -4079,9 +4112,12 @@ GIT
         unavailable)
           jq -e '.provider=="codex" and (.error|type)=="string" and (has("diff_stat")|not)' out.json >/dev/null || exit 1 ;;
       esac
-      if [ "$scenario" = large_list ]; then
-        # One batch or one traversal per oid, independent of examined-list size.
-        [ "$(wc -l < "$LOOKUP_LOG")" -ge 1 ] && [ "$(wc -l < "$LOOKUP_LOG")" -le 2 ] || exit 1
+      if [ "$scenario" = merge_base_failure ]; then
+        jq -e '.error | contains("merge-base unavailable")' out.json >/dev/null || exit 1
+        [ ! -s "$LOOKUP_LOG" ] || exit 1
+      elif [ "$scenario" = large_list ] || [[ "$scenario" = merge_base_* ]]; then
+        # All three trees share one batch, independent of examined-list size.
+        [ "$(cat "$LOOKUP_LOG")" = cat-file ] || exit 1
       elif [ "$scenario" = empty_range ]; then
         [ ! -s "$LOOKUP_LOG" ] || exit 1
       fi
