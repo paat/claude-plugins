@@ -18,7 +18,7 @@ printf 'claude 7d 10%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" >
 printf 'claude unknown\n' > "$work/unknown"
 for tier in T2 T3 T4; do
   printf '%s\tclaude\tclaude-opus-5-5\thigh\n' "$tier"
-  printf '%s\tclaude-api\tclaude-opus-5-5\thigh\n' "$tier"
+  [ "$tier" = T4 ] || printf '%s\tclaude-api\tclaude-opus-5-5\thigh\n' "$tier"
   printf '%s\tcodex\tgpt-6-astra\thigh\n' "$tier"
 done > "$work/tiers"
 
@@ -188,18 +188,28 @@ no_api() { ! grep -q $'\tclaude-api\t' "$artifacts/pick"; }
 limit() { [ "$rc" -eq 75 ] && has "$artifacts/stderr" 'failure=limit'; }
 api_success() { [ "$rc" -eq 0 ] && [ "$(cat "$artifacts/calls" 2>/dev/null)" = api ]; }
 
-check 'each shipped Claude row has an adjacent API row with matching tier/model/effort' \
+check 'each shipped T2/T3 Claude row has an adjacent API row with matching tier/model/effort' \
   awk -F '\t' '
     pending { if ($1 != tier || $2 != "claude-api" || $3 != model || $4 != effort) exit 1; pending=0; pairs++ }
-    $2 == "claude" { tier=$1; model=$3; effort=$4; pending=1 }
-    END { if (pending || pairs != 4) exit 1 }
+    ($1 == "T2" || $1 == "T3") && $2 == "claude" { tier=$1; model=$3; effort=$4; pending=1 }
+    END { if (pending || pairs != 3) exit 1 }
   ' "$scripts/pool-tiers.tsv"
 
-for tier in T2 T3 T4; do
+for tier in T2 T3; do
   prepare "spent-$tier"
   run_pool --tier "$tier" --allow claude --usage "$work/spent"
   check "$tier spent plan dispatches API through --allow claude" api_success
 done
+
+prepare spent-T4
+common+=(MMO_POOL_TIERS="$scripts/pool-tiers.tsv")
+pick --tier T4 --usage "$work/spent" --prefer claude-api
+check 'T4 tight plan with a key file keeps only Codex and never API' \
+  bash -c '[ "$1" -eq 0 ] && [ "$(cut -f2-4 "$2")" = "$(printf "codex\tgpt-6-astra\txhigh")" ]' _ "$rc" "$artifacts/pick"
+pick --tier T4 --allow claude --usage "$work/spent"
+check 'T4 tight plan with Claude-only allowlist returns 75 without candidates' \
+  bash -c '[ "$1" -eq 75 ] && [ ! -s "$2" ]' _ "$rc" "$artifacts/pick"
+check 'T4 Claude-only allowlist never includes API' no_api
 
 prepare available
 pick --tier T3 --usage "$work/available"

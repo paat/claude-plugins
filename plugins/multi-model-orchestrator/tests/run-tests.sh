@@ -3268,6 +3268,13 @@ out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bas
 case "$out" in *gemini-4-argon*) fail 'a stronger agy model cannot bypass advisory-review restrictions' ;; esac
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T4 --prefer gemini-4-argon --usage /dev/null 2>/dev/null)"
 case "$out" in *gemini-4-argon*) fail 'task preference cannot lower the high-risk tier floor' ;; esac
+printf 'fixture-api-key\n' > "$PL/api-key"
+printf 'claude 7d 95%% resets %s\n' "$(utc_min "$far")" > "$PL/claude-usage.txt"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" MMO_CLAUDE_API_KEY_FILE="$PL/api-key" \
+  bash "$POOL" pick --tier T4 --usage "$PL/claude-usage.txt" 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ')" = 'codex gpt-6-astra xhigh' ] \
+  || fail "T4 with a tight Claude plan and key file keeps only Codex: $out"
+pass 'T4 never routes claude-api with a tight Claude plan and key file'
 argon_n="$(find "$PL/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
 printf 'debug a bounded problem\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
   bash "$POOL" run --tier T3 --prefer gemini-4-argon --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
