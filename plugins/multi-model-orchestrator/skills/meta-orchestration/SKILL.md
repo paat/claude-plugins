@@ -114,10 +114,10 @@ logs, diffs: a leg or subagent returns a verdict.
    An unknown is not automatically a human decision. Classify: unresearched (spend a research
    leg) vs. genuine judgment call (decide with the recommended default, attach research when a
    trigger fired else state why not, and record the choice).
-3. Instantiate `references/worker-prompt.md`, feeding Hard-won constraints from the handoff's
-   rules-learned section and any research memo for the item into Grounding docs / Hard-won
-   constraints. Dispatch implement legs via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T>
-   --timeout 1800`; a pinned route calls its runner (`run-*.sh`, `run-qwen-local.sh`) directly.
+3. Fill `references/worker-prompt.md` with handoff rules-learned and any research memo for the item.
+   Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800`, preserving
+   preference, restrictions and usage from `pick`. Direct model/effort routes use the recorded
+   eligible runner (`run-*.sh`, `run-qwen-local.sh`).
 4. Gate yourself: inspect the item-branch diff, run the named suites, verify the final-message
    contract. If the leg's contract prevented committing, commit the gated result yourself —
    recording output or a memo is bookkeeping, not source editing.

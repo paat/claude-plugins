@@ -2,9 +2,11 @@
 
 Claude Code and Codex plugin marketplace for autonomous SaaS delivery loops.
 
-This repository is organized around one mission: help AI systems discover real market
-needs, convert those signals into production-quality SaaS improvements, and deliver
-one-shot implementations with minimal human intervention. The plugins are generic and
+This repository is organized around one north star (stated in `CLAUDE.md`): help AI
+systems discover real market needs, convert those signals into production-quality SaaS
+improvements, and deliver one-shot implementations with no human code review. Customer
+feedback and owner validation of the live product are the only human signals, and every
+decision rests on current, source-cited knowledge at low token cost. The plugins are generic and
 project-agnostic, but the default audience is Estonian SaaS companies, e-residents,
 small businesses, and micro-OÜs.
 
@@ -18,6 +20,8 @@ Plugins in this marketplace usually serve one part of the loop:
   workflow specs, and maintainable research artifacts.
 - **Production delivery** — one-shot implementation, browser QA, regression tests,
   tribunal review, CI/deploy monitoring, and autonomous maintenance.
+- **Current knowledge** — dated, source-cited skills and data refreshed out of band (for
+  example model-routing evidence), so each step of the loop acts on current facts.
 
 Utilities that do not discover demand directly still belong here when they make that
 loop safer, cheaper, or more reliable.

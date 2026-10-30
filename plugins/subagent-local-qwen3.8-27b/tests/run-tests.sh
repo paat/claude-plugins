@@ -197,6 +197,7 @@ fi
 # Prove isolated HOME: must be a temp dir containing our settings, not host.
 printf '%s\n' "$HOME" > "${QL_STUB_HOME:-/tmp/ql-stub-home}"
 printf '%s\n' "${PYTHONUSERBASE:-unset}" > "${QL_STUB_PYUSERBASE:-/tmp/ql-stub-pyuserbase}"
+printf '%s\n' "${QWEN_USAGE_STATISTICS_ENABLED:-unset}" > "${QL_STUB_USAGESTATS:-/tmp/ql-stub-usagestats}"
 if [ -f "$HOME/.qwen/settings.json" ]; then
   cp "$HOME/.qwen/settings.json" "${QL_STUB_SETTINGS:-/tmp/ql-stub-settings}"
 fi
@@ -205,11 +206,11 @@ exit 0
 STUB
 
 argv_file="$(mktemp)"; stdin_file="$(mktemp)"; home_file="$(mktemp)"; settings_file="$(mktemp)"
-pyuserbase_file="$(mktemp)"
+pyuserbase_file="$(mktemp)"; usagestats_file="$(mktemp)"
 got="$(
   QL_STUB_ARGV="$argv_file" QL_STUB_STDIN="$stdin_file" \
   QL_STUB_HOME="$home_file" QL_STUB_SETTINGS="$settings_file" \
-  QL_STUB_PYUSERBASE="$pyuserbase_file" \
+  QL_STUB_PYUSERBASE="$pyuserbase_file" QL_STUB_USAGESTATS="$usagestats_file" \
   run -C /tmp --yolo <<'PROMPT' 2>/dev/null
 do a thing from stdin
 PROMPT
@@ -228,6 +229,8 @@ check "isolated HOME differs from host" 1 \
 contains "isolated settings has modelProviders" "modelProviders" "$(cat "$settings_file")"
 contains "isolated settings enable_thinking" "enable_thinking" "$(cat "$settings_file")"
 contains "isolated settings reasoning_effort medium" '"reasoning_effort": "medium"' "$(cat "$settings_file")"
+contains "isolated settings disable usage statistics" '"usageStatisticsEnabled": false' "$(cat "$settings_file")"
+check "worker env disables usage statistics" "false" "$(cat "$usagestats_file")"
 
 # (b) approval-mode plan
 make_qwen <<'STUB'

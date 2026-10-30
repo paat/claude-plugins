@@ -37,17 +37,20 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
 2. When the route card asks for Claude advice before implementation:
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode advise --repo "$REPO_ROOT" --model claude-opus-5-5 --effort high <<'PROMPT'
+   "${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode advise --repo "$REPO_ROOT" --model "$ROUTED_ADVICE_MODEL" --effort "$ROUTED_ADVICE_EFFORT" <<'PROMPT'
    <one self-contained question; request constraints and a file map, not source edits>
    PROMPT
    ```
 
-3. Dispatch each ready task through the pool at its tier, with the request's restrictions as
-   `--allow`/`--deny` lists. Default to sequential execution; parallel writes require disjoint
+3. Dispatch each ready task with the route card's exact arguments: preserve the tier, mode,
+   `--prefer`, `--allow`/`--deny` and usage snapshot from selection. A task-specific effort
+   differing from the table uses the recorded direct runner after eligibility checks.
+   Default to sequential execution; parallel writes require disjoint
    declared files and no shared generated state.
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh" run --tier "$ROUTED_TIER" --mode implement --repo "$REPO_ROOT" --timeout 1200 <<'PROMPT'
+   # ROUTED_POOL_ARGS holds preference, restrictions and usage flags; never an eval string.
+   "${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh" run --tier "$ROUTED_TIER" "${ROUTED_POOL_ARGS[@]}" --mode implement --repo "$REPO_ROOT" --timeout 1200 <<'PROMPT'
    You are one bounded implementation worker. Implement only TASK <id>.
    Acceptance: <observable result and exact test>.
    Allowed files: <paths>. Do not edit any other path or commit.

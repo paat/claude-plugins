@@ -1,7 +1,7 @@
 # multi-model-orchestrator
 
 Route each software task to a current Claude Code, Codex, Grok Build, Muse Code, Antigravity
-(Gemini Flash), or local Qwen worker by task complexity, plan-limit headroom, and availability, then verify the
+(Gemini Flash/Argon), or local Qwen worker by task fit, complexity, plan-limit headroom, and availability, then verify the
 result deterministically and review it independently when the risk justifies another pass.
 
 The standalone `route-model-task` skill can return route cards without executing work, and
@@ -31,18 +31,22 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
-| Antigravity (`agy`) | `gemini-3.8-flash` | Cheap, fast bounded edits and an advisory diff-only review lens |
+| Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon` | Flash for bounded edits; Argon for complex coding; both remain advisory in review mode |
 
 Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.1,
 Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
-`medium`, `high`, and `xhigh`; Grok 4.5 and Gemini 3.8 Flash support `low`, `medium`, and `high`; Muse catalog models support
+`medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, and Argon support `low`, `medium`, and `high`; Muse catalog models support
 `minimal` through `max`.
 
 ## Routing policy
 
-The router first applies provider/model restrictions, then scores task role, ambiguity,
-scope/coupling, risk, deterministic validation, modality, latency, and expected duration.
+The router applies provider/model restrictions, then assesses task family, ambiguity,
+scope/coupling, risk, validation, modality, tools, latency, and duration. It chooses model and
+effort separately using the [task-fit matrix](skills/route-model-task/references/task-fit.md):
+Luna/low for mechanical work, Sonnet/medium for specified coding, Sol/xhigh for demanding
+visual systems, and Argon/high as a complex-debugging candidate. These are dated starting
+recommendations, not universal winners; local acceptance and repair results decide preference.
 
 Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in order:
 
@@ -50,7 +54,7 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
 | T2 | Well-specified change with known tests | Sonnet 5.5, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol (all medium unless noted) |
-| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra high, Opus 5.5 high, Muse `muse-wonder-full-1.0` high |
+| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra, Opus 5.5, Muse `muse-wonder-full-1.0`, GPT-6.1 Sol, Gemini 4 Argon (all high) |
 | T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
@@ -61,21 +65,27 @@ instead.
 
 ```bash
 pool.sh pick --tier T2 --deny claude              # one "tier provider model effort" line per worker
+pool.sh pick --tier T3 --prefer gemini-4-argon     # task-fit preference, still subject to filters
 pool.sh run --tier T1 --repo . <<< "<task packet>" # run on the first available worker
 pool.sh run --tier T3 --mode review --base main --deny codex <<< "<review request>"
 ```
 
-Flags: `--allow`/`--deny` (comma-separated providers or models), `--prefer <provider>` (first
+Flags: `--allow`/`--deny` (comma-separated providers or models), `--prefer <provider|exact-model>` (first
 within its tier), `--usage <usage.sh output>` (default: a fresh `usage.sh` run), `--timeout`,
-`--out`. Unusually hard or days-long work pins Fable 5.1 outside the pool.
+`--out`. Preferences are soft and never jump tiers or bypass limits; user pins remain binding.
+Forward the same preference/restrictions/usage snapshot from `pick` to `run`. A task-specific
+effort differing from the table uses an eligible candidate's direct runner with explicit
+`--model`/`--effort`; preserve restrictions/headroom on fallback. Unusually hard or days-long
+work can pin Fable 5.1 outside the pool after the same restriction and usage checks.
 
 These are starting hypotheses, not a universal leaderboard. Local completion, latency,
 scope-control, and test data should override them. Higher effort is not a repair for unclear
 acceptance criteria. `max` and `ultra` require exceptional evidence or an explicit request.
 
-The detailed router and dated evidence notes live under `skills/route-model-task/references/` and
-`skills/multi-model-orchestration/references/`. Vendor benchmark claims are not compared as if
-their harnesses and token budgets were identical.
+The [dated evidence](skills/route-model-task/references/evidence-2026-10.md) distinguishes vendor
+guidance, observed availability, and unmeasured comparisons. Record task family, served model,
+effort, runner/tools, acceptance, elapsed time, repairs and known cost in the existing ledger.
+Compare repeated tasks under the same harness; unavailable providers are not capability failures.
 
 ## Meta orchestration
 

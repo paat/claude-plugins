@@ -273,6 +273,9 @@ ql_write_isolated_settings() {
   mkdir -p "$home_dir/.qwen"
   cat > "$home_dir/.qwen/settings.json" <<EOF
 {
+  "privacy": {
+    "usageStatisticsEnabled": false
+  },
   "security": {
     "auth": {
       "selectedType": "openai"
@@ -533,6 +536,7 @@ $prompt"
     export OPENAI_API_KEY="${OPENAI_API_KEY:-dummy}"
     export OPENAI_MODEL="$model"
     export QWEN_CODE_SUPPRESS_YOLO_WARNING=1
+    export QWEN_USAGE_STATISTICS_ENABLED=false
     printf '%s' "$prompt" | timeout -k 10 "$timeout_secs" "${cmd[@]}"
   ) >"$log" 2>"$errlog"
   local rc=$?

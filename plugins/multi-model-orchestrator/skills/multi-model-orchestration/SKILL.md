@@ -14,8 +14,8 @@ explaining the community evidence behind the original policy.
 
 - Apply provider/model allowlists and denylists before routing. Preserve compatible explicit model
   and effort choices; never silently substitute a forbidden provider.
-- Use only Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5 (Fable 5, Opus 5, Sonnet 5 compat); GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna (GPT-6 Sol, GPT-5.6 Terra, Luna compat);
-  Grok 4.7 (with Grok 4.6 and Grok 4.5 kept for compatibility); Muse `muse-spark-1.3` for bounded work and `muse-wonder-full-1.0` for complex coding (`default` passes no `--model`); and the local llama.cpp model (`default`: whatever it serves) for mechanical work when its endpoint answers.
+- Use only `route-model-task`'s strict catalog and supported efforts; its task-fit reference
+  owns model-specific guidance for every provider, including agy and the local model.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, Grok uses sandbox `none` with
   `bypassPermissions`, and Muse uses `--yolo`. Keep reviewer mutation control in prompts and tool allowlists — except
@@ -41,11 +41,13 @@ explaining the community evidence behind the original policy.
 3. When the user restricts implementation to one provider, every source edit belongs to that
    provider. Other allowed providers may advise or review only.
 4. Keep task packets narrow enough that a worker does not need to rediscover the project.
-5. Dispatch with `scripts/pool.sh run --tier <T>`, which tries the tier's workers in order and
+5. Dispatch with `scripts/pool.sh run --tier <T>` and the route card's preference, restrictions,
+   mode and usage snapshot unchanged from `pick`. It tries eligible workers in order and
    moves past unavailable ones (exit 75: local Qwen's one GPU slot busy, a plan limit, a transient
    error) and records the worker that ran. A pinned route calls `scripts/run-claude.sh`,
    `run-codex.sh`, `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, or `run-qwen-local.sh` directly. Every runner pins
-   a current model; supported efforts are pinned explicitly.
+   a current model; supported efforts are pinned explicitly. A task-selected effort differing
+   from the table uses the exact runner command recorded after the pool eligibility check.
 6. Never wait for the local GPU slot, and never retry the same task on it in the same pass.
 
 ## Implementation gates
@@ -76,14 +78,9 @@ ordinary nontrivial work, two complementary allowed reviewers only when risk or 
 evidence makes the extra pass pay for itself. A provider restriction may require a fresh
 same-provider reviewer; preserve the restriction.
 
-- Claude Opus 5.5: architecture, user intent, UX/copy, environment/build assumptions, visual
-  judgment, minimality, and cross-module integration. Start at `high`.
-- GPT-6 Astra: repo-walking correctness, data flow, edge cases, tests, contradictions, and security.
-  Start at `high`; honor compatible explicit `xhigh`, `max`, or `ultra`.
-- Grok 4.7: fast independent reproduction and a decorrelated code-review lens. Start at `medium`
-  and use `high` or `xhigh` for difficult review; Grok 4.6 keeps the same efforts, and Grok 4.5
-  remains available without `xhigh`.
-- Muse: a second fast decorrelated lens on the same terms as Grok. Start `muse-spark-1.3` at `medium`; pin `muse-wonder-full-1.0` at `high` for complex coding. Plain `muse-wonder-1.0` is not routed. `default` passes no `--model`.
+- Select review model and effort through `../route-model-task/references/task-fit.md`, based
+  on the defect class and required tools. Do not assign permanent UX/security strengths by
+  provider name. Preserve reviewer independence, the risk tier and advisory-only exclusions.
 - Ultra requires a bounded prompt: one pass, at most 10 findings, realistic reachable failures,
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 

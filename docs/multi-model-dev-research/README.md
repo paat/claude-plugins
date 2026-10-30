@@ -22,6 +22,7 @@ review, and planning.
 | [06-browser-testing.md](06-browser-testing.md) | AI browser testing workflows |
 | [07-code-review-workflows.md](07-code-review-workflows.md) | Multi-model code review patterns |
 | [08-plugin-design-notes.md](08-plugin-design-notes.md) | Design insights for our plugin |
+| [09-current-knowledge-layer.md](09-current-knowledge-layer.md) | Current knowledge for agents and live routing evidence (2026-10-30) |
 
 ## Key Findings
 

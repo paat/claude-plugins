@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-agy.sh --mode implement|review [--repo DIR|--dir DIR] [--base REF] [--model gemini-3.8-flash] [--effort low|medium|high] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-agy.sh --mode implement|review [--repo DIR|--dir DIR] [--base REF] [--model gemini-3.8-flash|gemini-4-argon] [--effort low|medium|high] [--timeout SECONDS] [--out FILE]'
 }
 
 mode=""
@@ -41,7 +41,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in implement|review) ;; *) printf 'run-agy: --mode must be implement or review\n' >&2; exit 2 ;; esac
-case "$model" in gemini-3.8-flash) ;; *) printf 'run-agy: unsupported model %s (current catalog: gemini-3.8-flash)\n' "$model" >&2; exit 2 ;; esac
+case "$model" in gemini-3.8-flash|gemini-4-argon) ;; *) printf 'run-agy: unsupported model %s (current catalog: gemini-3.8-flash|gemini-4-argon)\n' "$model" >&2; exit 2 ;; esac
 case "$effort" in low|medium|high) ;; *) printf 'run-agy: unsupported effort %s (expected low|medium|high)\n' "$effort" >&2; exit 2 ;; esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-agy: timeout must be a positive integer\n' >&2; exit 2; }
 if [ "$mode" = review ]; then
@@ -146,6 +146,10 @@ printf '%s' "$result" | jq -r '.response // empty' > "$output_file" 2>/dev/null 
 if [ "$rc" -eq 0 ] && [ "$status" != SUCCESS ]; then
   printf 'run-agy: agy finished with status %s\n' "${status:-missing}" >&2
   rc=1
+fi
+if [ "$rc" -eq 1 ] && grep -Eq 'invalid model selection.*model .* is not recognized as a known model or custom model' "$classify_file"; then
+  printf 'run-agy: selected model is unavailable in this CLI/account\n' >&2
+  rc=75
 fi
 if [ "$mode" = review ] && [ "$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")" != "$tree_before" ]; then
   printf 'run-agy: the review leg changed %s; inspect git status before trusting it\n' "$repo_dir" >&2
