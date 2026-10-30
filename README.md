@@ -119,9 +119,10 @@ Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.m
 ## Model ID Refresh
 
 `scripts/refresh-model-versions.sh` snapshots the model catalogs of the installed
-`codex`, `grok`, and `agy` CLIs. When a new ID appears in a model family
-the plugins already use, a headless `claude -p` session in a throwaway worktree
-updates superseded pins within the same family and tier and opens a
+`codex`, `grok`, and `agy` CLIs. A new pool-vendor model, newly unmappable public
+name, or rank change with non-overlapping old/new CIs on a non-preliminary row
+wakes a headless `claude -p` session in a throwaway worktree. It proposes
+superseded pins and evidence-backed tier-order/retirement edits and opens a
 `chore/model-refresh-*` PR. It never merges, and it skips runs while such a PR is
 open. Other days exit before any model call. Create `~/.local/state/model-refresh/`
 once, then run it daily from cron:
@@ -130,8 +131,18 @@ once, then run it daily from cron:
 15 5 * * * bash /mnt/data/ai/claude-plugins/scripts/refresh-model-versions.sh >> "$HOME/.local/state/model-refresh/cron.log" 2>&1
 ```
 
+OpenRouter, Arena WebDev/Agent (CC-BY-4.0), and Terminal-Bench 4.0 feed one dated
+`evals.tsv`, joined to catalog IDs through `scripts/model-eval-aliases.tsv` (blank
+IDs remain unmapped). Public data only shortlists; tier defaults change only on
+local `outcomes.tsv` evidence (#676). Terminal-Bench's endpoint is undocumented
+and its data licence is **UNKNOWN**. Failed/incomplete feeds preserve the whole
+last good table while catalog detection continues. Pending trigger rows survive
+an open PR or failed pass; repeated unchanged feeds add none. Run
+`XDG_STATE_HOME=$(mktemp -d) bash scripts/refresh-model-versions.sh --feeds-only`
+for an isolated live fetch/build with trigger counts and no model calls.
+
 State, the handled catalog, and the last run log live in `~/.local/state/model-refresh/`.
-It needs `claude`, `gh`, `jq`, util-linux `flock`, and all four provider CLIs; it
+It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and all four provider CLIs; it
 fails closed when any catalog comes back empty.
 
 The opt-in DeepSeek leg (`tribunal-review`, default `deepseek-v4-pro`) is excluded from this refresh; its pin is bumped by hand.
