@@ -61,6 +61,13 @@ exit code, byte counts, and truncation flags. Set `TRIBUNAL_DIAGNOSTIC_TAILS=on`
 only for local troubleshooting to add printable-ASCII 2 KiB stdout/stderr tails;
 tails are otherwise omitted by default because provider errors can contain credentials.
 Sealed collection does not support `extensions.worktreeConfig=true` (per-worktree config cannot be contained); disable it or run tribunal from a clone without it.
+
+For repeat rounds, `collect --prior-rejections FILE` accepts a JSON list of
+`{title,file,reason}` objects; `file` may be empty when unknown. It copies and seals
+the list, then reminds every reviewer not to re-raise rejected findings without
+new execution evidence. The prompt includes at most 20 entries and 4096 characters
+of sanitized rejection text. Omit the flag to preserve existing prompts.
+
 Sealed collection supports main checkouts and linked worktrees. Before legs launch it
 pins the root `.git` directory or gitfile, resolved Git/common directories and their
 identities, any existing `commondir` bytes (or absence), and the common config.

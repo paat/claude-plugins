@@ -766,12 +766,15 @@ collect() {
   local mutation_gate_json sensitive_paths sensitive_paths_sha256="" source line path content
   local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
   local min_ok_legs backup_legs backups backup limited grok_recovery
+  local prior_rejections="" prior_rejections_sha256=""
+  local -x TRIBUNAL_PRIOR_REJECTIONS_FILE=""
   local -A mutation_errors=() review_gitdirs=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --repo-root) [ "$#" -ge 2 ] || die "--repo-root needs a value"; root="$2"; shift 2 ;;
       --pr) [ "$#" -ge 2 ] || die "--pr needs a value"; pr="$2"; shift 2 ;;
       --output) [ "$#" -ge 2 ] || die "--output needs a value"; output="$2"; shift 2 ;;
+      --prior-rejections) [ "$#" -ge 2 ] && [ -n "$2" ] || die "--prior-rejections needs a value"; prior_rejections="$2"; shift 2 ;;
       *) die "unknown collect argument: $1" ;;
     esac
   done
@@ -810,6 +813,14 @@ collect() {
 
   STAGING="$(mktemp -d "$parent/.tribunal-collection.XXXXXX")"
   mkdir -p "$STAGING/providers" "$STAGING/wrappers"
+  if [ -n "$prior_rejections" ]; then
+    [ -f "$prior_rejections" ] || die "prior-rejections input is not a regular file"
+    cp -- "$prior_rejections" "$STAGING/prior-rejections.json"
+    validate_prior_rejections "$STAGING/prior-rejections.json" || die "prior-rejections input schema invalid"
+    prior_rejections_sha256="$(sha_file "$STAGING/prior-rejections.json")"
+    chmod 0400 "$STAGING/prior-rejections.json"
+    TRIBUNAL_PRIOR_REJECTIONS_FILE="$STAGING/prior-rejections.json"
+  fi
   printf '%s' "$binding" | jq -j .pull_request.body > "$STAGING/pr-body.txt"
   git -C "$root" diff --binary --no-ext-diff --no-textconv "$base_oid...$head_oid" > "$STAGING/review.diff"
   [ -s "$STAGING/review.diff" ] || die "PR has no diff"
@@ -955,6 +966,11 @@ collect() {
       && [ "$(sha_file "$STAGING/sensitive-paths.json")" = "$sensitive_paths_sha256" ] \
       || die "sensitive-path evidence changed during review"
   fi
+  if [ -n "$prior_rejections_sha256" ]; then
+    [ -f "$STAGING/prior-rejections.json" ] && [ ! -L "$STAGING/prior-rejections.json" ] \
+      && [ "$(sha_file "$STAGING/prior-rejections.json")" = "$prior_rejections_sha256" ] \
+      || die "prior-rejections evidence changed during review"
+  fi
   jq -S -n --arg schema "$SCHEMA_COLLECTION" --arg started_at "$started" \
     --arg completed_at "$(now)" --argjson binding "$binding" \
     --argjson git_surface "$SURFACE_STATE" \
@@ -962,6 +978,8 @@ collect() {
     --argjson body_bytes "$(bytes_file "$STAGING/pr-body.txt")" \
     --arg diff_sha256 "$(sha_file "$STAGING/review.diff")" \
     --argjson diff_bytes "$(bytes_file "$STAGING/review.diff")" \
+    --arg prior_rejections_sha256 "$prior_rejections_sha256" \
+    --argjson prior_rejections_bytes "$([ ! -f "$STAGING/prior-rejections.json" ] && printf '0' || bytes_file "$STAGING/prior-rejections.json")" \
     --arg ignored_paths_sha256 "$([ ! -f "$STAGING/ignored-paths.json" ] || sha_file "$STAGING/ignored-paths.json")" \
     --argjson ignored_paths_bytes "$([ ! -f "$STAGING/ignored-paths.json" ] && printf '0' || bytes_file "$STAGING/ignored-paths.json")" \
     --arg sensitive_paths_sha256 "$sensitive_paths_sha256" \
@@ -990,6 +1008,8 @@ collect() {
       providers:$providers,
       containment:(if all($providers[]; .containment == "pid-namespace") then "pid-namespace" else "session" end),
       panel_policy:{min_ok_legs:$min_ok_legs,source:"env"},grok_recovery:$grok_recovery}
+      + (if $prior_rejections_sha256 == "" then {} else
+          {prior_rejections:{path:"prior-rejections.json",sha256:$prior_rejections_sha256,bytes:$prior_rejections_bytes}} end)
       + (if $ignored_paths_sha256 == "" then {} else
           {ignored_paths:{path:"ignored-paths.json",sha256:$ignored_paths_sha256,bytes:$ignored_paths_bytes},
            sensitive_paths:{path:"sensitive-paths.json",sha256:$sensitive_paths_sha256,bytes:$sensitive_paths_bytes}} end)
@@ -1013,6 +1033,16 @@ collect() {
       runner_bundle_sha256:$runner_bundle_sha256,head_oid:$head_oid}'
 }
 
+validate_prior_rejections() {
+  jq -se '
+    length == 1 and (.[0] | type == "array" and all(.[];
+      type == "object" and keys == ["file","reason","title"]
+      and (.title | type == "string" and length > 0)
+      and (.file | type == "string")
+      and (.reason | type == "string" and length > 0)))
+  ' "$1" >/dev/null
+}
+
 validate_manifest_shape() {
   local manifest="$1"
   jq -e --arg schema "$SCHEMA_COLLECTION" '
@@ -1025,7 +1055,7 @@ validate_manifest_shape() {
     def snapshot: exact(["sha256","bytes","mode"];["sha256","bytes","mode"])
       and (.sha256|sha) and (.bytes|uint) and (.mode|type=="string" and test("^[0-7]{3,4}$"));
     def stamp: type=="string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
-    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy","containment","grok_recovery"];
+    exact(["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","ignored_paths","sensitive_paths","deleted_paths","mutation_gate","panel_policy","containment","grok_recovery","prior_rejections"];
           ["schema","started_at","completed_at","repository","git_surface","pull_request","diff","runner","providers","grok_recovery"])
     and (.grok_recovery | IN("permit","reject"))
     and .schema==$schema and (.started_at|stamp) and (.completed_at|stamp) and .started_at<=.completed_at
@@ -1054,6 +1084,9 @@ validate_manifest_shape() {
               and .path=="pr-body.txt" and (.sha256|sha) and (.bytes|uint)))
     and (.diff | exact(["path","sha256","bytes"];["path","sha256","bytes"])
          and .path=="review.diff" and (.sha256|sha) and (.bytes|uint and .>0))
+    and ((has("prior_rejections")|not) or
+         (.prior_rejections | exact(["path","sha256","bytes"];["path","sha256","bytes"])
+          and .path=="prior-rejections.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("ignored_paths")|not) or
          (.ignored_paths | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="ignored-paths.json" and (.sha256|sha) and (.bytes|uint and .>0)))
@@ -1171,6 +1204,18 @@ verify_collection_internal() {
   load_safe_directories
   require_git_version
   reject_uncontained_config "$SURFACE_ROOT"
+  if jq -e 'has("prior_rejections")' "$manifest" >/dev/null; then
+    [ -f "$dir/prior-rejections.json" ] && [ ! -L "$dir/prior-rejections.json" ] \
+      || die "prior-rejections artifact missing or symbolic"
+    [ "$(sha_file "$dir/prior-rejections.json")" = "$(jq -r .prior_rejections.sha256 "$manifest")" ] \
+      || die "prior-rejections artifact digest mismatch"
+    [ "$(bytes_file "$dir/prior-rejections.json")" = "$(jq -r .prior_rejections.bytes "$manifest")" ] \
+      || die "prior-rejections artifact size mismatch"
+    validate_prior_rejections "$dir/prior-rejections.json" || die "prior-rejections artifact schema invalid"
+  else
+    [ ! -e "$dir/prior-rejections.json" ] && [ ! -L "$dir/prior-rejections.json" ] \
+      || die "unbound prior-rejections artifact"
+  fi
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     [ -f "$dir/ignored-paths.json" ] && [ ! -L "$dir/ignored-paths.json" ] \
       || die "ignored-path artifact missing or symbolic"
@@ -1548,7 +1593,7 @@ verify_proof_cmd() {
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  collect-review-evidence.sh collect --repo-root ROOT --pr N --output ABS_DIR
+  collect-review-evidence.sh collect --repo-root ROOT --pr N --output ABS_DIR [--prior-rejections FILE]
   collect-review-evidence.sh verify-collection --collection DIR --expected-manifest-sha256 SHA
   collect-review-evidence.sh finalize --collection DIR --expected-manifest-sha256 SHA --arbitration FILE
   collect-review-evidence.sh verify-proof --collection DIR --expected-manifest-sha256 SHA --expected-proof-sha256 SHA
