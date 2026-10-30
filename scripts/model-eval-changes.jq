@@ -10,7 +10,10 @@ def key: [.[1], .[3], .[8], .[9], .[12]] | tojson;
 | ($old | rows | map(.[0]) | unique) as $models
 | [$new | rows | group_by(key)[] | . as $group | .[] | . as $row
 | $before[key] as $previous | $previous[0] as $prev
-| if .[0] == "" and ($vendors | index($row[2])) != null and ($unmapped | index([$row[1], $row[12]] | tojson)) == null then
+| if .[0] == "" and ($vendors | index($row[2])) != null
+    # variants never trigger; a model listed only as a variant is not flagged until its base id appears.
+    and (.[12] == "openrouter" and (.[1] | test(":[A-Za-z0-9_-]+$")) | not)
+    and ($unmapped | index([$row[1], $row[12]] | tojson)) == null then
     "unmapped\t" + ($row | join("\t"))
   elif .[0] != "" and ($models | index($row[0])) == null and ($vendors | index($row[2])) != null then
     "new_model\t" + ($row | join("\t"))
