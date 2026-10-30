@@ -4,13 +4,17 @@
 
 Plugins in this repo are designed for **Estonian SaaS companies** — the primary audience is small Estonian businesses, e-residents, and micro-OÜs. However, all plugins must remain generic: no hardcoded company names, product names, or project-specific paths. Use template variables for anything that varies between projects.
 
-## Mission
+## North star
 
-The main goal of this repository is to reach fully automatic market-demand satisfaction for SaaS projects: autonomous AI systems should discover real market needs, convert them into production-quality SaaS improvements, and deliver one-shot implementations without requiring user feedback to identify or complete the work.
+Autonomous agents turn real market demand into merged, production-quality SaaS improvements with no human in the delivery loop: they discover the need, convert it into work, and deliver it one-shot. No human reviews pull requests; the only human signals are customer feedback and the owner's validation of the live product, so automated gates are the review. Every decision on the way stands on current, verified knowledge at near-zero marginal token cost.
+
+- **Current truth, loaded on demand.** Facts that change (model rankings, tool and API versions, laws and rates, standards, best practices) live in skills and knowledge stores that cite a public source and an as-of or effective date, are loaded only when a task needs them, and are never frozen into prompts. Jurisdiction-specific public facts such as Estonian law qualify; project conventions stay in the target project.
+- **Fresh out of band, cheap in band.** Scheduled jobs refresh that knowledge; a per-task decision such as model routing is a lookup, not a research run.
+- **Global data shortlists; local gate results decide.**
 
 ## Efficiency & Anti-Slop
 
-The Mission above stays primary. These rules exist because it fails two ways:
+The North star above stays primary. These rules exist because it fails two ways:
 token burn makes autonomy uneconomical, and slop makes one-shot delivery
 untrustworthy. Never skip needed work to save tokens — cut waste, not scope.
 
