@@ -113,7 +113,8 @@ STUB
     bash -c '[ "$1" = 0 ] && [ "$2" != 0 ] && grep -qi "prior.*rejection" "$3"' _ "$rc" "$tamper_rc" "$work/tamper.err"
 
   # SHA-256 snapshots of the complete pre-#667 prompts, including both legacy contexts.
-  local unchanged=0 index=0
+  local unchanged=0 empty_unchanged=0 index=0
+  printf '[]\n' > "$work/empty-list.json"
   local -a prompt_hashes=(
     99fb6f31b3ee10a2ef08ac3528232fc5b314231583c32e614c75f98504858b39
     2580510f474dc31170b0ba8a67b02421f1fbb7e8bc5041dfb28d6de36a993fb4
@@ -127,9 +128,13 @@ STUB
     env -u TRIBUNAL_PRIOR_REJECTIONS_FILE bash -c '. "$1"; tribunal_context_block "$2" "$3"; tribunal_review_prompt "$4" review.diff "$3" repo-walking' \
       _ "$plugin/scripts/lib.sh" "$repo" "$work/context" "$provider" > "$work/after"
     [ "$(sha256sum "$work/after" | cut -d ' ' -f 1)" = "${prompt_hashes[$index]}" ] || unchanged=1
+    TRIBUNAL_PRIOR_REJECTIONS_FILE="$work/empty-list.json" bash -c '. "$1"; tribunal_context_block "$2" "$3"; tribunal_review_prompt "$4" review.diff "$3" repo-walking' \
+      _ "$plugin/scripts/lib.sh" "$repo" "$work/context" "$provider" > "$work/empty-prompt"
+    cmp -s "$work/after" "$work/empty-prompt" || empty_unchanged=1
     index=$((index+1))
   done
   tr_check '#667 absent input preserves all seven complete prompts byte-for-byte' test "$unchanged" = 0
+  tr_check 'tribunal T-003 empty list preserves all seven complete prompts byte-for-byte' test "$empty_unchanged" = 0
   jq -n '[range(24)|{title:("aaa-old-"+tostring),file:"app.txt",reason:"disproved"}]' > "$work/old.json"
   jq -n '[{title:"zzz-new",file:"app.txt",reason:"new proof"}]' > "$work/round.json"
   jq '.[0:1]' "$work/old.json" > "$work/duplicate.json"

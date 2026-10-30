@@ -769,7 +769,8 @@ tribunal_context_block() {
       printf '\n'
     } >> "$out"
   fi
-  if [ -n "${TRIBUNAL_PRIOR_REJECTIONS_FILE:-}" ]; then
+  if [ -n "${TRIBUNAL_PRIOR_REJECTIONS_FILE:-}" ] \
+    && jq -e 'length > 0' "$TRIBUNAL_PRIOR_REJECTIONS_FILE" >/dev/null; then
     {
       printf '\nAlready rejected in earlier rounds — do not re-raise without NEW execution evidence:\n'
       jq -jr '
