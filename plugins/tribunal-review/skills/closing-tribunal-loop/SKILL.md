@@ -152,12 +152,13 @@ if [ -z "$PLUGIN_ROOT" ]; then
   exit 1
 fi
 CI_EC=0
+PR_BASE="$(printf '%s' "$PR_JSON" | jq -er .baseRefName)"
 CI_JSON="$(bash "${PLUGIN_ROOT}/scripts/required-checks.sh" \
-  --repo "$OWNER_REPO" --sha "$LOCAL_HEAD")" || CI_EC=$?
-# Always put name=conclusion pairs from CI_JSON into the round comment **CI:** line.
+  --repo "$OWNER_REPO" --sha "$LOCAL_HEAD" --base "$PR_BASE")" || CI_EC=$?
+# Put name=conclusion (or status when conclusion is empty) from CI_JSON in the **CI:** line.
 ```
 
-- If `required-checks.sh` exits non-zero (`ok=false`, empty checks, pending, or failed):
+- If `required-checks.sh` exits non-zero (missing/pending/failed checks or unreadable requirements):
   **refuse to merge**. Record the full `CI_JSON` in the round PR comment (and the
   **CI:** summary line), stop the close-out, and do not merge or hand off as ready.
 - If it exits 0 (`ok=true`): proceed to **DONE — ready to merge / hand off**.
