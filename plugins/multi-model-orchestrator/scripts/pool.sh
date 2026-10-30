@@ -184,7 +184,7 @@ for row in "${candidates[@]}"; do
   printf 'pool: %s -> %s/%s/%s\n' "$r_tier" "$r_provider" "$r_model" "$r_effort" >&2
   before="$(mmo_tree_state "$repo_dir" "$out_abs")"
   rc=0
-  "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" || rc=$?
+  MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" || rc=$?
   case "$rc" in
     75|77|127)
       if [ "$(mmo_tree_state "$repo_dir" "$out_abs")" != "$before" ]; then

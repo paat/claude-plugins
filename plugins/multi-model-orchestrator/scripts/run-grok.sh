@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+# shellcheck source=lib-outcomes.sh
+. "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.7|grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.7 and grok-4.6)] [--max-turns N] [--continue-on-max-turns 0-3] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
@@ -29,6 +31,8 @@ output_file=""
 stream_file=""
 stream_log_set=0
 continue_set=0
+
+mmo_outcome_init grok
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -170,7 +174,7 @@ cleanup() {
   writeback_auth || true
   rm -rf -- "$runtime_dir"
 }
-trap cleanup EXIT
+trap 'mmo_outcome_exit "$?"; cleanup' EXIT
 
 mkdir -p "$isolated_grok_home" "$isolated_home/.claude"
 if [ -f "$host_auth" ]; then

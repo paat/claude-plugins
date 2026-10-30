@@ -24,6 +24,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+. "$SCRIPT_DIR/lib-outcomes.sh"
+repo_dir="$PWD"
+mode=gate
+mmo_outcome_init ""
+mmo_outcome_head_sha="$(git rev-parse --verify HEAD 2>/dev/null || true)"
 
 usage() {
   printf '%s\n' 'Usage: review-gate.sh --leg <provider>=<final-message-file> [--leg ...]'
@@ -89,9 +94,11 @@ if [ "$independent" -eq 0 ]; then
 fi
 
 if [ "$needs_work" -eq 1 ]; then
+  mmo_outcome_verdict=NEEDS_WORK
   printf 'NEEDS_WORK\n'
   exit 1
 fi
 
+mmo_outcome_verdict=APPROVE
 printf 'APPROVE\n'
 exit 0

@@ -13,6 +13,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+# shellcheck source=lib-outcomes.sh
+. "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-agy.sh --mode implement|review [--repo DIR|--dir DIR] [--base REF] [--model gemini-3.8-flash|gemini-4-argon] [--effort low|medium|high] [--timeout SECONDS] [--out FILE]'
@@ -25,6 +27,8 @@ model="${MMO_AGY_MODEL:-gemini-3.8-flash}"
 effort="${MMO_AGY_EFFORT:-medium}"
 run_timeout=1200
 output_file=""
+
+mmo_outcome_init agy
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -58,7 +62,7 @@ repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 mmo_guard_env_files run-agy "$repo_dir" || exit 2
 
 runtime_dir="$(mktemp -d)"
-trap 'rm -rf "$runtime_dir"' EXIT
+trap 'mmo_outcome_exit "$?"; rm -rf "$runtime_dir"' EXIT
 request_file="$runtime_dir/request.txt"
 prompt_file="$runtime_dir/prompt.txt"
 diff_file="$runtime_dir/review.diff"

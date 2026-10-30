@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+# shellcheck source=lib-outcomes.sh
+. "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-codex.sh [--mode implement|research|review] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
@@ -29,6 +31,8 @@ stream_log_set=0
 base_ref=""
 base_set=0
 max_turns_set=0
+
+mmo_outcome_init codex
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -97,9 +101,9 @@ if [ "$stream_log_set" -eq 0 ]; then
 fi
 case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 if [ "$user_final" -eq 1 ]; then
-  trap 'rm -f "$prompt_file" "$diff_file" "$classify_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
+  trap 'mmo_outcome_exit "$?"; rm -f "$prompt_file" "$diff_file" "$classify_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 else
-  trap 'rm -f "$prompt_file" "$diff_file" "$final_file" "$classify_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
+  trap 'mmo_outcome_exit "$?"; rm -f "$prompt_file" "$diff_file" "$final_file" "$classify_file"; [ -z "$research_dir" ] || rm -rf "$research_dir"' EXIT
 fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
@@ -178,6 +182,17 @@ mmo_leg_env CODEX_HOME CODEX_API_KEY OPENAI_API_KEY -- timeout -k 10 "$run_timeo
   < "$prompt_file" > "$stream_file" 2> "${stream_file}.stderr"
 rc=$?
 set -e
+
+# The text-mode CLI reports its token total on the line after this footer.
+mmo_outcome_tokens="$(awk '
+  /^[[:space:]]*$/ { next }
+  {
+    tokens=""
+    if (previous == "tokens used" && /^[0-9][0-9,]*$/) { gsub(/,/, ""); tokens=$0 }
+    previous=$0
+  }
+  END { print tokens }
+' "${stream_file}.stderr" 2>/dev/null || true)"
 
 if [ "$rc" -eq 0 ] && [ ! -s "$final_file" ]; then
   printf 'run-codex: missing or empty final-message artifact: %s\n' "$final_file" >&2

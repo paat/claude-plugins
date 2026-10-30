@@ -31,6 +31,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+# shellcheck source=lib-outcomes.sh
+. "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-qwen-local.sh --mode implement|review [--repo DIR] [--base REF] [--model default|ID] [--timeout SECONDS] [--out FILE] [--prompt-file FILE] [PROMPT]'
@@ -43,6 +45,8 @@ model=default
 run_timeout=900
 output_file=""
 prompt_file=""
+
+mmo_outcome_init qwen
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -146,7 +150,7 @@ runtime_dir="$(mktemp -d)"
 # Keep the worker's stream and stderr when something went wrong: the wrapper only
 # prints their paths, and a failed or timed-out leg is diagnosed from them.
 cleanup() { [ "${keep_runtime:-0}" = 1 ] || rm -rf "$runtime_dir"; }
-trap cleanup EXIT
+trap 'mmo_outcome_exit "$?"; cleanup' EXIT
 
 # Review preflight before the slot: an invalid ref, an empty diff, or an oversized
 # one is a usage problem, not slot unavailability, and must not lock the GPU.
@@ -302,4 +306,5 @@ if [ "$rc" -ne 0 ] && [ "$rc" -ne 6 ]; then
   printf 'run-qwen-local: worker logs kept in %s\n' "$runtime_dir" >&2
 fi
 served="$(sed -n 's/^subagent-local-qwen3\.8-27b-run: running model //p' "$runtime_dir/err.txt" | head -n1)"
+mmo_outcome_served_model="$served"
 mmo_finish run-qwen-local "$rc" "$runtime_dir/err.txt" "model=${served:-$model}" "mode=$mode"
