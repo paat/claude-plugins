@@ -17,7 +17,7 @@ work.mkdir()
 bin_dir = work / "bin"
 bin_dir.mkdir()
 stub = bin_dir / "stub"
-stub.write_text('''#!/usr/bin/python3
+stub.write_text('''#!/usr/bin/env python3
 import json, os, signal, sys
 from pathlib import Path
 if "--help" in sys.argv:
