@@ -27,7 +27,7 @@ stderr_pid=$!
 set +e
 (
   export ANTHROPIC_API_KEY="$api_key"
-  exec "$@"
+  exec "$@" 3>&-
 ) 2>&3 | redact
 cli_rc=${PIPESTATUS[0]} redact_rc=${PIPESTATUS[1]}
 exec 3>&-

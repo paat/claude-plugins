@@ -289,6 +289,13 @@ run_pool --tier T3 --mode review --base HEAD --allow claude --usage "$work/spent
 check 'API review uses Claude identity and returns a valid verdict' api_success
 git -C "$work/repo" checkout -q -- file
 
+prepare background-child
+rc=0
+timeout 3s bash "$scripts/claude-api-exec.sh" "$work/key" \
+  bash -c 'sleep 30 >/dev/null 2>&1 & exit 0' \
+  > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
+check 'helper exits 0 within three seconds when CLI leaves a background child' test "$rc" -eq 0
+
 prepare no-newline
 bash "$scripts/claude-api-exec.sh" "$work/key" bash -c 'printf x; printf y >&2' \
   > "$artifacts/stdout" 2> "$artifacts/stderr"
