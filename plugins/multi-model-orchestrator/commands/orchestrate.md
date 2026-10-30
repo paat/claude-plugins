@@ -64,7 +64,7 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    the tier chain was available: report the blocker with the reset it printed. `55` means the
    failing worker had already edited the tree: salvage or reset before redispatching; `76` (a Grok implement leg hit its turn cap after possibly editing) is handled the same way. A pinned model calls
    its runner directly with the same contract (`run-codex.sh --dir`, `run-claude.sh`,
-   `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, or `run-qwen-local.sh --repo`); omit `--effort` for Claude Haiku
+   `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, `run-opencode.sh`, or `run-qwen-local.sh --repo`); omit `--effort` for Claude Haiku
    4.5. Local Qwen and agy review only with `--mode review --base <range>`: diff-only advisory
    lenses that `--mode implement` would turn into writers. Never replace a current model with an
    earlier generation when a route is unavailable.

@@ -1,6 +1,6 @@
 ---
 name: route-model-task
-description: "Choose a worker (Claude Code, Codex, Grok Build, Muse Code, Antigravity Gemini Flash/Argon, or local Qwen), model, and reasoning effort by task fit, complexity, plan-limit headroom, and availability. Use when an orchestrator must assign tasks, when the user asks which coding model or effort to use, or when provider restrictions, latency, cost, risk, or independent-review needs affect routing."
+description: "Choose a worker (Claude Code, Codex, Grok Build, Muse Code, Antigravity Gemini Flash/Argon, OpenCode Go, or local Qwen), model, and reasoning effort by task fit, complexity, plan-limit headroom, and availability. Use when an orchestrator must assign tasks, when the user asks which coding model or effort to use, or when provider restrictions, latency, cost, risk, or independent-review needs affect routing."
 ---
 
 # Route Model Task
