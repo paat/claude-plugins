@@ -1001,8 +1001,9 @@ tribunal_stamp_diff_stat() {
           or ($results[2] | oid | not)
         then error("pinned objects unavailable or incomplete batch response") else
           [range($paths | length) | . as $i |
-            select(($results[3 + 3*$i] | oid | not) and ($results[4 + 3*$i] | oid | not)
-              and ($results[5 + 3*$i] | oid | not)) |
+            select($paths[$i] == "" or
+              (($results[3 + 3*$i] | oid | not) and ($results[4 + 3*$i] | oid | not)
+              and ($results[5 + 3*$i] | oid | not))) |
             $paths[$i]][:3] |
           map(if length > 200 then .[:200] + "..." else . end)
         end

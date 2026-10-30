@@ -4032,7 +4032,7 @@ done
 exec "$REAL_GIT" "$@"
 GIT
   chmod +x "$work/bin/git"
-  for scenario in absent_empty absent_findings valid_findings ambient deleted added prefixed unusual directory \
+  for scenario in absent_empty absent_findings empty_path dot_path valid_findings ambient deleted added prefixed unusual directory \
     missing_base missing_head omitted_base omitted_head lookup_failure empty_range large_list bounded_error \
     invalid_utf8_alias valid_with_invalid_bytes nul_path merge_base_empty merge_base_findings merge_base_failure; do
     label="pinned examined paths: $scenario"
@@ -4048,6 +4048,8 @@ GIT
       case "$scenario" in
         absent_empty|absent_findings)
           examined='["changed.txt","invented.txt"]'; expectation=absent ;;
+        empty_path) examined='["changed.txt",""]'; expectation=malformed_path ;;
+        dot_path) examined='["changed.txt","./"]'; expectation=empty_path ;;
         ambient) examined='["changed.txt","ambient.txt"]'; expectation=ambient ;;
         merge_base_empty|merge_base_findings)
           cd "$work/merge-base"
@@ -4075,7 +4077,7 @@ GIT
         bounded_error) expectation=bounded ;;
       esac
       case "$scenario" in
-        absent_findings|valid_findings|missing_*|omitted_*|lookup_failure|merge_base_findings)
+        absent_findings|empty_path|dot_path|valid_findings|missing_*|omitted_*|lookup_failure|merge_base_findings)
           findings='[{"severity":"medium","category":"logic","file":"changed.txt","line":1,"title":"fixture","description":"fixture defect","suggestion":"fix fixture","confidence":0.9}]' ;;
       esac
       if [ "$scenario" = merge_base_findings ]; then
@@ -4109,6 +4111,12 @@ GIT
           if [ "$expectation" = bounded ]; then
             jq -e '(.error|length)<2000 and (.error|contains("invented-99.txt")|not)' out.json >/dev/null || exit 1
           fi ;;
+        malformed_path)
+          jq -e '.provider=="codex" and (.error|contains("not an array of non-empty strings"))
+            and (has("diff_stat")|not)' out.json >/dev/null || exit 1 ;;
+        empty_path)
+          jq -e '.provider=="codex" and (.error|contains("paths absent from pinned"))
+            and (.error|contains("[\"\"]")) and (has("diff_stat")|not)' out.json >/dev/null || exit 1 ;;
         unavailable)
           jq -e '.provider=="codex" and (.error|type)=="string" and (has("diff_stat")|not)' out.json >/dev/null || exit 1 ;;
       esac
