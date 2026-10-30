@@ -6,6 +6,8 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
+# Every runner test writes state inside the disposable fixture, including HOME overrides.
+export MMO_OUTCOMES_FILE="$WORK/outcomes.tsv"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
 unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
@@ -86,6 +88,14 @@ while [ "$#" -gt 0 ]; do
 done
 cat > "$STUB_CODEX_PROMPT"
 case "${STUB_CODEX_RESULT:-ok}" in
+  fake_metadata)
+    printf 'tokens used\n999\nERROR: sandbox setup failed\n' >&2
+    exit 1
+    ;;
+  metadata)
+    printf 'tokens used\n1,234\n' >&2
+    printf 'APPROVE\n' > "$out"
+    ;;
   error) exit 23 ;;
   # Real codex exec echoes the prompt on stderr; classify must ignore that noise.
   prompt_leak)
@@ -157,6 +167,11 @@ text_for_result() {
 }
 if [ "$format" = stream-json ]; then
   case "${STUB_CLAUDE_RESULT:-ok}" in
+    metadata)
+      printf '%s\n' '{"type":"system","subtype":"init","model":"configured-model"}'
+      printf '%s\n' '{"type":"assistant","message":{"model":"served-model","content":[{"type":"text","text":"partial"}]}}'
+      printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"APPROVE","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":20,"cache_creation_input_tokens":30}}'
+      ;;
     error) exit 23 ;;
     # Real Claude stream-json API failures exit 1 with is_error on the result event.
     transient)
@@ -3219,5 +3234,199 @@ contains "$PLUGIN_ROOT/commands/orchestrate.md" 'pool.sh" run --tier' 'orchestra
 contains "$META_SKILL" 'pool.sh run --tier' 'meta loop dispatches implement legs through the pool'
 contains "$META_REFS/usage-limits.md" '--usage <file>' 'usage limits feed the pool'
 pass 'Pool is wired into route-model-task, orchestrate, and meta-orchestrate'
+
+# Outcome records use CLI stubs above; collect independent failures to expose every regression.
+outcome_passes=0
+outcome_failures=0
+outcome_check() {
+  local label="$1"; shift
+  if "$@"; then
+    pass "outcomes: $label"
+    outcome_passes=$((outcome_passes + 1))
+  else
+    printf 'FAIL: outcomes: %s\n' "$label" >&2
+    outcome_failures=$((outcome_failures + 1))
+  fi
+}
+OUTCOMES="$WORK/outcome-regressions"
+mkdir -p "$OUTCOMES/bin"
+# Restore the idle endpoint stub after the busy/error endpoint tests.
+cat > "$OUTCOMES/bin/curl" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' '[{"id":0,"is_processing":false}]' 200
+STUB
+chmod +x "$OUTCOMES/bin/curl"
+outcome_env=(env PATH="$OUTCOMES/bin:$WORK/bin:$AG/bin:$MU/bin:$PATH" \
+  STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" \
+  MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL=http://127.0.0.1:9/v1)
+# Worktree basename fallback is deliberately distinct from the parent repository.
+outcome_repo="$OUTCOMES/project"
+mkdir -p "$outcome_repo"
+git -C "$outcome_repo" init -q
+printf 'base\n' > "$outcome_repo/app.txt"
+git -C "$outcome_repo" add app.txt
+git -C "$outcome_repo" -c user.name=t -c user.email=t@t commit -qm base
+
+outcome_row() {
+  local file="$1" provider="$2" expected_rc="$3"
+  [ -f "$file" ] && awk -F '\t' -v p="$provider" -v rc="$expected_rc" '
+    NR == 1 { if (NF != 13 || $1 != "utc_time" || $12 != "head_sha" || $13 != "verdict") exit 1 }
+    NR == 2 { if (NF != 13 || $1 !~ /^[0-9][0-9][0-9][0-9]-.*Z$/ || $2 != "project" || $3 != "" || $4 != "implement" || $5 != p || $9 != rc || $10 !~ /^[0-9]+$/) exit 1 }
+    END { if (NR != 2) exit 1 }
+  ' "$file"
+}
+for provider in codex claude grok agy muse qwen; do
+  runner="run-$provider.sh"
+  [ "$provider" != qwen ] || runner=run-qwen-local.sh
+  for result in success failure; do
+    expected_rc=0
+    failure_env=()
+    if [ "$result" = failure ]; then
+      expected_rc=23
+      case "$provider" in
+        codex) failure_env=(STUB_CODEX_RESULT=error) ;;
+        claude) failure_env=(STUB_CLAUDE_RESULT=error) ;;
+        grok) failure_env=(STUB_GROK_RESULT=error) ;;
+        agy) failure_env=(STUB_AGY_FAIL_MODEL=gemini-3.8-flash-medium); expected_rc=75 ;;
+        muse) failure_env=(STUB_MUSE_FAIL='429 Too Many Requests'); expected_rc=75 ;;
+        qwen) failure_env=(QL_STUB_EXIT=23) ;;
+      esac
+    fi
+    outcome_file="$OUTCOMES/$provider-$result.tsv"
+    rc=0
+    printf 'task\n' | "${outcome_env[@]}" "${failure_env[@]}" MMO_OUTCOMES_FILE="$outcome_file" \
+      bash "$PLUGIN_ROOT/scripts/$runner" --mode implement --repo "$outcome_repo" --timeout 10 \
+      >"$OUTCOMES/body" 2>"$OUTCOMES/error" || rc=$?
+    outcome_check "$provider $result appends exactly one row with exit $expected_rc" \
+      outcome_row "$outcome_file" "$provider" "$expected_rc"
+    [ "$rc" -eq "$expected_rc" ] || fail "outcome fixture $provider $result returned $rc, expected $expected_rc: $(cat "$OUTCOMES/error")"
+  done
+done
+outcome_check 'unreported served model and tokens stay empty' awk -F '\t' 'NR == 2 {exit !($7 == "" && $11 == "")} END {if (NR != 2) exit 1}' "$OUTCOMES/codex-success.tsv"
+outcome_check 'Muse records its configured model' awk -F '\t' 'NR == 2 {exit !($7 == "muse-spark-1.3")} END {if (NR != 2) exit 1}' "$OUTCOMES/muse-success.tsv"
+
+printf 'task\n' | "${outcome_env[@]}" STUB_CODEX_RESULT=metadata MMO_OUTCOMES_FILE="$OUTCOMES/codex-metadata.tsv" \
+  bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$outcome_repo" --timeout 10 >/dev/null 2>&1
+outcome_check 'Codex records reported token count without inventing served model' awk -F '\t' 'NR == 2 {exit !($7 == "" && $11 == 1234)} END {if (NR != 2) exit 1}' "$OUTCOMES/codex-metadata.tsv"
+printf 'task\n' | "${outcome_env[@]}" STUB_CODEX_RESULT=fake_metadata MMO_OUTCOMES_FILE="$OUTCOMES/codex-fake-metadata.tsv" \
+  bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$outcome_repo" --timeout 10 >/dev/null 2>&1 || true
+outcome_check 'Codex ignores token-looking echoed text before an error' awk -F '\t' 'NR == 2 {exit !($7 == "" && $11 == "")} END {if (NR != 2) exit 1}' "$OUTCOMES/codex-fake-metadata.tsv"
+printf 'task\n' | "${outcome_env[@]}" STUB_CLAUDE_RESULT=metadata MMO_OUTCOMES_FILE="$OUTCOMES/claude-metadata.tsv" \
+  bash "$PLUGIN_ROOT/scripts/run-claude.sh" --mode implement --repo "$outcome_repo" --timeout 10 \
+  --stream-log "$OUTCOMES/claude.stream" >/dev/null 2>&1
+outcome_check 'Claude records response model and all reported usage categories' awk -F '\t' 'NR == 2 {exit !($7 == "served-model" && $11 == 65)} END {if (NR != 2) exit 1}' "$OUTCOMES/claude-metadata.tsv"
+
+# Bad parsed options and classified timeout/auth/transient exits must also record once.
+for pair in timeout:124 auth:77 transient:75; do
+  fixture="${pair%:*}"; expected_rc="${pair#*:}"
+  outcome_file="$OUTCOMES/codex-$fixture.tsv"
+  rc=0
+  printf 'task\n' | "${outcome_env[@]}" STUB_CODEX_RESULT="$fixture" MMO_OUTCOMES_FILE="$outcome_file" \
+    bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$outcome_repo" --timeout 10 >/dev/null 2>&1 || rc=$?
+  outcome_check "Codex $fixture exit $expected_rc recorded once" outcome_row "$outcome_file" codex "$expected_rc"
+done
+for runner in codex claude grok agy muse qwen-local; do
+  outcome_file="$OUTCOMES/$runner-bad-args.tsv"
+  rc=0
+  "${outcome_env[@]}" MMO_OUTCOMES_FILE="$outcome_file" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" \
+    --mode implement --repo "$outcome_repo" --timeout 0 >/dev/null 2>&1 || rc=$?
+  provider="$runner"; [ "$runner" != qwen-local ] || provider=qwen
+  outcome_check "$runner bad parsed arguments recorded once" outcome_row "$outcome_file" "$provider" 2
+done
+printf 'task\n' | "${outcome_env[@]}" MMO_OUTCOMES_FILE="$OUTCOMES/opus.tsv" bash "$PLUGIN_ROOT/scripts/run-opus.sh" \
+  --mode implement --repo "$outcome_repo" --timeout 10 >/dev/null 2>&1
+outcome_check 'Opus alias records only the Claude invocation' outcome_row "$OUTCOMES/opus.tsv" claude 0
+
+# The CLI already exposes this model identity on stderr; do not infer it from --model.
+printf 'task\n' | "${outcome_env[@]}" QL_STUB_ERR='subagent-local-qwen3.8-27b-run: running model actual-local-model' \
+  MMO_OUTCOMES_FILE="$OUTCOMES/qwen-served.tsv" bash "$PLUGIN_ROOT/scripts/run-qwen-local.sh" \
+  --mode implement --repo "$outcome_repo" --timeout 10 >/dev/null 2>&1
+outcome_check 'Qwen records the wrapper-reported served model' awk -F '\t' 'NR == 2 {exit !($6 == "default" && $7 == "actual-local-model")} END {if (NR != 2) exit 1}' "$OUTCOMES/qwen-served.tsv"
+
+env -u MMO_OUTCOMES_FILE "${outcome_env[@]}" XDG_STATE_HOME="$OUTCOMES/xdg" bash "$PLUGIN_ROOT/scripts/run-codex.sh" \
+  --mode implement --repo "$outcome_repo" --timeout 0 >/dev/null 2>&1 || true
+outcome_check 'unset override uses XDG state location' outcome_row "$OUTCOMES/xdg/multi-model-orchestrator/outcomes.tsv" codex 2
+rc=0
+"${outcome_env[@]}" MMO_OUTCOMES_FILE="$OUTCOMES/escaped.tsv" bash "$PLUGIN_ROOT/scripts/run-codex.sh" \
+  --mode implement --repo "$outcome_repo" --model $'invalid\tmodel\nname' >/dev/null 2>&1 || rc=$?
+outcome_check 'tabs and newlines cannot split a row or column' outcome_row "$OUTCOMES/escaped.tsv" codex 2
+(cd "$outcome_repo" && MMO_OUTCOMES_FILE="$OUTCOMES/relative-repo.tsv" \
+  bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo . --timeout 0) >/dev/null 2>&1 || true
+outcome_check 'relative repository path records its directory basename on early failure' \
+  outcome_row "$OUTCOMES/relative-repo.tsv" codex 2
+for remote in git@example.test:example/fixture.git https://example.test/example/fixture.git; do
+  git -C "$outcome_repo" remote remove origin 2>/dev/null || true
+  git -C "$outcome_repo" remote add origin "$remote"
+  rm -f "$OUTCOMES/origin.tsv"
+  "${outcome_env[@]}" MMO_OUTCOMES_FILE="$OUTCOMES/origin.tsv" bash "$PLUGIN_ROOT/scripts/run-codex.sh" \
+    --mode implement --repo "$outcome_repo" --timeout 0 >/dev/null 2>&1 || true
+  outcome_check "repository identity from $remote" awk -F '\t' 'NR == 2 {exit !($2 == "example/fixture")} END {if (NR != 2) exit 1}' "$OUTCOMES/origin.tsv"
+done
+git -C "$outcome_repo" remote remove origin
+
+# Compare exact output for an impossible parent and a read-only existing file.
+printf 'blocked\n' > "$OUTCOMES/not-a-directory"
+printf 'existing\n' > "$OUTCOMES/readonly.tsv"
+chmod 444 "$OUTCOMES/readonly.tsv"
+for fixture in ok error; do
+  for blocked in not-a-directory/outcomes.tsv readonly.tsv; do
+    if [ "$blocked" = readonly.tsv ] && [ -w "$OUTCOMES/$blocked" ]; then
+      printf 'SKIP: read-only outcome check requires an unprivileged service user\n'
+      continue
+    fi
+    rc_good=0; rc_bad=0
+    for destination in good bad; do
+      outcome_file="$OUTCOMES/append.tsv"
+      [ "$destination" != bad ] || outcome_file="$OUTCOMES/$blocked"
+      rc=0
+      printf 'task\n' | "${outcome_env[@]}" STUB_CODEX_RESULT="$fixture" MMO_OUTCOMES_FILE="$outcome_file" \
+        bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$outcome_repo" --timeout 10 \
+        --out "$OUTCOMES/final" --stream-log "$OUTCOMES/stream" \
+        >"$OUTCOMES/$destination.stdout" 2>"$OUTCOMES/$destination.stderr" || rc=$?
+      if [ "$destination" = good ]; then rc_good="$rc"; else rc_bad="$rc"; fi
+    done
+    outcome_check "failed append ($blocked) preserves $fixture exit code" test "$rc_good" -eq "$rc_bad"
+    outcome_check "failed append ($blocked) preserves $fixture stdout" cmp -s "$OUTCOMES/good.stdout" "$OUTCOMES/bad.stdout"
+    outcome_check "failed append ($blocked) preserves $fixture stderr" cmp -s "$OUTCOMES/good.stderr" "$OUTCOMES/bad.stderr"
+  done
+done
+
+# An exhausted T1 attempt and a successful T2 attempt each carry the selected tier.
+printf 'T1\tagy\tgemini-3.8-flash\tlow\nT2\tagy\tgemini-3.8-flash\thigh\n' > "$OUTCOMES/tiers.tsv"
+printf 'task\n' | "${outcome_env[@]}" MMO_POOL_TIERS="$OUTCOMES/tiers.tsv" \
+  STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low MMO_OUTCOMES_FILE="$OUTCOMES/pool.tsv" \
+  bash "$POOL" run --tier T1 --usage /dev/null --repo "$outcome_repo" --timeout 10 >/dev/null 2>&1
+outcome_check 'pool fallback records two runner rows and their selected tiers' awk -F '\t' '
+  NR == 2 {if ($3 != "T1" || $5 != "agy" || $9 != 75) exit 1}
+  NR == 3 {if ($3 != "T2" || $5 != "agy" || $9 != 0) exit 1}
+  END {if (NR != 3) exit 1}
+' "$OUTCOMES/pool.tsv"
+
+head_sha="$(git -C "$outcome_repo" rev-parse HEAD)"
+for verdict in APPROVE NEEDS_WORK; do
+  printf '%s\n' "$verdict" > "$OUTCOMES/review.txt"
+  rc=0
+  (cd "$outcome_repo" && MMO_OUTCOMES_FILE="$OUTCOMES/gate-$verdict.tsv" bash "$GATE" \
+    --leg "codex=$OUTCOMES/review.txt") >/dev/null 2>&1 || rc=$?
+  outcome_check "gate $verdict records its reviewed HEAD and combined verdict" awk -F '\t' -v head="$head_sha" -v verdict="$verdict" -v rc="$rc" '
+    NR == 2 {if (NF != 13 || $4 != "gate" || $9 != rc || $12 != head || $13 != verdict) exit 1}
+    END {if (NR != 2) exit 1}
+  ' "$OUTCOMES/gate-$verdict.tsv"
+done
+for invalid in 2 3; do
+  provider=codex; printf 'missing verdict\n' > "$OUTCOMES/review.txt"
+  if [ "$invalid" -eq 3 ]; then provider=qwen; printf 'APPROVE\n' > "$OUTCOMES/review.txt"; fi
+  rc=0
+  (cd "$outcome_repo" && MMO_OUTCOMES_FILE="$OUTCOMES/gate-error-$invalid.tsv" bash "$GATE" \
+    --leg "$provider=$OUTCOMES/review.txt") >/dev/null 2>&1 || rc=$?
+  outcome_check "gate error $invalid records HEAD without a combined verdict" awk -F '\t' -v head="$head_sha" -v rc="$invalid" '
+    NR == 2 {if (NF != 13 || $4 != "gate" || $9 != rc || $12 != head || $13 != "") exit 1}
+    END {if (NR != 2) exit 1}
+  ' "$OUTCOMES/gate-error-$invalid.tsv"
+done
+printf 'Outcome regressions: %s PASS, %s FAIL.\n' "$outcome_passes" "$outcome_failures"
+[ "$outcome_failures" -eq 0 ] || exit 1
+
+python3 "$PLUGIN_ROOT/tests/test-outcome-lifecycle.py" "$PLUGIN_ROOT/scripts" "$OUTCOMES/lifecycle" "$outcome_repo"
 
 printf 'All multi-model-orchestrator tests passed.\n'
