@@ -66,4 +66,4 @@ def common:
 | .model = (if $ids | index($candidate) then $candidate else "" end)
 | [.model, .name, .vendor, .metric, .value, .ci_low, .ci_high, .rank, (.effort // ""),
    .harness, .preliminary, .canonical_slug, $feed, .as_of, .tokens, .cost_usd]
-| map(if type == "string" then gsub("[<>]"; "") else . end) | @tsv
+| map(if type == "string" then gsub("[^A-Za-z0-9._:/@+() -]"; "") | .[:120] else . end) | @tsv
