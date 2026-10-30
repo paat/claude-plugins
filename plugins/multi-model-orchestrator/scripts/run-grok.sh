@@ -335,7 +335,7 @@ run_grok_call() {  # run_grok_call SECONDS PROMPT_FILE [extra grok args...]
     rc=$?
   fi
   # Provider exits must not impersonate runner validation codes.
-  case "$rc" in 0|124) ;; *) rc=1 ;; esac
+  rc=$(mmo_provider_rc "$rc")
   cat "$call_err" >> "${output_file}.stderr"
 }
 

@@ -1464,8 +1464,8 @@ fi
 contains "$WORK/flag-dest/claude-unknown.err" 'unknown option' 'Claude unknown-option path stays loud'
 pass '#517 req2: shared flags accepted; honor or name-the-flag; stream-log streams'
 
-# Regression: under --stream-log, provider failure must surface as the provider's
-# rc (PIPESTATUS[0]), not tee's always-success rc (PIPESTATUS[1]). Assert the
+# Regression: under --stream-log, normalize the provider's failure
+# (PIPESTATUS[0]), not tee's always-success rc (PIPESTATUS[1]). Assert the
 # final, stream, and ${out}.stderr artifacts still exist.
 mkdir -p "$WORK/stream-fail"
 set +e
@@ -1477,7 +1477,7 @@ printf 'claude stream fail\n' | STUB_CLAUDE_RESULT=error \
   >/dev/null 2> "$WORK/stream-fail/claude-run.err"
 claude_stream_fail_rc=$?
 set -e
-[ "$claude_stream_fail_rc" -eq 23 ] || fail "Claude --stream-log provider failure rc=$claude_stream_fail_rc want 23 (provider), not tee"
+[ "$claude_stream_fail_rc" -eq 1 ] || fail "Claude --stream-log provider failure rc=$claude_stream_fail_rc want 1 (normalized provider failure)"
 [ -f "$WORK/stream-fail/claude-final.txt" ] || fail 'Claude --stream-log failure still writes --out artifact'
 [ -f "$WORK/stream-fail/claude.stream" ] || fail 'Claude --stream-log failure still writes stream artifact'
 [ -f "$WORK/stream-fail/claude-final.txt.stderr" ] || fail 'Claude --stream-log failure still writes ${out}.stderr artifact'
@@ -1927,8 +1927,8 @@ assert_provider_failure_class claude STUB_CLAUDE_RESULT api_error_not_last 1 '' 
   'Claude text earlier API Error: 529 but last line unrelated → stays 1'
 assert_provider_failure_class claude STUB_CLAUDE_RESULT api_error_in_output 0 '' \
   'Claude success with API Error: 529 in output stays 0'
-assert_provider_failure_class claude STUB_CLAUDE_RESULT error 23 '' \
-  'Claude unrelated failure keeps 23'
+assert_provider_failure_class claude STUB_CLAUDE_RESULT error 1 '' \
+  'Claude unrelated failure normalizes to 1'
 assert_provider_failure_class claude STUB_CLAUDE_RESULT timeout 124 '' \
   'Claude timeout stays 124'
 assert_provider_failure_class claude STUB_CLAUDE_RESULT rate_in_output 0 '' \
@@ -2036,6 +2036,13 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BAS
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 55 ] || fail "qwen budget exit with provider stderr stays 55 (got $rc)"
 pass 'run-qwen-local: qwen budget exit ignores provider-like stderr'
+
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_STUB_EXIT=143 \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>"$WORK/qwen-term.err" || rc=$?
+[ "$rc" -eq 124 ] || fail "qwen wrapper TERM normalizes to timeout (got $rc)"
+contains "$WORK/qwen-term.err" 'exit=124' 'qwen wrapper TERM reports timeout'
+pass 'run-qwen-local: wrapper exit 143 becomes timeout 124'
 
 rc=0
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
@@ -2360,6 +2367,7 @@ exit 0
 WRAP
 chmod +x "$WORK/bin/qwen-wrapper-old.sh"
 rc=0
+# Isolate cache discovery so an installed compatible wrapper cannot replace this old stub.
 HOME="$WORK" PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-old.sh" \
   OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>&1 || rc=$?
@@ -3026,7 +3034,7 @@ if [ -n "${STUB_OPENCODE_ERROR_TYPE:-}" ]; then
   printf '%s\n' '{"type":"step_start","part":{"messageID":"msg_A"}}'
   jq -cn --arg t "$STUB_OPENCODE_ERROR_TYPE" --arg m "${STUB_OPENCODE_ERROR_MESSAGE:-}" --arg s "${STUB_OPENCODE_ERROR_STATUS:-}" \
     '{type:"error",error:({type:$t,message:$m} + (if $s == "" then {} else {status:($s|tonumber)} end))}'
-  exit 1
+  exit "${STUB_OPENCODE_EXIT:-1}"
 fi
 printf '%s\n' '{"type":"step_start","part":{"messageID":"msg_A"}}' \
   '{"type":"tool_use","part":{"messageID":"msg_A","tool":"write","state":{"status":"completed"}}}' \
@@ -3080,6 +3088,10 @@ oc_rc 77 STUB_OPENCODE_ERROR_TYPE=provider.auth STUB_OPENCODE_ERROR_STATUS=401 S
 contains "$OC/err" 'failure=auth' 'opencode auth error is classified as auth'
 oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.go-limit STUB_OPENCODE_ERROR_MESSAGE='OpenCode Go rolling usage limit reached. Switch to a free model, or turn on Extra Usage on the Go page in OpenCode Console to keep going.' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
 contains "$OC/err" 'failure=limit' 'opencode Go limit is classified as a plan limit'
+oc_rc 75 STUB_OPENCODE_EXIT=3 STUB_OPENCODE_ERROR_TYPE=provider.go-limit STUB_OPENCODE_ERROR_MESSAGE='OpenCode Go rolling usage limit reached.' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
+contains "$OC/err" 'exit=75 failure=limit' 'opencode provider exit 3 cannot bypass Go limit classification'
+pass 'run-opencode: provider exit 3 with Go limit becomes 75 failure=limit'
+
 oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.no-route STUB_OPENCODE_ERROR_MESSAGE='Model unavailable: opencode-go/x' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
 contains "$OC/err" 'not routable here' 'opencode no-route names the cause'
 oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.no-route STUB_OPENCODE_ERROR_STATUS=401 STUB_OPENCODE_ERROR_MESSAGE='Model unavailable: opencode-go/glm-5.3#medium' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
@@ -3436,7 +3448,7 @@ for provider in codex claude grok agy muse opencode qwen; do
       expected_rc=23
       case "$provider" in
         codex) failure_env=(STUB_CODEX_RESULT=error); expected_rc=1 ;;
-        claude) failure_env=(STUB_CLAUDE_RESULT=error) ;;
+        claude) failure_env=(STUB_CLAUDE_RESULT=error); expected_rc=1 ;;
         grok) failure_env=(STUB_GROK_RESULT=error); expected_rc=1 ;;
         agy) failure_env=(STUB_AGY_FAIL_MODEL=gemini-3.8-flash-medium); expected_rc=75 ;;
         muse) failure_env=(STUB_MUSE_FAIL='429 Too Many Requests'); expected_rc=75 ;;

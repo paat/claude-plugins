@@ -21,12 +21,12 @@ variants = {
     "muse": ("muse", []),
     "qwen-local": ("qwen-local", []),
 }
-expected = {"success": 0, "failure": 23, "timeout": 124, "limit": 75,
+expected = {"success": 0, "failure": 1, "timeout": 124, "limit": 75,
             "auth": 77, "bad-args": 2, "abort": 42, "empty": 5, "deadline": 124,
             "reserved-limit": 75, "reserved-auth": 77, "reserved-generic": 1}
 
 CLI = r'''#!/usr/bin/env python3
-import json, os, sys, time
+import json, os, signal, sys, time
 from pathlib import Path
 name = Path(sys.argv[0]).name
 args = sys.argv[1:]
@@ -42,6 +42,10 @@ else:
     prompt = sys.stdin.read()
 assert "preservation-input-682" in prompt, (name, "lost prompt input", prompt)
 case = os.environ["PRESERVE_CASE"]
+if case == "kill-deadline":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    time.sleep(30)
+    sys.exit(99)
 if case == "deadline":
     key = os.environ.get("ANTHROPIC_API_KEY", "plan").encode()
     prefix = b'{"type":"system","subtype":"init"}\n' if "stream-json" in args else b""
@@ -54,6 +58,9 @@ rc = {"success": 0, "empty": 0, "failure": 23, "timeout": 124,
 message = {"limit": "API Error: 429 usage limit", "auth": "API Error: 401 Unauthorized",
            "reserved-limit": "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 4h32m11s.",
            "reserved-auth": "401 Unauthorized"}.get(case, "provider failure")
+if name == "claude":
+    message = {"reserved-limit": "You've hit your usage limit",
+               "reserved-auth": "API Error: 401 Unauthorized"}.get(case, message)
 body = "" if case == "empty" else "fixture findings\nAPPROVE\n"
 print("provider diagnostic", file=sys.stderr)
 if name == "codex":
@@ -138,13 +145,13 @@ with tempfile.TemporaryDirectory(prefix="mmo-preservation-") as temp:
                "MMO_OUTCOMES_FILE": str(rows if destination == "writable" else work / "blocked" / "outcomes.tsv")}
         args = ["bash", str(source / f"run-{provider}.sh"), "--mode", "implement", "--repo", str(repo),
                 "--out", str(artifacts / "body"), "--timeout",
-                {"bad-args": "0", "deadline": "1"}.get(case, "10")]
+                {"bad-args": "0", "deadline": "1", "kill-deadline": "2"}.get(case, "10")]
         for flag in extra:
             args.append(flag)
             if flag == "--stream-log":
                 args.append(str(artifacts / "stream"))
         result = subprocess.run(args, input=b"preservation-input-682\n", capture_output=True, env=env, timeout=20)
-        want = 1 if case == "failure" and provider != "claude" else expected[case]
+        want = 124 if case == "kill-deadline" else expected[case]
         assert result.returncode == want, (provider, case, destination, result.returncode, result.stderr)
         if case.startswith("reserved-"):
             failure = {"reserved-limit": b"limit", "reserved-auth": b"auth"}.get(case)
@@ -170,8 +177,6 @@ with tempfile.TemporaryDirectory(prefix="mmo-preservation-") as temp:
     comparisons = 0
     for variant, (provider, extra) in variants.items():
         for case in expected:
-            if case.startswith("reserved-") and provider == "claude":
-                continue
             if case == "deadline" and provider != "claude":
                 continue
             observations = []
@@ -187,3 +192,8 @@ with tempfile.TemporaryDirectory(prefix="mmo-preservation-") as temp:
             assert observations[0] == observations[1], (variant, case, "outcome destination changed observable output")
             print(f"PASS: preservation: {variant} {case}: writable/blocked outcomes, exact exit/output/artifacts", flush=True)
     print(f"Runner preservation: {cases} scenarios PASS, 0 FAIL; {cases // 2} destination comparisons; {comparisons} baseline comparisons.")
+    for variant in ("codex", "agy", "grok", "grok-stream", "muse"):
+        provider, extra = variants[variant]
+        run(scripts, provider, extra, "kill-deadline", "writable")
+        print(f"PASS: {variant}: TERM-ignoring provider with --timeout 2 exits 124 after KILL grace", flush=True)
+    print("Provider deadline escalation: 5 PASS, 0 FAIL.")

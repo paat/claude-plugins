@@ -280,6 +280,7 @@ for missing in unset missing empty; do
     bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2" && [ ! -e "$3" ]' \
       _ "$rc" "$artifacts/stderr" "$artifacts/calls"
 done
+# Invalid contents fail inside the supervised API helper and normalize to provider failure 1.
 for invalid in newline multiline carriage-return; do
   prepare "key-$invalid"
   case "$invalid" in
@@ -290,7 +291,7 @@ for invalid in newline multiline carriage-return; do
   common+=(MMO_CLAUDE_API_KEY_FILE="$work/invalid-key")
   run_api
   check "$invalid key fails before launching Claude" \
-    bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2/out.stderr" && [ ! -e "$2/calls" ]' _ "$rc" "$artifacts"
+    bash -c '[ "$1" -eq 1 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2/out.stderr" && [ ! -e "$2/calls" ]' _ "$rc" "$artifacts"
 done
 
 prepare missing-key-pick

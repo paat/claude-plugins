@@ -273,7 +273,7 @@ if [ "$stream_log_set" -eq 1 ]; then
   mmo_run tee "$stream_file" "${output_file}.stderr" run_cli < "$prompt_file" > /dev/null
   provider_rc=${mmo_pipe_status[0]} tee_rc=${mmo_pipe_status[1]}
   if [ "$provider_rc" -ne 0 ]; then
-    rc=$provider_rc
+    rc=$(mmo_provider_rc "$provider_rc")
   elif [ "$tee_rc" -ne 0 ]; then
     printf 'run-claude: failed writing --stream-log: %s\n' "$stream_file" >&2
     rc=$tee_rc
@@ -316,7 +316,7 @@ if [ "$stream_log_set" -eq 1 ]; then
 else
   mmo_run direct "" "" run_cli < "$prompt_file" > "$output_file" 2> "${output_file}.stderr"
   provider_rc=$?
-  rc=$provider_rc
+  rc=$(mmo_provider_rc "$provider_rc")
 fi
 set -e
 if [ "$stream_log_set" -eq 1 ]; then

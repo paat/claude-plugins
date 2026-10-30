@@ -183,7 +183,7 @@ mmo_run direct "" "" mmo_leg_env CODEX_HOME CODEX_API_KEY OPENAI_API_KEY -- time
 rc=$?
 set -e
 # Provider exits must not impersonate runner validation codes.
-case "$rc" in 0|124) ;; *) rc=1 ;; esac
+rc=$(mmo_provider_rc "$rc")
 
 # The text-mode CLI reports its token total on the line after this footer.
 mmo_outcome_tokens="$(awk '
