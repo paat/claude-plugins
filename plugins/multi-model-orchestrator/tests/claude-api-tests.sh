@@ -10,7 +10,7 @@ git -C "$work/repo" init -q
 printf 'base\n' > "$work/repo/file"
 git -C "$work/repo" add file
 git -C "$work/repo" -c user.name=Test -c user.email=test@example.com commit -qm base
-printf 'test-claude-api-%s-%s\n' "$$" "$RANDOM" > "$work/key"
+printf 'test-claude-api-%s-%s-[]^$.*+?(){}|&\n' "$$" "$RANDOM" > "$work/key"
 : > "$work/empty-key"
 printf '{"oauthAccount":{"accountUuid":"fixture"}}\n' > "$work/login/.claude.json"
 printf 'claude 7d 95%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" > "$work/spent"
@@ -26,10 +26,15 @@ cat > "$work/bin/claude" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$@" >> "$STUB_ARTIFACTS/cli.argv"
+cat "/proc/$$/environ" > "$STUB_ARTIFACTS/proc.environ"
 env > "$STUB_ARTIFACTS/cli.environ"
+runner_pid=
 pid=$$
-for ancestor in 0 1 2 3; do
+for ancestor in 0 1 2 3 4 5 6 7 8; do
   cat "/proc/$pid/cmdline" >> "$STUB_ARTIFACTS/process.argv"
+  if tr '\0' '\n' < "/proc/$pid/cmdline" | grep -q '/run-claude.sh$'; then
+    runner_pid="$pid"
+  fi
   pid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status")"
   [ "$pid" -gt 0 ] || break
 done
@@ -87,6 +92,33 @@ else
   printf 'plan\n' >> "$STUB_ARTIFACTS/calls"
   result="${STUB_PLAN_RESULT:-ok}"
 fi
+case "$result" in
+  leak_*)
+    from_helper="$(sh -c "$helper")"
+    from_path="$(cat -- "$STUB_KEY_FILE")"
+    if [ "$format" = stream-json ]; then
+      jq -nc --arg helper "$from_helper" --arg path "$from_path" \
+        '{type:"assistant",message:{content:[{type:"text",text:($helper + " " + $path)}]}}'
+      jq -nc --arg result "$from_helper $from_path APPROVE" \
+        '{type:"result",subtype:"success",is_error:false,result:$result}'
+    else
+      printf '%s %s APPROVE\n' "$from_helper" "$from_path"
+    fi
+    # Include binary data and an unterminated tail to check byte preservation.
+    printf '%s %s\000\377tail' "$from_helper" "$from_path" >&2
+    case "$result" in
+      leak_success) exit 0 ;;
+      leak_failure) exit 23 ;;
+      leak_timeout) sleep 30 ;;
+      leak_TERM|leak_HUP|leak_INT)
+        [ -n "$runner_pid" ] || exit 95
+        kill -s "${result#leak_}" "$runner_pid"
+        sleep 30
+        ;;
+    esac
+    exit 96
+    ;;
+esac
 if [ "$result" = background_stderr ]; then sleep 3 >/dev/null & fi
 # Strings from installed Claude Code 2.1.314, inspected 2026-10-30.
 case "$result" in
@@ -402,11 +434,11 @@ for format in text stream; do
   prepare "canary-$format"
   common+=(ANTHROPIC_API_KEY=wrong-inherited-key ANTHROPIC_AUTH_TOKEN=wrong-inherited-token
     ANTHROPIC_BASE_URL=https://inherited.invalid
-    MMO_LEG_ENV='STUB_ARTIFACTS STUB_KEY_FILE STUB_LOGIN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR ANTHROPIC_*')
+    MMO_LEG_ENV='STUB_ARTIFACTS STUB_KEY_FILE STUB_LOGIN MMO_CLAUDE_API_KEY_FILE CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR ANTHROPIC_*')
   if [ "$format" = stream ]; then run_api --stream-log "$artifacts/stream"; else run_api; fi
   check "$format API authenticates with file key and isolates OAuth/login" api_success
   check "$format API key and inherited auth/endpoint are absent from CLI and Bash environments" \
-    bash -c '! grep -Eq "^ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL)=" "$1/cli.environ" "$1/bash.environ"' _ "$artifacts"
+    bash -c '! grep -Eq "^(MMO_CLAUDE_API_KEY_FILE|ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL))=" "$1/cli.environ" "$1/bash.environ"' _ "$artifacts"
   check "$format API uses explicit apiKeyHelper and no discovered settings" \
     bash -c 'jq -e '\''.apiKeyHelper | type == "string" and length > 0'\'' "$1/settings.json" >/dev/null && [ -z "$(cat "$1/setting-sources")" ]' _ "$artifacts"
   check "$format API explicitly loads project instructions with normal tools" \
@@ -421,6 +453,48 @@ for format in text stream; do
   check "$format shell env output cannot leak the file key into artifacts" \
     bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2/calls")" = api ] && ! grep -r -a -F -q -f "$3" "$2"' \
       _ "$rc" "$artifacts" "$work/key"
+done
+for format in text stream; do
+  for ending in success failure timeout TERM HUP INT; do
+    prepare "leak-$format-$ending"
+    common+=(STUB_RESULT="leak_$ending")
+    if [ "$format" = stream ]; then
+      run_api --timeout 2 --stream-log "$artifacts/stream"
+    else
+      run_api --timeout 2
+    fi
+    case "$ending" in
+      success) expected_rc=0 ;;
+      failure) expected_rc=23 ;;
+      timeout) expected_rc=124 ;;
+      TERM) expected_rc=143 ;;
+      HUP) expected_rc=129 ;;
+      INT) expected_rc=130 ;;
+    esac
+    check "$format leaked key retains $ending exit $expected_rc" test "$rc" -eq "$expected_rc"
+    check "$format $ending redacts helper and direct-cat leaks in every runner artifact" \
+      python3 - "$artifacts" "$work/key" "$format" "$ending" <<'PY_CHECK'
+from pathlib import Path
+import sys
+
+artifacts = Path(sys.argv[1])
+key = Path(sys.argv[2]).read_bytes().rstrip(b"\n")
+stream = sys.argv[3] == "stream"
+success = sys.argv[4] == "success"
+for name in ("out", "out.stderr", "stdout", "stderr", "cli.argv", "process.argv", "proc.environ"):
+    assert key not in (artifacts / name).read_bytes(), name
+for name in ("proc.environ", "cli.environ", "effective.environ", "bash.environ"):
+    assert b"MMO_CLAUDE_API_KEY_FILE=" not in (artifacts / name).read_bytes(), name
+assert (artifacts / "out.stderr").read_bytes() == b"[REDACTED] [REDACTED]\x00\xfftail"
+if stream:
+    raw = (artifacts / "stream").read_bytes()
+    assert key not in raw
+    assert raw.count(b"[REDACTED]") == 4, raw
+if not stream or success:
+    assert (artifacts / "out").read_bytes() == b"[REDACTED] [REDACTED] APPROVE\n"
+assert (artifacts / "process.argv").stat().st_size > 0
+PY_CHECK
+  done
 done
 prepare parent-env
 parent_key="${ANTHROPIC_API_KEY-unset}"
