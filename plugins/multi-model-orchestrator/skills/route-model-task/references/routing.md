@@ -114,13 +114,7 @@ quota pools (Gemini Flash, Claude, Argon) each gate only their own models. None 
 a T4 route. For reviewer independence an `agy/claude-*` worker counts as Claude: its reviewer must
 be another vendor.
 
-`claude-api` immediately follows each matching Claude plan row and is eligible only after that
-plan window is tight or the matching plan leg returns `exit=75 failure=limit`; an available
-plan always wins, and transient failures never enable API spending. `MMO_CLAUDE_API_KEY_FILE` enables the route,
-which bypasses plan windows and falls through on unavailable/billing exit 75. It counts as
-Claude for allow/deny and reviewer independence. Monthly plan API credit funds these API-key
-legs separately from subscription limits ([credits](https://support.claude.com/en/articles/17154008),
-[headless eligibility](https://support.claude.com/en/articles/15036540), read 2026-10-30).
+For `claude-api` eligibility, authentication, identity, and credit policy, see [README routing policy](../../../README.md#routing-policy).
 
 ## Evidence basis
 
