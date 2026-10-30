@@ -170,9 +170,13 @@ esac
 muse_args+=(--workspace "$work_dir")
 [ "$mode" = implement ] || tree_before="$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")"
 
+run_cli() {
+  cd "$work_dir" || return
+  mmo_leg_env 'MUSE_*' META_API_KEY 'XDG_*' -- timeout -k 10 "$run_timeout" muse "${muse_args[@]}" \
+  < /dev/null > "$stream_file" 2> "$runtime_dir/stderr.txt"
+}
 set +e
-(cd "$work_dir" && mmo_leg_env 'MUSE_*' META_API_KEY 'XDG_*' -- timeout -k 10 "$run_timeout" muse "${muse_args[@]}" \
-  < /dev/null > "$stream_file" 2> "$runtime_dir/stderr.txt")
+mmo_run direct "" "" run_cli
 rc=$?
 set -e
 

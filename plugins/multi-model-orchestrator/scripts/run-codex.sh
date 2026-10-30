@@ -178,7 +178,7 @@ codex_args+=(-m "$model" -c "model_reasoning_effort=\"$effort\"")
 codex_args+=(-o "$final_file" -)
 
 set +e
-mmo_leg_env CODEX_HOME CODEX_API_KEY OPENAI_API_KEY -- timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
+mmo_run direct "" "" mmo_leg_env CODEX_HOME CODEX_API_KEY OPENAI_API_KEY -- timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
   < "$prompt_file" > "$stream_file" 2> "${stream_file}.stderr"
 rc=$?
 set -e

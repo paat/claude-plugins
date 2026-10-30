@@ -318,10 +318,9 @@ run_grok_call() {  # run_grok_call SECONDS PROMPT_FILE [extra grok args...]
   : > "$call_err"
   if [ "$stream_log_set" -eq 1 ]; then
     # Live transcript to --stream-log; final message still lands in --out.
-    HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
-      timeout -k 10 "$secs" grok "${grok_args[@]}" --prompt-file "$pf" "$@" \
-      2> "$call_err" | tee -a "$stream_file" > "$output_file"
-    provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
+    HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_run append "$stream_file" "$call_err" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
+      timeout -k 10 "$secs" grok "${grok_args[@]}" --prompt-file "$pf" "$@" > "$output_file"
+    provider_rc=${mmo_pipe_status[0]} tee_rc=${mmo_pipe_status[1]}
     if [ "$provider_rc" -ne 0 ]; then
       rc=$provider_rc
     elif [ "$tee_rc" -ne 0 ]; then
@@ -331,7 +330,7 @@ run_grok_call() {  # run_grok_call SECONDS PROMPT_FILE [extra grok args...]
       rc=0
     fi
   else
-    HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
+    HOME="$child_home" GROK_HOME="$isolated_grok_home" mmo_run direct "" "" mmo_leg_env 'GROK_*' XAI_API_KEY -- \
       timeout -k 10 "$secs" grok "${grok_args[@]}" --prompt-file "$pf" "$@" > "$output_file" 2> "$call_err"
     rc=$?
   fi

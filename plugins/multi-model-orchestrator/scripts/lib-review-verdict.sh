@@ -139,7 +139,8 @@ mmo_guard_env_files() {  # mmo_guard_env_files RUNNER REPO
   return 1
 }
 
-# Run a provider CLI with a scrubbed environment: a base allowlist, the provider's own
+# Exec a provider CLI inside mmo_run so its published PID remains the watchdog PID.
+# Use a scrubbed environment: a base allowlist, the provider's own
 # variables (names, or PREFIX* patterns, before --), and the names listed in MMO_LEG_ENV.
 mmo_leg_env() {  # mmo_leg_env [NAME|PREFIX*]... -- COMMAND [ARG]...
   local keep=(PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR
@@ -158,5 +159,5 @@ mmo_leg_env() {  # mmo_leg_env [NAME|PREFIX*]... -- COMMAND [ARG]...
     [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { printf 'mmo: invalid MMO_LEG_ENV name: %s\n' "$name" >&2; return 2; }
     [ -z "${!name+x}" ] || pass+=("$name=${!name}")
   done
-  env -i ${pass[@]+"${pass[@]}"} "$@"
+  exec env -i ${pass[@]+"${pass[@]}"} "$@"
 }

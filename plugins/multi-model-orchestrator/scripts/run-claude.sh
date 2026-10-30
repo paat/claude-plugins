@@ -251,27 +251,27 @@ done
 claude_args+=(--allowedTools "$allowed_tools" --disallowedTools "$disallowed_tools")
 leg_env=('ANTHROPIC_*' CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR)
 
-run_cli() (
+run_cli() {
   cd "$repo_dir" || exit 2
   if [ "$api" -eq 1 ]; then
     # -p uses the file key while retaining project instructions and normal tools.
     # Even MMO_LEG_ENV must not copy inherited auth into env(1)'s argv.
     for name in ${!ANTHROPIC_@} ${!CLAUDE_@}; do unset "$name"; done
-    mmo_leg_env -- bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" \
+    # Keep the wrapper alive through a runner-group stop until its watchdog is signalled.
+    mmo_leg_env -- setsid bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" \
       timeout -k 10 "$run_timeout" claude "${claude_args[@]}"
   else
     mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}"
   fi
-)
+}
 
 provider_rc=0
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
   # NDJSON event stream to --stream-log while live; final message extracted into --out after success.
   : > "$output_file"
-  run_cli < "$prompt_file" \
-    2> "${output_file}.stderr" | tee "$stream_file" > /dev/null
-  provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
+  mmo_run tee "$stream_file" "${output_file}.stderr" run_cli < "$prompt_file" > /dev/null
+  provider_rc=${mmo_pipe_status[0]} tee_rc=${mmo_pipe_status[1]}
   if [ "$provider_rc" -ne 0 ]; then
     rc=$provider_rc
   elif [ "$tee_rc" -ne 0 ]; then
@@ -314,7 +314,7 @@ if [ "$stream_log_set" -eq 1 ]; then
     fi
   fi
 else
-  run_cli < "$prompt_file" > "$output_file" 2> "${output_file}.stderr"
+  mmo_run direct "" "" run_cli < "$prompt_file" > "$output_file" 2> "${output_file}.stderr"
   provider_rc=$?
   rc=$provider_rc
 fi

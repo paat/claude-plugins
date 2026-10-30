@@ -132,10 +132,14 @@ fi
 # The prompt goes in on stdin: as an argv word a large review diff would exceed MAX_ARG_STRLEN.
 jq -cn --rawfile c "$prompt_file" '{event: "user", message: {content: $c}}' > "$runtime_dir/input.jsonl"
 
-set +e
-(cd "$work_dir" && mmo_leg_env GEMINI_API_KEY -- timeout -k 10 "$run_timeout" agy --input-format stream-json --output-format stream-json \
+run_cli() {
+  cd "$work_dir" || return
+  mmo_leg_env GEMINI_API_KEY -- timeout -k 10 "$run_timeout" agy --input-format stream-json --output-format stream-json \
   --model "$model-$effort" ${agy_args[@]+"${agy_args[@]}"} \
-  < "$runtime_dir/input.jsonl" > "$stream_file" 2> "$runtime_dir/stderr.txt")
+  < "$runtime_dir/input.jsonl" > "$stream_file" 2> "$runtime_dir/stderr.txt"
+}
+set +e
+mmo_run direct "" "" run_cli
 rc=$?
 set -e
 
