@@ -17,8 +17,8 @@ approximate.
    ≤5% of correction prompts; misread intent (~45%) and environment conventions (~30%) drove most
    (leg). The cheapest lever is one rule set delivered to every agent home, not a knowledge base.
 2. **The universal share that matters is perishable facts**: AI models and CLIs change fastest (~41%
-   of agent web searches on the infrastructure side; runner model catalogs are hand-edited at each
-   model release), then laws and rates, then vendor API capabilities. A shared legal store served
+   of agent web searches on the infrastructure side; the tier table `pool-tiers.tsv` changed 8 times between
+   2026-10-02 and 2026-10-23 by hand and through refresh PRs, and still lacks two newer models), then laws and rates, then vendor API capabilities. A shared legal store served
    Estonia's old 22% VAT rate after 24% took effect on 2025-07-01 (verified in transcript), and an
    act was claimed in force before its effective date (leg); both legal incidents turned on dates and
    provenance, not on knowing the rule. Agent tooling changes the same way: Claude Code reads
@@ -59,7 +59,7 @@ approximate.
 |---|---|
 | Volume | ~23.7k typed Claude prompts; 16,006 Codex threads (78% `codex exec`, 18% Codex-spawned subagents, 3.3% interactive) |
 | Frustration themes | Stalling and nudging, needless escalation, over-engineering, routing orders — process, not knowledge |
-| Prompt-inlined project conventions | Codex threads whose first message carries an inlined conventions block: 518 in July 2026, 7 in August, 69 in September, 0 in October. #321 (closed 2026-07-18) capped tribunal `AGENTS.md` injection — a likely cause of the drop, not proven |
+| Prompt-inlined project conventions | Codex threads whose full first message (from the rollout file) contains the heading `## Project Conventions (from AGENTS.md)`: 518 in July 2026, 7 in August, 69 in September, 0 in October; counts from a truncated first-message field are lower. #321 (closed 2026-07-18) capped tribunal `AGENTS.md` injection — a likely cause of the drop, not proven |
 | Built-in knowledge features | Codex memories: 0 rows everywhere; a docs MCP installed but ~0 calls; web search in 1.2% of Codex sessions, mostly reviewers |
 | Invalid model IDs | 19 Codex threads used one of 11 model IDs that never produced a token in any thread (filter: every thread with that ID has `tokens_used` 0); latest 2026-09-28; unnoticed. `run-codex.sh` now rejects IDs outside a hand-edited catalog |
 | Model identity | 0 of 1,838 Codex reviewer JSON outputs named the model that actually ran (leg) |
