@@ -10,7 +10,7 @@
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "c394448661d3599f7fbc645167182b7897b2fb4d423710e7657d0524d224c7c3"
+      "sha256": "59d2179176b0927e0702f0200af8d8f238c82b50bd12bdc7d250104bff34277c"
     },
     {
       "path": "scripts/dsh-review.patch.yml",
@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "98587a3cfd1f42a2327fea0e835d5e439ac82b6f5dfe13bd294f9a701b3742bc"
+      "sha256": "6f4580b75b4e9af2c0a3117eeefb2aff11fbd24d0335197c1de0216957c21dea"
     },
     {
       "path": "scripts/run-claude-review.sh",

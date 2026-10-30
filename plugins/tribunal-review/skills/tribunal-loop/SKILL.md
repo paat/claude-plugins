@@ -95,6 +95,8 @@ collection_json="$(bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.s
 manifest_sha="$(printf '%s' "$collection_json" | jq -r .manifest_sha256)"
 ```
 
+For later rounds, pass `--prior-rejections FILE`; build the list as described in `closing-tribunal-loop`'s round lifecycle.
+
 The controller retains `manifest_sha`; do not take it back from model output.
 It should also pin and validate `integrity/runner-bundle.json` with
 `scripts/check-runner-bundle.sh --expected-manifest-sha256 SHA` before collection.
