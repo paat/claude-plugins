@@ -15,6 +15,7 @@ printf 'test-claude-api-%s-%s\n' "$$" "$RANDOM" > "$work/key"
 printf '{"oauthAccount":{"accountUuid":"fixture"}}\n' > "$work/login/.claude.json"
 printf 'claude 7d 95%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" > "$work/spent"
 printf 'claude 7d 10%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" > "$work/available"
+printf 'claude unknown\n' > "$work/unknown"
 for tier in T2 T3 T4; do
   printf '%s\tclaude\tclaude-opus-5-5\thigh\n' "$tier"
   printf '%s\tclaude-api\tclaude-opus-5-5\thigh\n' "$tier"
@@ -44,7 +45,8 @@ done
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   [ "$ANTHROPIC_API_KEY" = "$(cat "$STUB_KEY_FILE")" ] || exit 91
   [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || exit 92
-  [ "$bare" -eq 1 ] || [ "${CLAUDE_CONFIG_DIR:-}" != "$STUB_LOGIN" ] || exit 93
+  [ "$bare" -eq 0 ] || exit 94
+  [ "${CLAUDE_CONFIG_DIR:-}" != "$STUB_LOGIN" ] || exit 93
   printf 'api\n' >> "$STUB_ARTIFACTS/calls"
   result="${STUB_RESULT:-ok}"
 else
@@ -58,6 +60,8 @@ case "$result" in
   billing) message='API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}' ;;
   stream_billing|stream_billing_zero) message='Credit balance is too low' ;;
   rate) message='API Error: 429 rate limit' ;;
+  overloaded) message='API Error: 529 overloaded' ;;
+  limit) message='API Error: 429 usage limit reached' ;;
   *) message='' ;;
 esac
 if [ -n "$message" ]; then
@@ -162,10 +166,22 @@ prepare prefer-api
 pick --tier T3 --usage "$work/available" --prefer claude-api
 check 'preference cannot force API while plan is available' no_api
 prepare plan-runtime-limit
-common+=(STUB_PLAN_RESULT=rate)
-run_pool --tier T3 --usage "$work/available"
-check 'plan runtime failure falls through without spending API credit' \
-  test "$(cat "$artifacts/calls" 2>/dev/null)" = $'plan\ncodex'
+common+=(STUB_PLAN_RESULT=limit)
+run_pool --tier T3 --usage "$work/unknown"
+check 'unknown usage and runtime plan limit run plan then API successfully' \
+  bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2/calls")" = "$(printf "plan\napi")" ] && grep -q "^run-claude: exit=75 failure=limit " "$2/stderr"' _ "$rc" "$artifacts"
+prepare plan-runtime-no-usage
+common+=(STUB_PLAN_RESULT=limit)
+run_pool --tier T3 --allow claude --prefer claude-api
+check 'runtime plan limit enables matching API without --usage even with API preference' \
+  bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2")" = "$(printf "plan\napi")" ]' _ "$rc" "$artifacts/calls"
+for error in rate overloaded; do
+  prepare "plan-runtime-$error"
+  common+=(STUB_PLAN_RESULT="$error")
+  run_pool --tier T3 --usage "$work/unknown"
+  check "unknown usage and transient $error never spend API credit" \
+    bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2/calls")" = "$(printf "plan\ncodex")" ] && grep -q "^run-claude: exit=75 failure=transient " "$2/stderr"' _ "$rc" "$artifacts"
+done
 
 for missing in unset missing empty; do
   prepare "key-$missing"
@@ -217,11 +233,11 @@ run_pool --tier T3 --mode review --base HEAD --allow claude --usage "$work/spent
 check 'API review uses Claude identity and returns a valid verdict' api_success
 git -C "$work/repo" checkout -q -- file
 
-prepare usage-independent
-cat "$work/spent" > "$work/api-usage"
-printf 'claude-api 7d 100%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" >> "$work/api-usage"
-run_pool --tier T3 --allow claude --usage "$work/api-usage"
-check 'API ignores plan usage windows including a claude-api usage row' api_success
+prepare no-newline
+bash "$scripts/claude-api-exec.sh" "$work/key" bash -c 'printf x; printf y >&2' \
+  > "$artifacts/stdout" 2> "$artifacts/stderr"
+check 'redaction preserves unterminated stdout and stderr as exactly one byte each' \
+  bash -c '[ "$(wc -c < "$1/stdout")" -eq 1 ] && [ "$(cat "$1/stdout")" = x ] && [ "$(wc -c < "$1/stderr")" -eq 1 ] && [ "$(cat "$1/stderr")" = y ]' _ "$artifacts"
 
 for format in text stream; do
   prepare "canary-$format"

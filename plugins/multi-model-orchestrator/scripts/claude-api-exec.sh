@@ -17,9 +17,10 @@ fi
 # Redact before any output reaches the runner's files, including CLI error text.
 redact() {
   local line
-  while IFS= read -r line || [ -n "$line" ]; do
+  while IFS= read -r line; do
     printf '%s\n' "${line//"$api_key"/[REDACTED]}"
   done
+  printf '%s' "${line//"$api_key"/[REDACTED]}"
 }
 exec 3> >(redact >&2)
 stderr_pid=$!

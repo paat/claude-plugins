@@ -219,8 +219,6 @@ case "$mode" in
 esac
 
 claude_args=(-p --model "$model")
-# Claude Code 2.1.314 --help (2026-10-30): --bare never reads OAuth or keychain auth.
-[ "$api" -eq 0 ] || claude_args+=(--bare)
 if [ "$stream_log_set" -eq 1 ]; then
   # stream-json is live; --verbose is mandatory with -p (Claude CLI rejects without it).
   claude_args+=(--output-format stream-json --verbose)
@@ -252,6 +250,7 @@ leg_env=('ANTHROPIC_*' CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR)
 run_cli() (
   cd "$repo_dir" || exit 2
   if [ "$api" -eq 1 ]; then
+    # -p uses the file key while retaining project instructions and normal tools.
     # Even MMO_LEG_ENV must not copy inherited auth into env(1)'s argv.
     for name in ${!ANTHROPIC_@} ${!CLAUDE_@}; do unset "$name"; done
     mmo_leg_env -- bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" \

@@ -108,13 +108,15 @@ or reset first). Its own `75` means nobody in the tier chain was available. Loca
 agy reviews remain advisory. Local implementation stays bounded and mechanical; agy
 Flash stays in T1/T2 while Argon is a T3 implementation candidate. agy Sonnet 5.5 (T2) and Opus
 5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
-a plan leg returning `75` falls through to agy. agy's three
+a plan leg returning `75` with `failure=limit` enables matching API overflow; transient
+failures fall through to agy. agy's three
 quota pools (Gemini Flash, Claude, Argon) each gate only their own models. None of agy's routes is
 a T4 route. For reviewer independence an `agy/claude-*` worker counts as Claude: its reviewer must
 be another vendor.
 
 `claude-api` immediately follows each matching Claude plan row and is eligible only after that
-row is skipped; an available plan always wins. `MMO_CLAUDE_API_KEY_FILE` enables the route,
+plan window is tight or the matching plan leg returns `exit=75 failure=limit`; an available
+plan always wins, and transient failures never enable API spending. `MMO_CLAUDE_API_KEY_FILE` enables the route,
 which bypasses plan windows and falls through on unavailable/billing exit 75. It counts as
 Claude for allow/deny and reviewer independence. Monthly plan API credit funds these API-key
 legs separately from subscription limits ([credits](https://support.claude.com/en/articles/17154008),

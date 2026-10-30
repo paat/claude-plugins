@@ -64,10 +64,11 @@ higher tiers' workers; T3 and T4 never fall to a weaker tier and exit 75 with th
 instead.
 
 `claude-api` follows each Claude plan row at the same model/effort and runs only after that
-plan row is skipped. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organization's key file;
+plan window is tight or the matching plan leg returns `exit=75 failure=limit`; transient
+failures do not enable API spending. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organization's key file;
 `run-claude.sh --api` uses it only in the leg, bypasses plan-window gates, and exits 75 when
-unavailable or credits are exhausted. API legs use `--bare` (no OAuth/login or automatic
-CLAUDE.md/hooks discovery); include required project context in the task. It remains Claude for restrictions and reviewer
+unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables and use
+the file key while retaining CLAUDE.md, the system prompt, and normal tools. It remains Claude for restrictions and reviewer
 independence. This uses monthly plan API credit, separate from subscription limits; purchased
 credits/auto-reload can extend usage ([credit terms](https://support.claude.com/en/articles/17154008),
 [`claude -p` eligibility](https://support.claude.com/en/articles/15036540), read 2026-10-30).
