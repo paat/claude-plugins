@@ -147,7 +147,13 @@ esac
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 fi
-trap 'mmo_outcome_exit "$?"; rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"; [ -z "$out_dev" ] || rm -f "$output_file" "${output_file}.stderr"' EXIT
+api_config_dir=""
+trap 'mmo_outcome_exit "$?"; [ -z "$api_config_dir" ] || rm -rf -- "$api_config_dir"; rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"; [ -z "$out_dev" ] || rm -f "$output_file" "${output_file}.stderr"' EXIT
+# The supervising runner owns cleanup even when timeout must kill the API CLI.
+if [ "$api" -eq 1 ]; then
+  api_config_dir="$(mktemp -d)"
+  chmod 700 "$api_config_dir"
+fi
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
 
@@ -259,7 +265,7 @@ run_cli() {
     for name in ${!ANTHROPIC_@} ${!CLAUDE_@}; do unset "$name"; done
     # Isolate group stops until supervision forwards them; bound helper startup too.
     mmo_leg_env -- setsid timeout -k 10 "$run_timeout" \
-      bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" claude "${claude_args[@]}"
+      bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" "$api_config_dir" claude "${claude_args[@]}"
   else
     mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}"
   fi
