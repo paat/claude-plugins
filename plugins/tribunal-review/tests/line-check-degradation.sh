@@ -56,13 +56,18 @@ case "$scenario" in
 esac
 tribunal_line_check "$work" "$stat" < "$work/input.json" > "$work/actual.json"
 tribunal_stamp_diff_stat "$stat" < "$work/actual.json" > "$work/stamped.json"
-jq -e --argjson stat "$stat" '.diff_stat == $stat and .error == null' "$work/stamped.json" >/dev/null
+if [ "$scenario" = pruned ]; then
+  jq -e '.provider == "codex" and (.error | type) == "string" and (has("diff_stat") | not)' \
+    "$work/stamped.json" >/dev/null
+else
+  jq -e --argjson stat "$stat" '.diff_stat == $stat and .error == null' "$work/stamped.json" >/dev/null
+fi
 if ! cmp -s "$work/expected.json" "$work/actual.json"; then
-  printf 'FAIL %s line check: actual marks (diff_stat remains valid):\n' "$scenario" >&2
-  jq -c '[.findings[] | .line_check // "UNMARKED"]' "$work/stamped.json" >&2
+  printf 'FAIL %s line check: actual marks:\n' "$scenario" >&2
+  jq -c '[.findings[] | .line_check // "UNMARKED"]' "$work/actual.json" >&2
   exit 1
 fi
-printf 'PASS %s line check: output matches expected bytes; diff_stat remains valid\n' "$scenario"
+printf 'PASS %s line check: output matches expected bytes; stamping respects pinned object availability\n' "$scenario"
 if [ "$scenario" = pruned ]; then
   printf '%s\n' '{"provider":"x","findings":[{"file":"a.txt","line":9},"stray note"],"summary":{}}' \
     | tribunal_line_check "$work" "$stat" > "$work/scalar.json"
