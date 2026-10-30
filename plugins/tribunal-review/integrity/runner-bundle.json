@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "98587a3cfd1f42a2327fea0e835d5e439ac82b6f5dfe13bd294f9a701b3742bc"
+      "sha256": "af272e41e1145d69dae5eec4fcc62fbb5ff7527a18e8e6f1e63958f4542a9fe8"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -38,7 +38,7 @@
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "65ec02dbcddb2631d692b56a5c1e29a74dd850f5aa255520783e649c6d32c717"
+      "sha256": "8cd6a1d3a09c8c294b5d8b19f6e7d32772b4d46f53cefac0a10683554a5dcdae"
     },
     {
       "path": "scripts/run-muse-review.sh",
