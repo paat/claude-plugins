@@ -10,7 +10,7 @@ git -C "$work/repo" init -q
 printf 'base\n' > "$work/repo/file"
 git -C "$work/repo" add file
 git -C "$work/repo" -c user.name=Test -c user.email=test@example.com commit -qm base
-printf 'test-claude-api-%s-%s\n' "$$" "$RANDOM" > "$work/key"
+printf 'test-claude-api-%s-%s-[]^$.*+?(){}|&\n' "$$" "$RANDOM" > "$work/key"
 : > "$work/empty-key"
 printf '{"oauthAccount":{"accountUuid":"fixture"}}\n' > "$work/login/.claude.json"
 printf 'claude 7d 95%% resets %s\n' "$(date -u -d '+2 days' +%Y-%m-%dT%H:%MZ)" > "$work/spent"
@@ -26,8 +26,10 @@ cat > "$work/bin/claude" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$@" >> "$STUB_ARTIFACTS/cli.argv"
+cat "/proc/$$/environ" > "$STUB_ARTIFACTS/proc.environ"
+env > "$STUB_ARTIFACTS/cli.environ"
 pid=$$
-for ancestor in 0 1 2 3; do
+for ancestor in 0 1 2 3 4 5 6 7 8; do
   cat "/proc/$pid/cmdline" >> "$STUB_ARTIFACTS/process.argv"
   pid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status")"
   [ "$pid" -gt 0 ] || break
@@ -35,15 +37,48 @@ done
 cat > "$STUB_ARTIFACTS/prompt"
 format=text
 bare=0
+settings='{}'
+sources=user,project,local
+add_dir=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --output-format) format="$2"; shift 2 ;;
     --bare) bare=1; shift ;;
+    --settings) settings="$2"; shift 2 ;;
+    --setting-sources) sources="$2"; shift 2 ;;
+    --add-dir) add_dir="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  [ "$ANTHROPIC_API_KEY" = "$(cat "$STUB_KEY_FILE")" ] || exit 91
+printf '%s\n' "$settings" > "$STUB_ARTIFACTS/settings.json"
+printf '%s\n' "$sources" > "$STUB_ARTIFACTS/setting-sources"
+printf '%s\n' "$add_dir" > "$STUB_ARTIFACTS/add-dir"
+# Model documented settings discovery so env overrides are observable to tests.
+helper=''
+for source in user project local; do
+  case ",$sources," in *",$source,"*) ;; *) continue ;; esac
+  case "$source" in
+    user) file="$HOME/.claude/settings.json" ;;
+    project) file="$PWD/.claude/settings.json" ;;
+    local) file="$PWD/.claude/settings.local.json" ;;
+  esac
+  [ -f "$file" ] || continue
+  while IFS= read -r entry; do export "$entry"; done < <(jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"' "$file")
+  helper="$(jq -r '.apiKeyHelper // empty' "$file")"
+done
+explicit_helper="$(printf '%s' "$settings" | jq -r '.apiKeyHelper // empty')"
+[ -z "$explicit_helper" ] || helper="$explicit_helper"
+while IFS= read -r entry; do export "$entry"; done < <(printf '%s' "$settings" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"')
+env > "$STUB_ARTIFACTS/effective.environ"
+bash -c 'env' > "$STUB_ARTIFACTS/bash.environ"
+if [ -n "$helper" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  if [ -n "$helper" ]; then
+    api_key="$(sh -c "$helper")"
+  else
+    api_key="$ANTHROPIC_API_KEY"
+  fi
+  [ "$api_key" = "$(cat "$STUB_KEY_FILE")" ] || exit 91
+  unset api_key
   [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || exit 92
   [ "$bare" -eq 0 ] || exit 94
   [ "${CLAUDE_CONFIG_DIR:-}" != "$STUB_LOGIN" ] || exit 93
@@ -53,6 +88,7 @@ else
   printf 'plan\n' >> "$STUB_ARTIFACTS/calls"
   result="${STUB_PLAN_RESULT:-ok}"
 fi
+if [ "$result" = background_stderr ]; then sleep 3 >/dev/null & fi
 # Strings from installed Claude Code 2.1.314, inspected 2026-10-30.
 case "$result" in
   credit) message='Credit balance is too low' ;;
@@ -80,16 +116,16 @@ if [ -n "$message" ]; then
   exit 1
 fi
 if [ "$format" = stream-json ]; then
-  if [ "$result" = echo_key ]; then
-    printf '{"type":"result","subtype":"success","is_error":false,"result":"diagnostic %s\\nAPPROVE"}\n' "$ANTHROPIC_API_KEY"
+  if [ "$result" = echo_env ]; then
+    jq -nc --arg result "$(bash -c 'env'); APPROVE" '{type:"result",subtype:"success",is_error:false,result:$result}'
   else
     printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"APPROVE"}'
   fi
 else
-  [ "$result" != echo_key ] || printf 'diagnostic %s\n' "$ANTHROPIC_API_KEY"
+  [ "$result" != echo_env ] || bash -c 'env'
   printf 'APPROVE\n'
 fi
-[ "$result" != echo_key ] || printf 'diagnostic %s\n' "$ANTHROPIC_API_KEY" >&2
+[ "$result" != echo_env ] || bash -c 'env' >&2
 exit 0
 STUB
 cat > "$work/bin/codex" <<'STUB'
@@ -171,6 +207,8 @@ check 'available plan removes API from candidates' no_api
 run_pool --tier T3 --usage "$work/available"
 check 'available plan runs with subscription and never API' \
   bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2")" = plan ]' _ "$rc" "$artifacts/calls"
+check 'plan retains default settings discovery and subscription environment' \
+  bash -c '[ "$(cat "$1/settings.json")" = "{}" ] && [ "$(cat "$1/setting-sources")" = user,project,local ] && grep -q "^CLAUDE_CODE_OAUTH_TOKEN=fixture-oauth$" "$1/cli.environ"' _ "$artifacts"
 prepare prefer-api
 pick --tier T3 --usage "$work/available" --prefer claude-api
 check 'preference cannot force API while plan is available' no_api
@@ -242,6 +280,18 @@ for missing in unset missing empty; do
     bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2" && [ ! -e "$3" ]' \
       _ "$rc" "$artifacts/stderr" "$artifacts/calls"
 done
+for invalid in newline multiline carriage-return; do
+  prepare "key-$invalid"
+  case "$invalid" in
+    newline) printf '\n' > "$work/invalid-key" ;;
+    multiline) printf 'first\nsecond\n' > "$work/invalid-key" ;;
+    carriage-return) printf 'key\r\n' > "$work/invalid-key" ;;
+  esac
+  common+=(MMO_CLAUDE_API_KEY_FILE="$work/invalid-key")
+  run_api
+  check "$invalid key fails before launching Claude" \
+    bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2/out.stderr" && [ ! -e "$2/calls" ]' _ "$rc" "$artifacts"
+done
 
 prepare missing-key-pick
 common+=(MMO_CLAUDE_API_KEY_FILE="$work/absent-key")
@@ -296,26 +346,80 @@ timeout 3s bash "$scripts/claude-api-exec.sh" "$work/key" \
   > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
 check 'helper exits 0 within three seconds when CLI leaves a background child' test "$rc" -eq 0
 
+prepare inherited-stderr
+common+=(STUB_RESULT=background_stderr)
+started="$(date +%s%N)"
+run_api --timeout 1
+elapsed=$(( $(date +%s%N) - started ))
+check 'exited CLI descendant holding stderr cannot delay the helper past the leg timeout' \
+  bash -c '[ "$1" -eq 0 ] && [ "$2" -lt 2000000000 ]' _ "$rc" "$elapsed"
+
+prepare delayed-helper
+cat > "$work/bin/bash" <<'STUB'
+#!/bin/bash
+if [[ "${1:-}" == */claude-api-exec.sh ]]; then
+  touch "$STUB_ARTIFACTS/helper-started"
+  sleep 3
+fi
+exec /bin/bash "$@"
+STUB
+chmod +x "$work/bin/bash"
+started="$(date +%s%N)"
+run_api --timeout 1
+elapsed=$(( $(date +%s%N) - started ))
+rm "$work/bin/bash"
+check 'leg timeout covers helper preparation before Claude starts' \
+  bash -c '[ "$1" -eq 124 ] && [ "$2" -lt 2000000000 ] && [ -f "$3/helper-started" ] && [ ! -e "$3/calls" ]' _ "$rc" "$elapsed" "$artifacts"
+
 prepare no-newline
 bash "$scripts/claude-api-exec.sh" "$work/key" bash -c 'printf x; printf y >&2' \
   > "$artifacts/stdout" 2> "$artifacts/stderr"
-check 'redaction preserves unterminated stdout and stderr as exactly one byte each' \
+check 'helper preserves unterminated stdout and stderr as exactly one byte each' \
   bash -c '[ "$(wc -c < "$1/stdout")" -eq 1 ] && [ "$(cat "$1/stdout")" = x ] && [ "$(wc -c < "$1/stderr")" -eq 1 ] && [ "$(cat "$1/stderr")" = y ]' _ "$artifacts"
+
+for source in user project local; do
+  prepare "settings-$source"
+  case "$source" in
+    user) settings_file="$work/home/.claude/settings.json" ;;
+    project) settings_file="$work/repo/.claude/settings.json" ;;
+    local) settings_file="$work/repo/.claude/settings.local.json" ;;
+  esac
+  mkdir -p "$(dirname "$settings_file")"
+  printf '%s\n' '{"env":{"ANTHROPIC_AUTH_TOKEN":"settings-token","ANTHROPIC_BASE_URL":"https://settings.invalid"},"apiKeyHelper":"printf wrong-settings-key"}' > "$settings_file"
+  run_api
+  check "$source credentials and endpoint cannot override the designated file key" \
+    bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2/calls")" = api ] && ! grep -Eq "^ANTHROPIC_(AUTH_TOKEN|BASE_URL)=" "$2/effective.environ" "$2/bash.environ"' _ "$rc" "$artifacts"
+  rm "$settings_file"
+done
+
+prepare quoted-key-path
+quoted_key="$work/key with '\" \$ metacharacters"
+cp "$work/key" "$quoted_key"
+common+=(MMO_CLAUDE_API_KEY_FILE="$quoted_key" STUB_KEY_FILE="$quoted_key")
+run_api
+check 'key file path with spaces and shell metacharacters is read literally' api_success
 
 for format in text stream; do
   prepare "canary-$format"
   common+=(ANTHROPIC_API_KEY=wrong-inherited-key ANTHROPIC_AUTH_TOKEN=wrong-inherited-token
-    MMO_LEG_ENV='STUB_ARTIFACTS STUB_KEY_FILE STUB_LOGIN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR ANTHROPIC_*')
+    ANTHROPIC_BASE_URL=https://inherited.invalid
+    MMO_LEG_ENV='STUB_ARTIFACTS STUB_KEY_FILE STUB_LOGIN MMO_CLAUDE_API_KEY_FILE CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR ANTHROPIC_*')
   if [ "$format" = stream ]; then run_api --stream-log "$artifacts/stream"; else run_api; fi
   check "$format API authenticates with file key and isolates OAuth/login" api_success
-  check "$format key never enters artifacts or CLI/ancestor argv" \
-    bash -c '[ -s "$1/process.argv" ] && ! grep -r -a -F -q -f "$2" "$1"' _ "$artifacts" "$work/key"
+  check "$format API key and inherited auth/endpoint are absent from CLI and Bash environments" \
+    bash -c '! grep -zEq "^(MMO_CLAUDE_API_KEY_FILE|ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL))=" "$1/proc.environ" && ! grep -Eq "^(MMO_CLAUDE_API_KEY_FILE|ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL))=" "$1/cli.environ" "$1/effective.environ" "$1/bash.environ"' _ "$artifacts"
+  check "$format API uses explicit apiKeyHelper and no discovered settings" \
+    bash -c 'jq -e '\''.apiKeyHelper | type == "string" and length > 0'\'' "$1/settings.json" >/dev/null && [ -z "$(cat "$1/setting-sources")" ]' _ "$artifacts"
+  check "$format API explicitly loads project instructions with normal tools" \
+    bash -c '[ "$(cat "$1/add-dir")" = "$2" ] && jq -e '\''.env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD == "1"'\'' "$1/settings.json" >/dev/null && grep -qx "Read,Glob,Grep,Bash,Write,Edit" "$1/cli.argv" && ! grep -qx -- --bare "$1/cli.argv"' _ "$artifacts" "$work/repo"
+  check "$format key value is absent from CLI environments and CLI/ancestor argv" \
+    bash -c '[ -s "$1/process.argv" ] && ! grep -a -F -q -f "$2" "$1/cli.argv" "$1/process.argv" "$1/proc.environ" "$1/cli.environ" "$1/effective.environ" "$1/bash.environ"' _ "$artifacts" "$work/key"
 done
 for format in text stream; do
-  prepare "echo-key-$format"
-  common+=(STUB_RESULT=echo_key)
+  prepare "echo-env-$format"
+  common+=(STUB_RESULT=echo_env)
   if [ "$format" = stream ]; then run_api --stream-log "$artifacts/stream"; else run_api; fi
-  check "$format redacts a key echoed by the CLI from all artifacts" \
+  check "$format shell env output cannot leak the file key into artifacts" \
     bash -c '[ "$1" -eq 0 ] && [ "$(cat "$2/calls")" = api ] && ! grep -r -a -F -q -f "$3" "$2"' \
       _ "$rc" "$artifacts" "$work/key"
 done
@@ -331,7 +435,7 @@ check 'successful --api leg records exactly one Claude API outcome row' \
   bash -c '[ "$(cat "$1/calls")" = api ] && awk -F '\''\t'\'' '\''NR == 1 {if (NF != 13 || $1 != "utc_time") exit 1} NR == 2 {if (NF != 13 || $5 != "claude" || $9 != 0) exit 1} END {if (NR != 2) exit 1}'\'' "$1/outcomes.tsv"' \
     _ "$artifacts"
 check 'canary absent from every leg artifact across all cases' \
-  bash -c '! grep -r -a -F -q -f "$1" "$2"' _ "$work/key" "$work/artifacts"
+  bash -c '! grep -r -a -F -q -f "$1" "$2/artifacts" "$2/home" "$2/repo"' _ "$work/key" "$work"
 
 printf 'Claude API regression tests: %s passed, %s failed, %s total.\n' "$passed" "$failed" "$((passed + failed))"
 [ "$failed" -eq 0 ]

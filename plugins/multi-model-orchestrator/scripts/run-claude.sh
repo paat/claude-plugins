@@ -117,8 +117,8 @@ if [ "$max_turns_set" -eq 1 ]; then
 fi
 command -v git >/dev/null 2>&1 || { printf 'run-claude: git not found\n' >&2; exit 127; }
 command -v claude >/dev/null 2>&1 || { printf 'run-claude: claude CLI not found\n' >&2; exit 127; }
-if [ "$stream_log_set" -eq 1 ]; then
-  command -v jq >/dev/null 2>&1 || { printf 'run-claude: jq not found (required for --stream-log)\n' >&2; exit 127; }
+if [ "$stream_log_set" -eq 1 ] || [ "$api" -eq 1 ]; then
+  command -v jq >/dev/null 2>&1 || { printf 'run-claude: jq not found (required for --stream-log or --api)\n' >&2; exit 127; }
 fi
 mcp_config='{"mcpServers":{}}'
 if [ "${#mcp_names[@]}" -gt 0 ]; then
@@ -257,9 +257,9 @@ run_cli() {
     # -p uses the file key while retaining project instructions and normal tools.
     # Even MMO_LEG_ENV must not copy inherited auth into env(1)'s argv.
     for name in ${!ANTHROPIC_@} ${!CLAUDE_@}; do unset "$name"; done
-    # Keep the wrapper alive through a runner-group stop until its watchdog is signalled.
-    mmo_leg_env -- setsid bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" \
-      timeout -k 10 "$run_timeout" claude "${claude_args[@]}"
+    # Isolate group stops until supervision forwards them; bound helper startup too.
+    mmo_leg_env -- setsid timeout -k 10 "$run_timeout" \
+      bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" claude "${claude_args[@]}"
   else
     mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}"
   fi
