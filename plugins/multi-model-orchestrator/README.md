@@ -276,6 +276,7 @@ one outcome with exit 143, 129, or 130 respectively.
 ## Prerequisites
 
 - bash 4+
+- `python3` only for `claude-api` (`run-claude.sh --api`) legs, to redact the key from runner artifacts after the leg
 - git and GNU coreutils (`timeout`, `date -d`, `stat -c`, `realpath -m`)
 - `ps` (procps) to stop nested provider watchdogs (`claude-api`, local Qwen) on a leg stop; without it the root watchdog is still signalled
 - `awk` and `setsid` (util-linux) for forwarding stops through nested provider watchdogs
