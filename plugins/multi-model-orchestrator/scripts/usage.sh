@@ -6,6 +6,7 @@
 # with --probe-claude, one tiny claude -p call. agy: its local /usage command (free; one
 # window per quota pool). Grok and Muse have no source. A provider with no data prints "<provider> unknown <why>".
 # Always exits 0 unless misused.
+# claude-api uses monthly plan API credit, not these windows; pool.sh gates it separately.
 set -euo pipefail
 
 usage() {

@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
+  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--api] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
 }
 
 claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5'
@@ -28,6 +28,7 @@ valid_effort() {
 }
 
 mode=""
+api=0
 repo_dir="$PWD"
 base_ref="HEAD"
 if [ -n "${MMO_CLAUDE_MODEL:-}" ]; then
@@ -52,6 +53,7 @@ mmo_outcome_init claude
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --api) api=1; shift ;;
     --mode) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; mode="$2"; shift 2 ;;
     --repo|--dir) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; repo_dir="$2"; shift 2 ;;
     --base) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; base_ref="$2"; shift 2 ;;
@@ -88,6 +90,14 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-claude: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
+api_key_file="${MMO_CLAUDE_API_KEY_FILE:-}"
+if [ "$api" -eq 1 ]; then
+  if [ -z "$api_key_file" ] || [ ! -f "$api_key_file" ] || [ ! -r "$api_key_file" ] || [ ! -s "$api_key_file" ]; then
+    printf 'run-claude: exit=75 MMO_CLAUDE_API_KEY_FILE unavailable\n' >&2
+    exit 75
+  fi
+  case "$api_key_file" in /*) ;; *) api_key_file="$PWD/$api_key_file" ;; esac
+fi
 valid_model "$model" || {
   printf 'run-claude: unsupported model %s (current catalog: %s)\n' "$model" "$claude_model_catalog" >&2
   exit 2
@@ -241,12 +251,25 @@ done
 claude_args+=(--allowedTools "$allowed_tools" --disallowedTools "$disallowed_tools")
 leg_env=('ANTHROPIC_*' CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR)
 
+run_cli() (
+  cd "$repo_dir" || exit 2
+  if [ "$api" -eq 1 ]; then
+    # -p uses the file key while retaining project instructions and normal tools.
+    # Even MMO_LEG_ENV must not copy inherited auth into env(1)'s argv.
+    for name in ${!ANTHROPIC_@} ${!CLAUDE_@}; do unset "$name"; done
+    mmo_leg_env -- bash "$SCRIPT_DIR/claude-api-exec.sh" "$api_key_file" \
+      timeout -k 10 "$run_timeout" claude "${claude_args[@]}"
+  else
+    mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}"
+  fi
+)
+
 provider_rc=0
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
   # NDJSON event stream to --stream-log while live; final message extracted into --out after success.
   : > "$output_file"
-  (cd "$repo_dir" && mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}" < "$prompt_file") \
+  run_cli < "$prompt_file" \
     2> "${output_file}.stderr" | tee "$stream_file" > /dev/null
   provider_rc=${PIPESTATUS[0]} tee_rc=${PIPESTATUS[1]}
   if [ "$provider_rc" -ne 0 ]; then
@@ -291,8 +314,7 @@ if [ "$stream_log_set" -eq 1 ]; then
     fi
   fi
 else
-  (cd "$repo_dir" && mmo_leg_env "${leg_env[@]}" -- timeout -k 10 "$run_timeout" claude "${claude_args[@]}" \
-    < "$prompt_file" > "$output_file" 2> "${output_file}.stderr")
+  run_cli < "$prompt_file" > "$output_file" 2> "${output_file}.stderr"
   provider_rc=$?
   rc=$provider_rc
 fi
@@ -327,18 +349,31 @@ fi
 if [ "$haiku" -eq 1 ]; then effective_effort=n/a; else effective_effort="$effort"; fi
 if [ "$stream_log_set" -eq 1 ]; then log_path="$stream_file"; else log_path="${out_dev:-$output_file}"; fi
 
+cli_error_pattern="API Error: [0-9]{3}|^You've hit your .*limit\b|^(Your )?Credit balance (is )?too low"
 : > "$classify_file"
-if [ "$provider_rc" -ne 0 ]; then
+if [ "$provider_rc" -ne 0 ] || { [ "$api" -eq 1 ] && [ "$rc" -eq 1 ]; }; then
   if [ "$stream_log_set" -eq 1 ] && [ -f "$stream_file" ]; then
     result_event="$(jq -c 'select(.type == "result")' "$stream_file" 2>/dev/null | tail -n 1 || true)"
     if [ -n "$result_event" ]; then
       api_status="$(printf '%s\n' "$result_event" | jq -r '.api_error_status // empty')"
       [ -z "$api_status" ] || printf '%s\n' "$api_status" > "$classify_file"
+      printf '%s\n' "$result_event" | jq -r '
+        select(.is_error == true or .subtype != "success")
+        | (.errors[]?, .error?, .result?) | strings' \
+        | grep -Ei "$cli_error_pattern" >> "$classify_file" || true
     fi
   elif [ -s "$output_file" ]; then
     last_line="$(grep -Ev '^[[:space:]]*$' "$output_file" | tail -n 1 || true)"
-    if printf '%s\n' "$last_line" | grep -Eq 'API Error: [0-9]{3}'; then
+    if printf '%s\n' "$last_line" | grep -Eiq "$cli_error_pattern"; then
       printf '%s\n' "$last_line" > "$classify_file"
+    fi
+  fi
+  if [ "$api" -eq 1 ]; then
+    # Claude Code 2.1.314 / docs/en/errors, checked 2026-10-30: billing failures
+    # use "Credit balance is too low" or billing_error, including failed stream results.
+    last_error="$(grep -Ev '^[[:space:]]*$' "${output_file}.stderr" | tail -n 1 || true)"
+    if printf '%s\n' "$last_error" | grep -Eiq "$cli_error_pattern"; then
+      printf '%s\n' "$last_error" >> "$classify_file"
     fi
   fi
 fi

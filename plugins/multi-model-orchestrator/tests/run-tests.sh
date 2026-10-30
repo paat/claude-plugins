@@ -10,6 +10,8 @@ export TMPDIR="$WORK/tmp"
 export MMO_OUTCOMES_FILE="$WORK/outcomes.tsv"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
 unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
+# API regressions supply their own dummy key; legacy pool fixtures must not opt in via the host.
+unset MMO_CLAUDE_API_KEY_FILE
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
 GROK_RESEARCH_TOOLS='web_search,web_fetch'
 
@@ -3235,6 +3237,7 @@ contains "$META_SKILL" 'pool.sh run --tier' 'meta loop dispatches implement legs
 contains "$META_REFS/usage-limits.md" '--usage <file>' 'usage limits feed the pool'
 pass 'Pool is wired into route-model-task, orchestrate, and meta-orchestrate'
 
+bash "$PLUGIN_ROOT/tests/claude-api-tests.sh"
 # Outcome records use CLI stubs above; collect independent failures to expose every regression.
 outcome_passes=0
 outcome_failures=0

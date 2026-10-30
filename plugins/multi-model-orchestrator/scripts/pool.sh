@@ -9,7 +9,8 @@
 # pool-tiers.tsv (or MMO_POOL_TIERS). This script only removes workers that cannot take the
 # task now: not allowed or denied (LIST = comma-separated providers or models), CLI not
 # installed, an advisory engine (local qwen, agy) on a review, or a plan window >= 90% used
-# that resets after the timeout. --deny claude also removes agy's claude-* rows (same model).
+# that resets after the timeout. claude-api shares Claude's identity, but not its plan windows.
+# --deny claude also removes agy's claude-* rows (same model).
 # Within each tier, --prefer's rows go first, then the rows a 7d window binds when it is
 # <= 60% used and resets within 24h (use it or lose it).
 # Usage comes from --usage (usage.sh output) or a fresh usage.sh run. T1 and T2 workers are
@@ -70,7 +71,10 @@ tiers_file="${MMO_POOL_TIERS:-$SCRIPT_DIR/pool-tiers.tsv}"
 [ -r "$tiers_file" ] || { printf 'pool: cannot read tier table %s\n' "$tiers_file" >&2; exit 2; }
 
 in_list() {  # in_list LIST provider model
-  case ",$1," in *",$2,"*|*",$3,"*) return 0 ;; *) return 1 ;; esac
+  local list=",$1," provider="$2"
+  list="${list//,claude-api,/,claude,}"
+  [ "$provider" != claude-api ] || provider=claude
+  case "$list" in *",$provider,"*|*",$3,"*) return 0 ;; *) return 1 ;; esac
 }
 
 # Tight windows as "provider window reset_epoch". A window named <w>_<x> (Claude's 7d_opus)
@@ -121,10 +125,11 @@ is_spare() {  # is_spare provider model
 }
 
 cli_for() {
-  case "$1" in claude|codex|grok|muse|agy) printf '%s' "$1" ;; *) printf '' ;; esac
+  case "$1" in claude-api) printf claude ;; claude|codex|grok|muse|agy) printf '%s' "$1" ;; *) printf '' ;; esac
 }
 
 candidates=()
+deferred_api=()
 earliest=""
 for t in $chain; do
   rows=()
@@ -148,6 +153,16 @@ for t in $chain; do
     elif [ -n "$deny" ] && { in_list "$deny" "$r_provider" "$r_model" || { [ "$r_provider" = agy ] && [[ "$r_model" == claude-* ]] && in_list "$deny" claude "$r_model"; }; }; then why="denied"
     elif [ "$mode" = review ] && { [ "$r_provider" = qwen ] || [ "$r_provider" = agy ]; }; then why="advisory reviewer"
     elif [ -n "$(cli_for "$r_provider")" ] && ! command -v "$(cli_for "$r_provider")" >/dev/null 2>&1; then why="CLI not installed"
+    elif [ "$r_provider" = claude-api ]; then
+      if [ -z "${MMO_CLAUDE_API_KEY_FILE:-}" ] || [ ! -f "$MMO_CLAUDE_API_KEY_FILE" ] || [ ! -r "$MMO_CLAUDE_API_KEY_FILE" ] || [ ! -s "$MMO_CLAUDE_API_KEY_FILE" ]; then
+        why="MMO_CLAUDE_API_KEY_FILE unavailable"
+      elif ! tight_reset claude "$r_model" >/dev/null; then
+        if [ "$action" = run ]; then
+          deferred_api+=("$row")
+          continue
+        fi
+        why="Claude plan row available"
+      fi
     elif reset="$(tight_reset "$r_provider" "$r_model")"; then
       why="plan window >= 90% until $(date -u -d "@$reset" +%Y-%m-%dT%H:%MZ)"
       [ -n "$earliest" ] && [ "$earliest" -le "$reset" ] || earliest="$reset"
@@ -177,24 +192,36 @@ repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 out_abs=""
 [ -z "$output_file" ] || out_abs="$(realpath -m "$output_file")"
 prompt_file="$(mktemp)"
-trap 'rm -f "$prompt_file"' EXIT
+runner_stderr=""
+trap 'rm -f "$prompt_file" "$runner_stderr"' EXIT
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'pool: empty prompt\n' >&2; exit 2; }
 
 rc=75
 fell_through=0
-for row in "${candidates[@]}"; do
+for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++)); do
+  row="${candidates[$candidate_index]}"
   IFS=$'\t' read -r r_tier r_provider r_model r_effort <<< "$row"
   args=(--mode "$mode" --repo "$repo_dir" --timeout "$run_timeout")
   args+=(--model "$r_model")
   [ "$r_effort" = n/a ] || args+=(--effort "$r_effort")
   [ -z "$base_ref" ] || args+=(--base "$base_ref")
   [ -z "$output_file" ] || args+=(--out "$output_file")
-  case "$r_provider" in qwen) runner=run-qwen-local.sh ;; *) runner="run-$r_provider.sh" ;; esac
+  case "$r_provider" in
+    qwen) runner=run-qwen-local.sh ;;
+    claude-api) runner=run-claude.sh; args+=(--api) ;;
+    *) runner="run-$r_provider.sh" ;;
+  esac
   printf 'pool: %s -> %s/%s/%s\n' "$r_tier" "$r_provider" "$r_model" "$r_effort" >&2
   before="$(mmo_tree_state "$repo_dir" "$out_abs")"
   rc=0
-  MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" || rc=$?
+  if [ "$r_provider" = claude ]; then
+    [ -n "$runner_stderr" ] || runner_stderr="$(mktemp)"
+    MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" 2> "$runner_stderr" || rc=$?
+    cat "$runner_stderr" >&2
+  else
+    MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" || rc=$?
+  fi
   case "$rc" in
     75|77|127)
       if [ "$(mmo_tree_state "$repo_dir" "$out_abs")" != "$before" ]; then
@@ -202,6 +229,16 @@ for row in "${candidates[@]}"; do
         rc=55
         fell_through=0
         break
+      fi
+      # Only the runner's final exit line can unlock matching API overflow.
+      if [ "$r_provider" = claude ] && [ "$rc" -eq 75 ] &&
+         tail -n 1 "$runner_stderr" | grep -q '^run-claude: exit=75 failure=limit '; then
+        for api_row in ${deferred_api[@]+"${deferred_api[@]}"}; do
+          IFS=$'\t' read -r api_tier api_provider api_model api_effort <<< "$api_row"
+          [ "$api_model" = "$r_model" ] && [ "$api_effort" = "$r_effort" ] || continue
+          candidates=("${candidates[@]:0:candidate_index+1}" "$api_row" "${candidates[@]:candidate_index+1}")
+          break
+        done
       fi
       printf 'pool: %s unavailable (exit %s); next worker\n' "$r_provider" "$rc" >&2
       fell_through=1

@@ -88,8 +88,8 @@ digraph close_tribunal {
     "Post round PR comment" -> "Zero critical & high?";
     "Zero critical & high?" -> "required-checks.sh on LOCAL_HEAD" [label="yes"];
     "Zero critical & high?" -> "Per-finding triage" [label="no"];
-    "required-checks.sh on LOCAL_HEAD" -> "DONE — ready to merge / hand off" [label="ok=true"];
-    "required-checks.sh on LOCAL_HEAD" -> "Refuse merge; record CI JSON" [label="exit non-zero"];
+    "required-checks.sh on LOCAL_HEAD" -> "DONE — ready to merge / hand off" [label="ok=true or recorded ci=none"];
+    "required-checks.sh on LOCAL_HEAD" -> "Refuse merge; record CI JSON" [label="all other failures"];
     "Per-finding triage" -> "Apply fixes + tests";
     "Apply fixes + tests" -> "Push to PR branch";
     "Push to PR branch" -> "tribunal-loop on PR HEAD";
@@ -137,12 +137,12 @@ the order to “fix then comment” — a failed fix/push must not leave the ver
 undocumented on the PR.
 
 The loop only exits when the arbiter's verdict has **zero critical and zero high
-findings** on the current diff **and** required CI checks on `LOCAL_HEAD` are green.
+findings** on the current diff **and** the CI gate below passes on `LOCAL_HEAD`.
 Default panel: Codex, Grok, Muse, Claude (Gemini, DeepSeek, Qwen opt-in).
 
 ### CI-proven green (refuse-to-merge)
 
-Before declaring **DONE — ready to merge / hand off**, prove the exact HEAD is green:
+Before declaring **DONE — ready to merge / hand off**, evaluate CI for the exact HEAD:
 
 ```bash
 OWNER_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
@@ -158,7 +158,14 @@ CI_JSON="$(bash "${PLUGIN_ROOT}/scripts/required-checks.sh" \
 # Put name=conclusion (or status when conclusion is empty) from CI_JSON in the **CI:** line.
 ```
 
-- If `required-checks.sh` exits non-zero (missing/pending/failed checks or unreadable requirements):
+Repositories using an external CI check app that posts check-runs later must configure required checks so the gate waits for them; `ci="none"` cannot see checks not yet posted.
+
+- Only for exit 1 with `ok=false`, `ci="none"`, and `reason="no CI configured"`
+  (zero check-runs and no configured required names): copy **no CI configured**
+  verbatim from the JSON into the round comment's **CI:** line and include the full
+  `CI_JSON`. Post and verify that comment for `LOCAL_HEAD` before allowing merge;
+  this records absent CI, not a green check. All other review gates still apply.
+- For every other non-zero exit or `ok=false` (missing/pending/failed checks or unreadable requirements):
   **refuse to merge**. Record the full `CI_JSON` in the round PR comment (and the
   **CI:** summary line), stop the close-out, and do not merge or hand off as ready.
 - If it exits 0 (`ok=true`): proceed to **DONE — ready to merge / hand off**.
@@ -193,8 +200,8 @@ Follow-up issue body: `references/follow-up-issue.md`. Cross-link PR ↔ issue b
 
 ## Stop Condition
 
-Closes on **zero `critical` and zero `high`** on the latest diff **and**
-`scripts/required-checks.sh` exiting 0 for `LOCAL_HEAD`. Medium/low do not hold the
+Closes on **zero `critical` and zero `high`** on the latest diff **and** the CI gate
+above passing for `LOCAL_HEAD` (green or the recorded no-CI exception). Medium/low do not hold the
 finding gate — YAGNI triage below. Unearned CI green does not close the loop: refuse
 to merge when required checks are missing, pending, or failed.
 
@@ -246,7 +253,7 @@ as re-architecture" is invalid (no-net-increase check).
 - **Stale verdict** — only the arbiter result on current HEAD counts, after its round
   comment is posted.
 - **Merging without CI-proven green** — never skip `scripts/required-checks.sh` on
-  `LOCAL_HEAD`; refuse to merge when it exits non-zero.
+  `LOCAL_HEAD`; only the recorded `ci="none"` exception permits a non-zero exit.
 
 ## Related
 
