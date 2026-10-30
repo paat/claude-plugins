@@ -33,7 +33,7 @@ verdict it carries (issue #487).
 Set the plugin root and a per-run scratch dir for the provider JSON, then run preflight:
 
 ```bash
-TRIBUNAL_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"   # this plugin's root
+TRIBUNAL_PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}" # this plugin's root
 RUN_DIR="$(mktemp -d)"                          # collects one JSON file per leg
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/preflight.sh"
 ```
@@ -241,6 +241,9 @@ bash "$TRIBUNAL_PLUGIN_ROOT/scripts/collect-review-evidence.sh" finalize \
   --expected-manifest-sha256 "$manifest_sha" \
   --arbitration arbitration.json
 ```
+
+Invoke `collect` and `finalize` from the same unchanged plugin root, including source checkouts.
+`TRIBUNAL_PLUGIN_ROOT` selects the script path; it cannot switch an invoked script’s bundle.
 
 Only the emitted `tribunal-proof/v1` digest is a delivery proof. Finalization
 rechecks live PR drift, all artifact/provenance digests, provider status, finding

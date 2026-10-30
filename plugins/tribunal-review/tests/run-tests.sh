@@ -4315,6 +4315,14 @@ case "$endpoint" in
     fi
     exit 0
     ;;
+  repos/example/fixture/actions/workflows*)
+    printf '%s\n' '{"workflows":[{"state":"active"}]}'
+    exit 0
+    ;;
+  repos/example/fixture/commits/*/status)
+    printf '%s\n' '{"total_count":0,"statuses":[]}'
+    exit 0
+    ;;
   repos/example/fixture/commits/*/check-runs*) ;;
   *) printf 'unexpected endpoint: %s\n' "$endpoint" >&2; exit 2 ;;
 esac
@@ -4802,6 +4810,9 @@ test_mutation_gate
 test_trusted_evidence_collection
 test_sealed_panel_quorum
 test_required_checks
+source "$PLUGIN_ROOT/tests/test-required-checks-portability.sh"
+test_required_checks_portability
+assert_json_field "source-checkout collection and root-drift regressions" "bash '$PLUGIN_ROOT/tests/test-collector-portability.sh'"
 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"

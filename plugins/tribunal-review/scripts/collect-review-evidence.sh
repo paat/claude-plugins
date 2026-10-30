@@ -1122,7 +1122,7 @@ verify_live_binding() {
 }
 
 verify_collection_internal() {
-  local dir="$1" expected_sha="$2" manifest provider path status wrapper
+  local dir="$1" expected_sha="$2" manifest provider path status wrapper roots
   [ ! -L "$dir" ] || die "collection directory must not be symbolic"
   dir="$(real_dir "$dir")"; manifest="$dir/manifest.json"
   [ -f "$manifest" ] && [ ! -L "$manifest" ] || die "collection manifest missing or symbolic"
@@ -1181,18 +1181,19 @@ verify_collection_internal() {
   else
     [ ! -e "$dir/mutation-gate.json" ] || die "unbound mutation-gate artifact"
   fi
+  roots="collection root=$(dirname "$(dirname "$(jq -r .runner.path "$manifest")")"); invoked root=$PLUGIN_ROOT"
   [ "$(jq -r .runner.path "$manifest")" = "$SCRIPT_DIR/collect-review-evidence.sh" ] \
-    || die "collection runner path differs from installed runner"
+    || die "collection runner path differs from installed runner ($roots)"
   [ "$(jq -r .runner.sha256 "$manifest")" = "$(sha_file "$SCRIPT_DIR/collect-review-evidence.sh")" ] \
-    || die "collection runner digest differs from installed runner"
+    || die "collection runner digest differs from installed runner ($roots)"
   [ "$(jq -r .runner.library_path "$manifest")" = "$SCRIPT_DIR/lib.sh" ] \
-    || die "collection library path differs from installed library"
+    || die "collection library path differs from installed library ($roots)"
   [ "$(jq -r .runner.library_sha256 "$manifest")" = "$(sha_file "$SCRIPT_DIR/lib.sh")" ] \
-    || die "collection library digest differs from installed library"
+    || die "collection library digest differs from installed library ($roots)"
   [ "$(jq -r .runner.bundle_manifest_path "$manifest")" = "$PLUGIN_ROOT/integrity/runner-bundle.json" ] \
-    || die "collection runner bundle manifest path differs from installed bundle"
+    || die "collection runner bundle manifest path differs from installed bundle ($roots)"
   [ "$(jq -r .runner.bundle_manifest_sha256 "$manifest")" = "$(sha_file "$PLUGIN_ROOT/integrity/runner-bundle.json")" ] \
-    || die "collection runner bundle manifest digest differs from installed bundle"
+    || die "runner bundle changed since collect at $PLUGIN_ROOT"
   bash "$SCRIPT_DIR/check-runner-bundle.sh" \
     --expected-manifest-sha256 "$(jq -r .runner.bundle_manifest_sha256 "$manifest")" >/dev/null \
     || die "installed tribunal runner bundle failed integrity validation"
