@@ -158,6 +158,8 @@ CI_JSON="$(bash "${PLUGIN_ROOT}/scripts/required-checks.sh" \
 # Put name=conclusion (or status when conclusion is empty) from CI_JSON in the **CI:** line.
 ```
 
+Repositories using an external CI check app that posts check-runs later must configure required checks so the gate waits for them; `ci="none"` cannot see checks not yet posted.
+
 - Only for exit 1 with `ok=false`, `ci="none"`, and `reason="no CI configured"`
   (zero check-runs and no configured required names): copy **no CI configured**
   verbatim from the JSON into the round comment's **CI:** line and include the full
