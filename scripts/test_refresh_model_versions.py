@@ -302,6 +302,7 @@ eval_get() {
             variant[1] = f"openai/test-model{suffix}"
             variant[11] = f"openai/test-model{suffix}"
             self.assertEqual(self.changes([baseline], [variant]), [])
+            self.assertEqual(self.changes([], [variant]), [])
 
         mapped_baseline = baseline.copy()
         mapped_baseline[0] = "gpt-6.1-sol"
@@ -310,26 +311,23 @@ eval_get() {
         variant[11] = "openai/test-model:free"
         self.assertEqual(self.changes([mapped_baseline], [variant]), [])
 
+        v_free = baseline.copy()
+        v_free[1] = "openai/new-model:free"
+        v_free[11] = "openai/new-model:free"
+        v_thinking = baseline.copy()
+        v_thinking[1] = "openai/new-model:thinking"
+        v_thinking[11] = "openai/new-model:thinking"
+        self.assertEqual(self.changes([], [v_free, v_thinking]), [])
+
         new_model = baseline.copy()
         new_model[1] = "openai/new-model"
         new_model[11] = "openai/new-model"
         changes = self.changes([baseline], [new_model])
         self.assertEqual(len(changes), 1)
         self.assertTrue(changes[0].startswith("unmapped\t"))
-
-    def test_openrouter_multiple_unmapped_variants_deduplicated_to_one_trigger(self):
-        row = self.parse("openrouter")[0]
-        v1 = row.copy()
-        v1[0] = ""
-        v1[1] = "openai/new-model:free"
-        v1[11] = "openai/new-model:free"
-        v2 = row.copy()
-        v2[0] = ""
-        v2[1] = "openai/new-model:thinking"
-        v2[11] = "openai/new-model:thinking"
-        changes = self.changes([], [v1, v2])
-        self.assertEqual(len(changes), 1)
-        self.assertTrue(changes[0].startswith("unmapped\t"))
+        changes_from_empty = self.changes([], [new_model])
+        self.assertEqual(len(changes_from_empty), 1)
+        self.assertTrue(changes_from_empty[0].startswith("unmapped\t"))
 
     def test_openrouter_dated_canonical_slug_change_does_not_trigger(self):
         row = self.parse("openrouter")[0]
@@ -341,12 +339,27 @@ eval_get() {
         v2[11] = "openai/test-model-20261030:free"
         self.assertEqual(self.changes([v1], [v2]), [])
 
+        e1 = row.copy()
+        e1[0] = ""
+        e1[1] = "openai/test-model"
+        e1[11] = "openai/test-model-20260929"
+        e2 = e1.copy()
+        e2[11] = "openai/test-model-20261030"
+        self.assertEqual(self.changes([e1], [e2]), [])
+
     def test_openrouter_lost_mapping_on_exact_id_triggers(self):
         old = self.parse("openrouter")[0]
         self.assertTrue(len(old[0]) > 0)
+        old_variant = old.copy()
+        old_variant[0] = ""
+        old_variant[1] = f"{old[1]}:free"
+        old_variant[11] = f"{old[11]}:free"
+
         new = old.copy()
         new[0] = ""
-        changes = self.changes([old], [new])
+        new_variant = old_variant.copy()
+
+        changes = self.changes([old, old_variant], [new, new_variant])
         self.assertEqual(len(changes), 1)
         self.assertEqual(changes, ["unmapped\t" + "\t".join(new)])
 

@@ -1,22 +1,19 @@
 # Compare the same metric/harness/effort across dates; touching CIs overlap.
 def rows: split("\n") | map(select(length > 0) | split("\t")) | .[1:];
 def key: [.[1], .[3], .[8], .[9], .[12]] | tojson;
-def unmapped_id:
-  [(if .[12] == "openrouter" then (.[1] | sub(":[a-zA-Z0-9_-]+$"; "")) else .[1] end), .[12]];
-def is_variant: .[12] == "openrouter" and (.[1] | test(":[a-zA-Z0-9_-]+$"));
 ($old | rows | group_by(key) | map({key: (.[0]|key), value: .}) | from_entries) as $before
 | ($pool | split("\n") | map(select(startswith("#")|not) | split("\t") | .[2] // "")
    | map(if startswith("gpt-") then "openai" elif startswith("claude-") then "anthropic"
      elif startswith("gemini-") then "google" elif startswith("grok-") then "x-ai"
      elif startswith("muse-") then "meta" elif . == "default" then "qwen" else empty end) | unique) as $vendors
-| ($old | rows | map(select(.[0] == "") | unmapped_id | tojson) | unique) as $unmapped
-| ($old | rows | map(select(.[12] == "openrouter" and .[0] != "") | unmapped_id | tojson) | unique) as $mapped_bases
+| ($old | rows | map(select(.[0] == "") | [.[1], .[12]] | tojson) | unique) as $unmapped
 | ($old | rows | map(.[0]) | unique) as $models
 | [$new | rows | group_by(key)[] | . as $group | .[] | . as $row
 | $before[key] as $previous | $previous[0] as $prev
 | if .[0] == "" and ($vendors | index($row[2])) != null
-    and ($unmapped | index($row | unmapped_id | tojson)) == null
-    and (($row | is_variant | not) or ($mapped_bases | index($row | unmapped_id | tojson)) == null) then
+    # variants never trigger; a model listed only as a variant is not flagged until its base id appears.
+    and (.[12] == "openrouter" and (.[1] | test(":[A-Za-z0-9_-]+$")) | not)
+    and ($unmapped | index([$row[1], $row[12]] | tojson)) == null then
     "unmapped\t" + ($row | join("\t"))
   elif .[0] != "" and ($models | index($row[0])) == null and ($vendors | index($row[2])) != null then
     "new_model\t" + ($row | join("\t"))
@@ -28,4 +25,4 @@ def is_variant: .[12] == "openrouter" and (.[1] | test(":[a-zA-Z0-9_-]+$"));
   else empty end]
 # Quote one representative row per new model/name, retaining both sides of rank changes.
 | unique_by(split("\t") as $r | if $r[0] == "new_model" then [$r[0], $r[1]]
-    elif $r[0] == "unmapped" then [$r[0], ($r[1:] | unmapped_id)] else [.] end)[]
+    elif $r[0] == "unmapped" then [$r[0], $r[2], $r[13]] else [.] end)[]
