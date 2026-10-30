@@ -146,7 +146,7 @@ def check(case):
             pid_fd = os.pidfd_open(info["pid"])
             runner_fd = os.pidfd_open(info["runner_pid"])
             if "api" in name:
-                assert not info["fd3_open"], "API key redactor FD 3 leaked to CLI"
+                assert not info["fd3_open"], "FD 3 leaked to CLI"
             started = time.monotonic()
             if target == "group":
                 os.killpg(proc.pid, sig)

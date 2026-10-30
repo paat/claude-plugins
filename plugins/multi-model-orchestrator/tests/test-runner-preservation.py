@@ -157,7 +157,8 @@ with tempfile.TemporaryDirectory(prefix="mmo-preservation-") as temp:
             assert len(lines) == 2 and lines[1].split("\t")[8] == str(want), lines
         files = {str(path.relative_to(artifacts)): path.read_bytes() for path in artifacts.rglob("*") if path.is_file()}
         if case == "deadline":
-            key = b"[REDACTED]" if "--api" in extra else b"plan"
+            # Both routes must lack an environment key, even in partial output.
+            key = b"plan"
             stream = "--stream-log" in extra
             prefix = b'{"type":"system","subtype":"init"}\n' if stream else b""
             assert files["stream" if stream else "body"] == prefix + b"partial-stdout:" + key, files
