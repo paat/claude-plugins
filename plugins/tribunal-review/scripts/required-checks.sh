@@ -16,8 +16,8 @@
 # names with every check-run whose conclusion is not skipped/neutral.
 # A required name whose latest run is skipped/neutral fails (stricter than GitHub; deliberately fail-closed).
 # Empty check-runs list ⇒ ok=false (unearned green).
-# With no configured names or active Actions workflows either, ci=none.
-# Legacy commit statuses are unsupported; status-only required contexts count as missing.
+# With no configured names, legacy statuses, or active Actions workflows either, ci=none.
+# Legacy statuses prevent the no-CI exception; status-only required contexts count as missing.
 # Does not use `gh pr checks` (can mis-label required vs optional).
 set -euo pipefail
 
@@ -232,6 +232,13 @@ OUT="$(printf '%s\n' "$RAW" | jq -sce --arg sha "$SHA" --argjson names "$REQUIRE
 
 # An empty commit can precede CI creation or skip active workflows entirely.
 if [ "$(printf '%s' "$OUT" | jq -r '.ci')" = none ]; then
+  STATUSES="$(api 'commit statuses' "repos/${REPO}/commits/${SHA}/status")" || exit 2
+  HAS_STATUSES="$(printf '%s' "$STATUSES" | jq -er '
+    if (.total_count | type) == "number" and .total_count >= 0
+       and (.statuses | type) == "array" then
+      if .total_count > 0 or (.statuses | length) > 0 then "yes" else "no" end
+    else error("invalid commit statuses") end
+  ')" || invalid_response 'commit statuses'
   WORKFLOWS="$(api 'workflows' --paginate "repos/${REPO}/actions/workflows?per_page=100")" || exit 2
   ACTIVE="$(printf '%s' "$WORKFLOWS" | jq -se '
     if length > 0 and all(.[]; (.workflows | type) == "array") then
@@ -241,7 +248,7 @@ if [ "$(printf '%s' "$OUT" | jq -r '.ci')" = none ]; then
         | select(.state == "active")] | length
     else error("invalid workflows pages") end
   ')" || invalid_response 'workflows'
-  if [ "$ACTIVE" -gt 0 ]; then
+  if [ "$ACTIVE" -gt 0 ] || [ "$HAS_STATUSES" = yes ]; then
     OUT="$(printf '%s' "$OUT" | jq -c '.ci = "checks" | del(.reason)')"
   fi
 fi

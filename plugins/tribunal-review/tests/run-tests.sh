@@ -4319,6 +4319,10 @@ case "$endpoint" in
     printf '%s\n' '{"workflows":[{"state":"active"}]}'
     exit 0
     ;;
+  repos/example/fixture/commits/*/status)
+    printf '%s\n' '{"total_count":0,"statuses":[]}'
+    exit 0
+    ;;
   repos/example/fixture/commits/*/check-runs*) ;;
   *) printf 'unexpected endpoint: %s\n' "$endpoint" >&2; exit 2 ;;
 esac
