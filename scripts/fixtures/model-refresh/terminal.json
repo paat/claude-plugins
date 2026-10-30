@@ -1,0 +1,160 @@
+{
+  "leaderboard": {
+    "id": "9f966760-00f1-424e-90f5-c964fb6f6091",
+    "package": "terminal-bench/terminal-bench",
+    "name": "4-0-0",
+    "title": "Terminal-Bench 4.0"
+  },
+  "rows": [
+    {
+      "id": "7b805dbb-e77a-4d0a-892e-165f922f786c",
+      "leaderboard_id": "9f966760-00f1-424e-90f5-c964fb6f6091",
+      "rank": 1,
+      "metadata": {
+        "date": "2026-09-22",
+        "agent_org": {
+          "url": "https://www.anthropic.com",
+          "label": "Anthropic"
+        },
+        "model_org": {
+          "url": "https://www.anthropic.com",
+          "label": "Anthropic"
+        },
+        "display_date": "Sep 22, 2026",
+        "agent_display": {
+          "url": "https://claude.com/product/claude-code",
+          "label": "Claude Code"
+        },
+        "model_display": {
+          "url": "https://www.anthropic.com/claude-opus-5-5",
+          "label": "Opus 5.5"
+        },
+        "reasoning_effort": "max"
+      },
+      "metrics": {
+        "accuracy": 64.85,
+        "n_trials": 330,
+        "pass_at_2": 0.7318,
+        "pass_at_3": 0.7652,
+        "pass_at_4": 0.7788,
+        "pass_at_5": 0.7879,
+        "successes": 214,
+        "display_cost": "$4.7k",
+        "total_tokens": 8034082467,
+        "output_tokens": 88814607,
+        "total_cost_usd": 4718.65,
+        "display_accuracy": "**64.8%** \u00b1 3.1%",
+        "cached_input_tokens": 7699681320,
+        "display_total_tokens": "8.0B",
+        "uncached_input_tokens": 7945267860,
+        "avg_trial_duration_sec": 4790.4,
+        "display_total_cost_usd": "$4,718.65",
+        "accuracy_ci95_half_width": 3.11
+      },
+      "status": "display",
+      "created_at": "2026-10-06T06:44:27.436479+00:00",
+      "updated_at": "2026-10-06T17:56:36.322737+00:00",
+      "n_trials": 330
+    },
+    {
+      "id": "723c6609-fe18-46d9-a1a3-dd4b6b0e0d00",
+      "leaderboard_id": "9f966760-00f1-424e-90f5-c964fb6f6091",
+      "rank": 2,
+      "metadata": {
+        "date": "2026-09-28",
+        "agent_org": {
+          "url": "https://www.anthropic.com",
+          "label": "Anthropic"
+        },
+        "model_org": {
+          "url": "https://www.anthropic.com",
+          "label": "Anthropic"
+        },
+        "display_date": "Sep 28, 2026",
+        "agent_display": {
+          "url": "https://claude.com/product/claude-code",
+          "label": "Claude Code"
+        },
+        "model_display": {
+          "url": "https://www.anthropic.com/claude-sonnet-5-5",
+          "label": "Sonnet 5.5"
+        },
+        "reasoning_effort": "max"
+      },
+      "metrics": {
+        "accuracy": 61.82,
+        "n_trials": 330,
+        "pass_at_2": 0.6924,
+        "pass_at_3": 0.7364,
+        "pass_at_4": 0.7606,
+        "pass_at_5": 0.7727,
+        "successes": 204,
+        "display_cost": "$7.3k",
+        "total_tokens": 19413047384,
+        "output_tokens": 186577885,
+        "total_cost_usd": 7333.64,
+        "display_accuracy": "**61.8%** \u00b1 2.9%",
+        "cached_input_tokens": 18580542667,
+        "display_total_tokens": "19.4B",
+        "uncached_input_tokens": 19226469499,
+        "avg_trial_duration_sec": 7431.6,
+        "display_total_cost_usd": "$7,333.64",
+        "accuracy_ci95_half_width": 2.94
+      },
+      "status": "display",
+      "created_at": "2026-10-06T06:40:48.939078+00:00",
+      "updated_at": "2026-10-06T17:46:38.322523+00:00",
+      "n_trials": 330
+    },
+    {
+      "id": "5c537be4-7fc3-449b-8bfc-ceb9061c2535",
+      "leaderboard_id": "9f966760-00f1-424e-90f5-c964fb6f6091",
+      "rank": 3,
+      "metadata": {
+        "date": "2026-09-03",
+        "agent_org": {
+          "url": "https://openai.com",
+          "label": "OpenAI"
+        },
+        "model_org": {
+          "url": "https://openai.com",
+          "label": "OpenAI"
+        },
+        "display_date": "Sep 3, 2026",
+        "agent_display": {
+          "url": "https://openai.com/codex/",
+          "label": "Codex"
+        },
+        "model_display": {
+          "url": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "label": "GPT-6 Astra"
+        },
+        "reasoning_effort": "max"
+      },
+      "metrics": {
+        "accuracy": 58.18,
+        "n_trials": 330,
+        "pass_at_2": 0.6485,
+        "pass_at_3": 0.6788,
+        "pass_at_4": 0.697,
+        "pass_at_5": 0.7121,
+        "successes": 192,
+        "display_cost": "$3.3k",
+        "total_tokens": 1529778322,
+        "output_tokens": 23988992,
+        "total_cost_usd": 3267.18,
+        "display_accuracy": "**58.2%** \u00b1 2.8%",
+        "cached_input_tokens": 1443351702,
+        "display_total_tokens": "1.5B",
+        "uncached_input_tokens": 1505789330,
+        "avg_trial_duration_sec": 2796.3,
+        "display_total_cost_usd": "$3,267.18",
+        "accuracy_ci95_half_width": 2.79
+      },
+      "status": "display",
+      "created_at": "2026-09-03T20:53:40.128995+00:00",
+      "updated_at": "2026-09-10T21:58:00.001022+00:00",
+      "n_trials": 330
+    }
+  ]
+}
