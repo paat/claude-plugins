@@ -97,6 +97,55 @@ guidance, observed availability, and unmeasured comparisons. Record task family,
 effort, runner/tools, acceptance, elapsed time, repairs and known cost in the existing ledger.
 Compare repeated tasks under the same harness; unavailable providers are not capability failures.
 
+## Local outcomes
+
+Every runner invocation appends one TSV row on exit, including failures, timeouts, unavailable
+providers and invalid arguments. `run-opus.sh` delegates to Claude and records only its one row.
+The shared helper writes a header on creation at
+`${MMO_OUTCOMES_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/outcomes.tsv}`.
+Append failures are silent and preserve the leg's output and exit code; recording makes no network
+or model calls. Claude Code and Codex workflows use these same scripts and this same record.
+Keep an override outside the checkout, or at an untracked path covered by `.gitignore`: the
+existing dirty-tree guard treats any other in-repository log change as a repository edit and
+stops pool fall-through. The default state location is outside the checkout.
+
+| Column | Meaning |
+|---|---|
+| 1 `utc_time` | Exit time, UTC ISO 8601 |
+| 2 `repo` | Origin remote's `owner/name`, otherwise directory basename |
+| 3 `tier` | Attempted worker's pool tier; empty on direct runner calls |
+| 4 `role` | Runner mode, or `gate` |
+| 5 `provider` | `claude`, `codex`, `grok`, `muse`, `agy`, or `qwen`; empty for gate |
+| 6 `requested_model` | Requested model, including aliases such as `default` |
+| 7 `served_model` | Model named by the captured provider output; empty when unknown |
+| 8 `effort` | Runner effort (`n/a` for Claude Haiku); empty when inapplicable |
+| 9 `exit_code` | Final runner/gate status, including 75/77 reclassification |
+| 10 `duration_seconds` | Whole elapsed seconds |
+| 11 `tokens` | Reported token count; empty when unknown |
+| 12 `head_sha` | Gate only: checkout HEAD captured at gate entry |
+| 13 `verdict` | Gate only: emitted `APPROVE` or `NEEDS_WORK`; empty on gate errors |
+
+Tabs and newlines in values become spaces. Pool fall-through records each attempted runner with
+its selected tier; the pool adds no row. Run `review-gate.sh` from the reviewed checkout with HEAD
+still at the reviewed commit so its `head_sha` identifies that review.
+
+Metadata coverage (2026-10-30, from the runner output formats): Claude `--stream-log` reads the
+assistant message model (or system/init model) and result usage, summing input, output, cache-read
+and cache-creation tokens. Codex reads the terminal stderr `tokens used` footer; its startup model
+is a requested setting, so served model stays empty. Muse reads `run.model.configured`'s model ID;
+local Qwen reads its wrapper's running-model stderr line. Muse/Qwen token counts, agy/Grok metadata,
+and plain-text Claude metadata stay empty because these captured formats expose no supported
+fields. Requested models are never substituted for missing served models.
+
+Execution pass rate (`exit_code == 0`, including unavailable attempts in the denominator) per
+`tier, provider, requested_model, effort`, followed by successes/attempts and percentage:
+
+```bash
+awk -F '\t' 'NR>1 && $4!="gate" {k=$3 FS $5 FS $6 FS $8; n[k]++; ok[k]+=($9==0)} END {for(k in n) printf "%s\t%d/%d\t%.1f%%\n", k,ok[k],n[k],100*ok[k]/n[k]}' "${MMO_OUTCOMES_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/outcomes.tsv}" | sort
+```
+
+This measures execution success, not review approval; combined review verdicts are separate gate rows.
+
 ## Meta orchestration
 
 `/multi-model-orchestrator:meta-orchestrate <mission brief>` runs the show over a queue of

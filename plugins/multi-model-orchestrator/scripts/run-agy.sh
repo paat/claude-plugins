@@ -13,6 +13,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+# shellcheck source=lib-outcomes.sh
+. "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-agy.sh --mode implement|review [--repo DIR|--dir DIR] [--base REF] [--model gemini-3.8-flash|gemini-4-argon|claude-opus-5-5|claude-sonnet-5-5] [--effort low|medium|high] [--timeout SECONDS] [--out FILE]'
@@ -26,6 +28,8 @@ effort="${MMO_AGY_EFFORT:-medium}"
 run_timeout=1200
 output_file=""
 
+mmo_outcome_init agy
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; mode="$2"; shift 2 ;;
@@ -35,7 +39,7 @@ while [ "$#" -gt 0 ]; do
     --effort) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; effort="$2"; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'run-agy: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
@@ -58,7 +62,7 @@ repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 mmo_guard_env_files run-agy "$repo_dir" || exit 2
 
 runtime_dir="$(mktemp -d)"
-trap 'rm -rf "$runtime_dir"' EXIT
+trap 'mmo_outcome_exit "$?"; rm -rf "$runtime_dir"' EXIT
 request_file="$runtime_dir/request.txt"
 prompt_file="$runtime_dir/prompt.txt"
 diff_file="$runtime_dir/review.diff"

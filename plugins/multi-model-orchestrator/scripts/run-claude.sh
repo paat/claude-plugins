@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+# shellcheck source=lib-outcomes.sh
+. "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--api] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
@@ -47,6 +49,8 @@ max_turns_set=0
 mcp_names=()
 mcp_urls=()
 
+mmo_outcome_init claude
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --api) api=1; shift ;;
@@ -80,7 +84,7 @@ while [ "$#" -gt 0 ]; do
       mcp_urls+=("$mcp_url")
       shift 2
       ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'run-claude: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
@@ -143,7 +147,7 @@ esac
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /*) ;; *) stream_file="$PWD/$stream_file" ;; esac
 fi
-trap 'rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"; [ -z "$out_dev" ] || rm -f "$output_file" "${output_file}.stderr"' EXIT
+trap 'mmo_outcome_exit "$?"; rm -f "$request_file" "$prompt_file" "$diff_file" "$classify_file"; [ -z "$out_dev" ] || rm -f "$output_file" "${output_file}.stderr"' EXIT
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
 
@@ -315,6 +319,20 @@ else
   rc=$provider_rc
 fi
 set -e
+if [ "$stream_log_set" -eq 1 ]; then
+  mmo_outcome_served_model="$(jq -rs '
+    ([.[] | select(.type == "assistant") | .message.model | select(type == "string" and length > 0)] | last)
+    // ([.[] | select(.type == "system" and .subtype == "init") | .model | select(type == "string" and length > 0)] | last)
+    // empty
+  ' "$stream_file" 2>/dev/null || true)"
+  mmo_outcome_tokens="$(jq -rs '
+    [.[] | select(.type == "result") | .usage | select(type == "object")] | last
+    | [.input_tokens, .output_tokens, .cache_read_input_tokens, .cache_creation_input_tokens]
+    | map(select(type == "number" and . >= 0))
+    | if length > 0 then add else empty end
+  ' "$stream_file" 2>/dev/null || true)"
+fi
+
 if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-claude: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5

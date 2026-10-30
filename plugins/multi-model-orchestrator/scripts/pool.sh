@@ -215,7 +215,7 @@ for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++));
   printf 'pool: %s -> %s/%s/%s\n' "$r_tier" "$r_provider" "$r_model" "$r_effort" >&2
   before="$(mmo_tree_state "$repo_dir" "$out_abs")"
   rc=0
-  "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" 2> "$runner_stderr" || rc=$?
+  MMO_OUTCOME_TIER="$r_tier" "$SCRIPT_DIR/$runner" "${args[@]}" < "$prompt_file" 2> "$runner_stderr" || rc=$?
   cat "$runner_stderr" >&2
   case "$rc" in
     75|77|127)

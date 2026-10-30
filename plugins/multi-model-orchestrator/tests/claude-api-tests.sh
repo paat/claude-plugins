@@ -138,6 +138,12 @@ run_api() {
   printf 'bounded task\n' | "${common[@]}" bash "$scripts/run-claude.sh" --api --mode implement \
     --repo "$work/repo" --timeout 30 --out "$artifacts/out" "$@" > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
 }
+run_api_with_outcome() {
+  rc=0
+  printf 'bounded task\n' | "${common[@]}" MMO_OUTCOMES_FILE="$artifacts/outcomes.tsv" \
+    bash "$scripts/run-claude.sh" --api --mode implement --repo "$work/repo" --timeout 30 \
+    --out "$artifacts/out" "$@" > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
+}
 has() { grep -Fq -- "$2" "$1"; }
 no_api() { ! grep -q $'\tclaude-api\t' "$artifacts/pick"; }
 limit() { [ "$rc" -eq 75 ] && has "$artifacts/stderr" 'failure=limit'; }
@@ -262,6 +268,11 @@ parent_oauth="${CLAUDE_CODE_OAUTH_TOKEN-unset}"
 run_api
 check 'successful API leg leaves parent key and OAuth environment unchanged' \
   test "$rc:${ANTHROPIC_API_KEY-unset}:${CLAUDE_CODE_OAUTH_TOKEN-unset}" = "0:$parent_key:$parent_oauth"
+prepare outcome-row
+run_api_with_outcome
+check 'successful --api leg records exactly one Claude API outcome row' \
+  bash -c '[ "$(cat "$1/calls")" = api ] && awk -F '\''\t'\'' '\''NR == 1 {if (NF != 13 || $1 != "utc_time") exit 1} NR == 2 {if (NF != 13 || $5 != "claude" || $9 != 0) exit 1} END {if (NR != 2) exit 1}'\'' "$1/outcomes.tsv"' \
+    _ "$artifacts"
 check 'canary absent from every leg artifact across all cases' \
   bash -c '! grep -r -a -F -q -f "$1" "$2"' _ "$work/key" "$work/artifacts"
 

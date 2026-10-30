@@ -17,6 +17,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-review-verdict.sh
 . "$SCRIPT_DIR/lib-review-verdict.sh"
+# shellcheck source=lib-outcomes.sh
+. "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-muse.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model default|muse-*] [--effort minimal|low|medium|high|xhigh|max] [--max-steps N] [--timeout SECONDS] [--out FILE]'
@@ -31,6 +33,8 @@ max_steps="${MMO_MUSE_MAX_STEPS:-50}"
 run_timeout=1200
 output_file=""
 
+mmo_outcome_init muse
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --mode) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; mode="$2"; shift 2 ;;
@@ -41,7 +45,7 @@ while [ "$#" -gt 0 ]; do
     --max-steps) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; max_steps="$2"; shift 2 ;;
     --timeout) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; run_timeout="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'run-muse: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
@@ -60,7 +64,7 @@ repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 mmo_guard_env_files run-muse "$repo_dir" || exit 2
 
 runtime_dir="$(mktemp -d)"
-trap 'rm -rf "$runtime_dir"' EXIT
+trap 'mmo_outcome_exit "$?"; rm -rf "$runtime_dir"' EXIT
 request_file="$runtime_dir/request.txt"
 prompt_file="$runtime_dir/prompt.txt"
 diff_file="$runtime_dir/review.diff"
@@ -174,6 +178,7 @@ set -e
 
 terminal="$(jq -c 'select((.payload_type // "") | startswith("run.terminal.")) | .payload' "$stream_file" 2>/dev/null | tail -n 1 || true)"
 served="$(jq -r 'select(.payload_type == "run.model.configured") | .payload.model_id // empty' "$stream_file" 2>/dev/null | tail -n 1 || true)"
+mmo_outcome_served_model="$served"
 printf '%s' "$terminal" | jq -r 'if .terminal == "completed" then .text // empty else empty end' > "$output_file" 2>/dev/null || : > "$output_file"
 {
   printf '%s' "$terminal" | jq -r '.reason // empty' 2>/dev/null || true
