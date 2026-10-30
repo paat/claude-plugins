@@ -18,5 +18,7 @@ T2	codex	gpt-5.6-terra	medium
 T3	codex	gpt-6-astra	high
 T3	claude	claude-opus-5-5	high
 T3	muse	muse-wonder-full-1.0	high
+T3	codex	gpt-6.1-sol	high
+T3	agy	gemini-4-argon	high
 T4	codex	gpt-6-astra	xhigh
 T4	claude	claude-opus-5-5	xhigh

@@ -2777,7 +2777,7 @@ printf '%s\n' '{"event":"init","init":{}}'
 case "$*" in *"${STUB_AGY_TOUCH_MODEL:-}"*) [ -z "${STUB_AGY_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_AGY_TOUCH" ;; esac
 case "$*" in
   *"${STUB_AGY_FAIL_MODEL:-<none>}"*)
-    printf '%s\n' '{"event":"result","result":{"status":"ERROR","response":"","error":"RESOURCE_EXHAUSTED: quota exceeded"}}'
+    jq -cn --arg e "${STUB_AGY_FAIL_MESSAGE:-RESOURCE_EXHAUSTED: quota exceeded}" '{event:"result",result:{status:"ERROR",response:"",error:$e}}'
     exit 1 ;;
 esac
 jq -cn --arg r "${STUB_AGY_RESPONSE:-done
@@ -2821,6 +2821,28 @@ for bad in '--mode review' '--mode implement --base HEAD' '--mode implement --ef
 done
 git -C "$AR" checkout -q -- f.txt
 pass 'run-agy: YOLO implement, diff-only review outside the repo, write detection, exits'
+
+for level in low medium high; do
+  argon_n="$(find "$AG/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
+  printf 'bounded task\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode implement --model gemini-4-argon --effort "$level" --repo "$AR" --timeout 30 >/dev/null 2>"$AG/err" \
+    || fail "run-agy accepts Argon at $level: $(cat "$AG/err")"
+  exact_line "$AG/calls/call.${argon_n}.args" "gemini-4-argon-$level" 'Argon model and selected effort reach the CLI'
+done
+rc=0; printf 'x\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode implement --model gemini-4-argon --effort xhigh --repo "$AR" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "Argon rejects unsupported xhigh effort (got $rc)"
+pass 'run-agy: Argon forwards each supported effort and rejects unsupported effort'
+
+missing_argon='invalid model selection (--model "gemini-4-argon-high" --effort ""): model gemini-4-argon-high is not recognized as a known model or custom model in settings'
+for failure in "$missing_argon" 'unexpected task execution failure'; do
+  rc=0; printf 'x\n' | "${agy_env[@]}" STUB_AGY_FAIL_MODEL=gemini-4-argon STUB_AGY_FAIL_MESSAGE="$failure" bash "$AGY_RUN" --mode implement --model gemini-4-argon --repo "$AR" >/dev/null 2>"$AG/err" || rc=$?
+  expected_rc=1; [ "$failure" != "$missing_argon" ] || expected_rc=75
+  [ "$rc" -eq "$expected_rc" ] || fail "agy distinguishes unavailable model from task failure (got $rc, expected $expected_rc)"
+done
+printf 'two\n' > "$AR/f.txt"
+rc=0; printf 'x\n' | "${agy_env[@]}" STUB_AGY_FAIL_MODEL=gemini-4-argon STUB_AGY_FAIL_MESSAGE="$missing_argon" STUB_AGY_TOUCH="$AR/f.txt" bash "$AGY_RUN" --mode review --base HEAD --model gemini-4-argon --repo "$AR" >/dev/null 2>"$AG/err" || rc=$?
+[ "$rc" -eq 7 ] || fail "unavailable model never hides a review write (got $rc)"
+git -C "$AR" checkout -q -- f.txt
+pass 'run-agy: unavailable model allows fallback without hiding task failures or writes'
 
 # --- run-muse.sh against a stub muse ---
 MU="$WORK/muse"; mkdir -p "$MU/bin" "$MU/calls"
@@ -2997,6 +3019,14 @@ out="$(pick --tier T2 --allow gemini-3.8-flash --prefer agy 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | cut -f2 | sort -u)" = agy ] || fail "allow by model keeps only that model: $out"
 out="$(pick --tier T2 --prefer agy 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | cut -f2,4 | tr '\t\n' ': ')" = "agy:low agy:high claude:medium " ] || fail "prefer moves a provider first, keeping its table order: $out"
+out="$(pick --tier T2 --prefer gpt-5.6-terra --usage /dev/null 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = gpt-5.6-terra ] || fail "an exact model preference leads its tier: $out"
+out="$(pick --tier T2 --prefer gpt-6-astra --usage /dev/null 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f1)" = T2 ] || fail "a preferred model cannot pull a higher tier ahead of the requested tier: $out"
+out="$(pick --tier T2 --prefer gpt-5.6-terra --deny codex --usage /dev/null 2>/dev/null)"
+case "$out" in *gpt-5.6-terra*) fail 'model preference cannot bypass provider denial' ;; esac
+out="$(pick --tier T2 --prefer gpt-5.6-terra 2>/dev/null)"
+case "$out" in *gpt-5.6-terra*) fail 'model preference cannot bypass tight usage windows' ;; esac
 # Use it or lose it: a 7d window <= 60% used that resets within 24h moves that provider first.
 half=$(( $(date +%s) + 43200 )); twodays=$(( $(date +%s) + 172800 ))
 printf 'codex 7d 40%% resets %s in 12h as-of x\nagy 7d 61%% resets %s\nclaude 7d 10%% resets %s\n' \
@@ -3009,6 +3039,8 @@ absent "$PL/err" 'lose it: agy' 'a 61% window is not spare'
 absent "$PL/err" 'lose it: claude' 'a window resetting after 24h is not spare'
 out="$(pick --tier T2 --usage "$PL/spare.txt" --prefer agy 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | grep '^T2' | cut -f2,4 | tr '\t\n' ': ')" = "agy:low agy:high codex:medium claude:medium " ] || fail "explicit --prefer stays ahead of a spare provider: $out"
+out="$(pick --tier T2 --usage "$PL/spare.txt" --prefer claude-sonnet-5 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = claude-sonnet-5 ] || fail "task-fit model preference stays ahead of spare headroom: $out"
 out="$(pick --tier T3 --usage "$PL/spare.txt" 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | cut -f1,2 | tr '\t\n' ': ')" = "T3:codex T3:claude " ] || fail "spare reorders T3 within the tier only: $out"
 printf 'claude 7d 30%% resets %s\n' "$(utc_min "$half")" > "$PL/spare.txt"
@@ -3037,16 +3069,18 @@ for compat in gpt-5.6-luna gpt-6-sol claude-sonnet-5 gpt-5.6-terra; do
   [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = "$compat" ] || fail "shipped table keeps an allowlisted prior-generation model routable: $compat ($out)"
 done
 cp "$MU/bin/muse" "$PL/bin/muse"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --prefer gpt-6-sol --usage /dev/null 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = gpt-6-sol ] || fail "exact preference distinguishes models within one provider: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --mode review --usage /dev/null 2>/dev/null)" || true
 [ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "muse muse-spark-1.3 medium" ] || fail "shipped T2 table routes Muse Spark, including review: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --usage /dev/null 2>/dev/null)" || true
-[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "codex gpt-6-astra high|claude claude-opus-5-5 high|muse muse-wonder-full-1.0 high|" ] \
+[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "codex gpt-6-astra high|claude claude-opus-5-5 high|muse muse-wonder-full-1.0 high|codex gpt-6.1-sol high|agy gemini-4-argon high|" ] \
   || fail "shipped T3 table keeps Astra and Opus ahead of muse-wonder-full-1.0: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --allow muse-wonder-full-1.0 --usage /dev/null 2>/dev/null)" || true
 [ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ')" = "muse muse-wonder-full-1.0 high" ] || fail "allow muse-wonder-full-1.0 keeps only that T3 worker: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --deny muse-wonder-full-1.0 --usage /dev/null 2>/dev/null)" || true
 case "$out" in *muse-wonder-full-1.0*) fail "deny muse-wonder-full-1.0 still listed it: $out" ;; esac
-[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6-astra claude-opus-5-5 " ] || fail "deny muse-wonder-full-1.0 keeps the earlier T3 workers: $out"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6-astra claude-opus-5-5 gpt-6.1-sol gemini-4-argon " ] || fail "deny muse-wonder-full-1.0 keeps the other T3 workers: $out"
 rm -rf "$PL/muse-calls"; mkdir -p "$PL/muse-calls"
 printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
   STUB_MUSE_CALLS="$PL/muse-calls" STUB_MUSE_SERVED=muse-wonder-full-1.0 \
@@ -3055,6 +3089,17 @@ printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tie
 exact_line "$PL/muse-calls/call.0.args" '--model' 'pool run passes --model for muse-wonder-full-1.0'
 exact_line "$PL/muse-calls/call.0.args" 'muse-wonder-full-1.0' 'pool run sends muse-wonder-full-1.0 to the Muse CLI'
 exact_line "$PL/muse-calls/call.0.args" 'high' 'pool run sends the T3 high effort'
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --prefer gemini-4-argon --usage /dev/null 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f3-4 | tr '\t' ' ')" = 'gemini-4-argon high' ] || fail "hard-debugging preference selects Argon high: $out"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --prefer gemini-4-argon --mode review --usage /dev/null 2>/dev/null)"
+case "$out" in *gemini-4-argon*) fail 'a stronger agy model cannot bypass advisory-review restrictions' ;; esac
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T4 --prefer gemini-4-argon --usage /dev/null 2>/dev/null)"
+case "$out" in *gemini-4-argon*) fail 'task preference cannot lower the high-risk tier floor' ;; esac
+argon_n="$(find "$PL/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
+printf 'debug a bounded problem\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
+  bash "$POOL" run --tier T3 --prefer gemini-4-argon --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
+  || fail "pool executes the exact preferred Argon route: $(cat "$PL/err")"
+exact_line "$PL/calls/call.${argon_n}.args" 'gemini-4-argon-high' 'pool execution preserves selected model and effort'
 for bad in '--tier T5' '--tier T2 --mode advise' '--tier T2 --timeout 0' '--tier T2 --bogus'; do
   rc=0
   # shellcheck disable=SC2086

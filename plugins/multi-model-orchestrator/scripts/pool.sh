@@ -2,7 +2,7 @@
 # pool.sh — pick or run a worker for a complexity tier.
 #
 #   pool.sh pick --tier T1|T2|T3|T4 [--mode implement|review] [--allow LIST] [--deny LIST]
-#                [--prefer PROVIDER] [--usage FILE] [--timeout SECONDS]
+#                [--prefer PROVIDER_OR_MODEL] [--usage FILE] [--timeout SECONDS]
 #   pool.sh run  <pick options> [--repo DIR] [--base REF] [--out FILE]   (prompt on stdin)
 #
 # The tier comes from the caller (route-model-task); the worker order per tier comes from
@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 
 usage() {
-  printf '%s\n' 'Usage: pool.sh pick|run --tier T1|T2|T3|T4 [--mode implement|review] [--allow LIST] [--deny LIST] [--prefer PROVIDER] [--usage FILE] [--timeout SECONDS] [--repo DIR] [--base REF] [--out FILE]'
+  printf '%s\n' 'Usage: pool.sh pick|run --tier T1|T2|T3|T4 [--mode implement|review] [--allow LIST] [--deny LIST] [--prefer PROVIDER_OR_MODEL] [--usage FILE] [--timeout SECONDS] [--repo DIR] [--base REF] [--out FILE]'
 }
 
 action="${1:-}"
@@ -122,7 +122,7 @@ for t in $chain; do
   spared=()
   while IFS=$'\t' read -r r_tier r_provider r_model r_effort; do
     [ "$r_tier" = "$t" ] || continue
-    if [ -n "$prefer" ] && [ "$r_provider" = "$prefer" ]; then
+    if [ -n "$prefer" ] && { [ "$r_provider" = "$prefer" ] || [ "$r_model" = "$prefer" ]; }; then
       preferred+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
     elif [[ "$spare" == *" $r_provider "* ]]; then
       spared+=("$r_tier"$'\t'"$r_provider"$'\t'"$r_model"$'\t'"$r_effort")
