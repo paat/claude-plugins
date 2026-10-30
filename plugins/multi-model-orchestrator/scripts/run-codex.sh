@@ -182,6 +182,8 @@ mmo_run direct "" "" mmo_leg_env CODEX_HOME CODEX_API_KEY OPENAI_API_KEY -- time
   < "$prompt_file" > "$stream_file" 2> "${stream_file}.stderr"
 rc=$?
 set -e
+# Provider exits must not impersonate runner validation codes.
+rc=$(mmo_provider_rc "$rc")
 
 # The text-mode CLI reports its token total on the line after this footer.
 mmo_outcome_tokens="$(awk '

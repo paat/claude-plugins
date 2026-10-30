@@ -179,6 +179,8 @@ set +e
 mmo_run direct "" "" run_cli
 rc=$?
 set -e
+# Provider exits must not impersonate runner validation codes.
+rc=$(mmo_provider_rc "$rc")
 
 terminal="$(jq -c 'select((.payload_type // "") | startswith("run.terminal.")) | .payload' "$stream_file" 2>/dev/null | tail -n 1 || true)"
 served="$(jq -r 'select(.payload_type == "run.model.configured") | .payload.model_id // empty' "$stream_file" 2>/dev/null | tail -n 1 || true)"

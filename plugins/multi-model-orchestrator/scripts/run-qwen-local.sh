@@ -16,8 +16,8 @@
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty
 # final message; 6 review without a terminal APPROVE/NEEDS_WORK; 55 qwen run
 # budget exceeded (worktree may be partly edited); 75 unavailable (slot busy, pinned model not
-# served, several served and none pinned, server down, or no wrapper) — route elsewhere; other
-# codes come from the wrapper.
+# served, several served and none pinned, server down, or no wrapper) — route elsewhere;
+# 124 timeout; other wrapper failures normalize to 1 (or 75/77 when classified).
 #
 # Env:
 # Requires flock, curl and jq; without any of them the contract cannot be kept and
@@ -272,6 +272,9 @@ rc=0
 # The wrapper owns a nested timeout; keep it outside the runner's signal group.
 mmo_run direct "" "" setsid "$wrapper" "${wrapper_args[@]}" <<< "$prompt_text" > "$output_file" 2>"$runtime_dir/err.txt" || rc=$?
 cat "$runtime_dir/err.txt" >&2
+
+# Preserve the wrapper's budget, timeout, and unavailable-engine contracts.
+case "$rc" in 55|75|127) ;; *) rc=$(mmo_provider_rc "$rc") ;; esac
 
 # The wrapper reports a missing/too-old qwen CLI as 127: that is the local engine
 # being unavailable, which this contract expresses as 75.

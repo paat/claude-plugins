@@ -150,7 +150,7 @@ run_cli() {
 }
 set +e
 mmo_run direct "" "" run_cli
-rc=$?
+rc=$(mmo_provider_rc "$?")
 set -e
 
 summary="$(jq -Rn '

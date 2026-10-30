@@ -142,6 +142,8 @@ set +e
 mmo_run direct "" "" run_cli
 rc=$?
 set -e
+# Provider exits must not impersonate runner validation codes.
+rc=$(mmo_provider_rc "$rc")
 
 result="$(jq -c 'select(.event == "result") | .result' "$stream_file" 2>/dev/null | tail -n 1 || true)"
 status="$(printf '%s' "$result" | jq -r '.status // empty' 2>/dev/null || true)"

@@ -72,6 +72,9 @@ mmo_classify_provider_failure() {
   fi
 }
 
+# Provider exits must not impersonate runner validation codes; KILL/TERM mean timeout.
+mmo_provider_rc() { case "$1" in 0|124) echo "$1" ;; 137|143) echo 124 ;; *) echo 1 ;; esac; }
+
 # Reclassify a provider failure exit and print the runner exit line, then exit.
 # Usage: mmo_finish <runner-name> <rc> <failure-text-file> [key=value ...]
 mmo_finish() {

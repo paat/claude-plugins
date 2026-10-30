@@ -93,6 +93,7 @@ else
   printf 'plan\n' >> "$STUB_ARTIFACTS/calls"
   result="${STUB_PLAN_RESULT:-ok}"
 fi
+[ "$result" != exit75 ] || exit 75
 if [ "$result" = background_stderr ]; then sleep 3 >/dev/null & fi
 # Strings from installed Claude Code 2.1.314, inspected 2026-10-30.
 case "$result" in
@@ -297,17 +298,27 @@ for missing in unset missing empty; do
     bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2" && [ ! -e "$3" ]' \
       _ "$rc" "$artifacts/stderr" "$artifacts/calls"
 done
-for invalid in newline multiline carriage-return; do
-  prepare "key-$invalid"
-  case "$invalid" in
-    newline) printf '\n' > "$work/invalid-key" ;;
-    multiline) printf 'first\nsecond\n' > "$work/invalid-key" ;;
-    carriage-return) printf 'key\r\n' > "$work/invalid-key" ;;
-  esac
-  common+=(MMO_CLAUDE_API_KEY_FILE="$work/invalid-key")
-  run_api
-  check "$invalid key fails before launching Claude" \
-    bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2/out.stderr" && [ ! -e "$2/calls" ]' _ "$rc" "$artifacts"
+for format in text stream; do
+  stream_args=()
+  [ "$format" != stream ] || stream_args=(--stream-log "$work/invalid-key-stream")
+  for invalid in newline multiline carriage-return; do
+    prepare "key-$invalid-$format"
+    case "$invalid" in
+      newline) printf '\n' > "$work/invalid-key" ;;
+      multiline) printf 'first\nsecond\n' > "$work/invalid-key" ;;
+      carriage-return) printf 'key\r\n' > "$work/invalid-key" ;;
+    esac
+    common+=(MMO_CLAUDE_API_KEY_FILE="$work/invalid-key")
+    run_api "${stream_args[@]}"
+    check "$format $invalid key returns unavailable exit 75 before launching Claude" \
+      bash -c '[ "$1" -eq 75 ] && grep -Fq MMO_CLAUDE_API_KEY_FILE "$2/out.stderr" && [ ! -e "$2/calls" ]' _ "$rc" "$artifacts"
+  done
+  prepare "plan-exit75-$format"
+  rc=0
+  printf 'bounded task\n' | "${common[@]}" STUB_PLAN_RESULT=exit75 bash "$scripts/run-claude.sh" \
+    --mode implement --repo "$work/repo" --timeout 30 --out "$artifacts/out" "${stream_args[@]}" \
+    > "$artifacts/stdout" 2> "$artifacts/stderr" || rc=$?
+  check "$format plan provider exit 75 normalizes to failure 1" test "$rc" -eq 1
 done
 
 for format in text stream; do
