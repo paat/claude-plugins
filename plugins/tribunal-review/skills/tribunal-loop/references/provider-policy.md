@@ -29,6 +29,8 @@
 sets reviewer effort: T1 `low`, T2 `medium`, T3 `high`, T4 `high` with only Codex at `xhigh`
 (maximum-effort reviewers over-report speculative findings). DeepSeek maps T1 to `low`
 and T2–T4 to `high`; unset uses `high`. Unset keeps other CLI defaults.
+Grok T3 uses `medium` and defaults to eight inspect turns to start finalization earlier;
+`TRIBUNAL_GROK_MAX_TURNS` overrides the cap. Timeouts remain 600 s inspect + 120 s finalize.
 `TRIBUNAL_CODEX_EFFORT`, `TRIBUNAL_CLAUDE_EFFORT`, `TRIBUNAL_GROK_EFFORT`, and
 `TRIBUNAL_MUSE_EFFORT` override it.
 Panel membership never depends on the tier.

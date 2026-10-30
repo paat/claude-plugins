@@ -1,7 +1,7 @@
 # multi-model-orchestrator
 
 Route each software task to a current Claude Code, Codex, Grok Build, Muse Code, Antigravity
-(Gemini Flash/Argon), or local Qwen worker by task fit, complexity, plan-limit headroom, and availability, then verify the
+(Gemini Flash/Argon), OpenCode Go, or local Qwen worker by task fit, complexity, plan-limit headroom, and availability, then verify the
 result deterministically and review it independently when the risk justifies another pass.
 
 The standalone `route-model-task` skill can return route cards without executing work, and
@@ -32,12 +32,14 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
 | Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits; Argon for complex coding; Sonnet/Opus as small same-model overflow when the Claude plan window is spent; all advisory in review mode |
+| OpenCode Go (`opencode`) | `glm-5.3-flash` (T1 `low`), `glm-5.3` (T2 `high`, T3 `max`), `kimi-k3.1-pro` (T3 `high`) | Implementation on a Go plan; each model has its own monthly allowance; advisory in review; v2 CLI only |
 
 Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.1,
 Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
 `medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, and Argon support `low`, `medium`, and `high`; Muse catalog models support
-`minimal` through `max`.
+`minimal` through `max`. OpenCode effort is the model variant, which differs per model
+(the three routed models have `low`, `high`, `max`); `default` passes no variant.
 
 ## Routing policy
 
@@ -52,9 +54,9 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 
 | Tier | Task evidence | Workers, in order |
 |---|---|---|
-| T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
-| T2 | Well-specified change with known tests | Sonnet 5.5 plan/API, Sonnet 5.5 via agy, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol (all medium unless noted) |
-| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.1 Sol, Gemini 4 Argon (all high) |
+| T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low, OpenCode GLM-5.3-Flash low |
+| T2 | Well-specified change with known tests | Sonnet 5.5 plan/API, Sonnet 5.5 via agy, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol, OpenCode GLM-5.3 high (all medium unless noted) |
+| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.1 Sol, Gemini 4 Argon, OpenCode Kimi K3.1 Pro, OpenCode GLM-5.3 max (all high unless noted) |
 | T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 plan/API xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
@@ -123,7 +125,7 @@ stops pool fall-through. The default state location is outside the checkout.
 | 2 `repo` | Origin remote's `owner/name`, otherwise directory basename |
 | 3 `tier` | Attempted worker's pool tier; empty on direct runner calls |
 | 4 `role` | Runner mode, or `gate` |
-| 5 `provider` | `claude`, `codex`, `grok`, `muse`, `agy`, or `qwen`; empty for gate |
+| 5 `provider` | `claude`, `codex`, `grok`, `muse`, `agy`, `opencode`, or `qwen`; empty for gate |
 | 6 `requested_model` | Requested model, including aliases such as `default` |
 | 7 `served_model` | Model named by the captured provider output; empty when unknown |
 | 8 `effort` | Runner effort (`n/a` for Claude Haiku); empty when inapplicable |
@@ -141,7 +143,8 @@ Metadata coverage (2026-10-30, from the runner output formats): Claude `--stream
 assistant message model (or system/init model) and result usage, summing input, output, cache-read
 and cache-creation tokens. Codex reads the terminal stderr `tokens used` footer; its startup model
 is a requested setting, so served model stays empty. Muse reads `run.model.configured`'s model ID;
-local Qwen reads its wrapper's running-model stderr line. Muse/Qwen token counts, agy/Grok metadata,
+local Qwen reads its wrapper's running-model stderr line. OpenCode sums every `step_finish`'s
+tokens (served model stays empty). Muse/Qwen token counts, agy/Grok metadata,
 and plain-text Claude metadata stay empty because these captured formats expose no supported
 fields. Requested models are never substituted for missing served models.
 
@@ -189,8 +192,8 @@ quota pool: `5h_flash`/`7d_flash`, `5h_claude`/`7d_claude`, `7d_argon`), and Cla
 a provider or model whose window is at 90% or more and resets after the next leg would finish, and
 moves the rows a weekly window binds (a provider, or one agy pool's models) to the front of each
 tier when it is at most 60% used and resets within 24h (use it or lose it; an explicit `--prefer` still goes first); when no allowed route has headroom, or the host
-itself passes 95%, the run stops at the item boundary with the reset time in the handoff. Grok
-and Muse expose no limit data and are left to the exit-75 fallback unless the operator appends a
+itself passes 95%, the run stops at the item boundary with the reset time in the handoff. Grok,
+Muse, and OpenCode expose no limit data (OpenCode Go limits surface as exit 75) and are left to the exit-75 fallback unless the operator appends a
 line in `usage.sh`'s format (e.g. `grok 7d 40% resets 2026-10-16T09:00Z`) to the `--usage` file.
 
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked
@@ -224,12 +227,13 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   are disjoint.
 - Every CLI leg runs in YOLO mode inside the development-container security boundary: Codex uses
   `--dangerously-bypass-approvals-and-sandbox`, Claude uses `--dangerously-skip-permissions`, and
-  Grok uses `--sandbox none --permission-mode bypassPermissions`, and Muse uses `--yolo` (headless
+  Grok uses `--sandbox none --permission-mode bypassPermissions`, Muse uses `--yolo` (headless
   `muse exec` otherwise blocks on an approval prompt until the timeout). Advice and review legs still
   receive semantic no-write contracts and read-only tool allowlists; Muse's drop write and shell
   tools and exit 7 if the repository changed anyway. Claude and Grok research legs have web-only
   tool allowlists with no file access; Muse research has no write or shell tools and runs from an
-  empty directory but keeps read tools. The Codex CLI has no per-tool allowlist and
+  empty directory but keeps read tools. OpenCode implement uses `--auto`; its review uses
+  `--agent plan` (edit tool denied) from an empty directory, is advisory, and exits 7 on writes. The Codex CLI has no per-tool allowlist and
   keeps shell access, so Codex research runs from a scratch working root instead of the repository,
   bounded by that root and its prompt contract. This bounds blast radius rather than enforcing
   read-only.
@@ -256,6 +260,7 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
   passes no `--model` and the CLI selects one. Bounded work requests `muse-spark-1.3`; the T3
   pin is `muse-wonder-full-1.0`. Pool rows supply their own `--model`. A pinned leg that ran
   another model exits 7.
+- OpenCode legs keep `OPENCODE_*` and `XDG_*`; the Go credential is read from the OpenCode config.
 
 ## Review gate
 
@@ -263,9 +268,9 @@ Model constraints bind worker/reviewer/advise/research legs; the tribunal panel 
 into one verdict taken from each leg's last verdict line: `0` APPROVE, `1` NEEDS_WORK, `2` a missing
 file or a leg without a terminal verdict, and `3` when no leg is from an independent hosted provider.
 Classification is fail-closed: only labels naming a hosted catalog provider or model (Claude, Codex,
-GPT, Grok, Muse and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, or
-an unrecognized label are advisory. The local and agy reviewers read the diff and cannot run probes,
-so neither can be the only reviewer — the gate enforces that rather than trusting a prompt to say
+GPT, Grok, Muse and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, `opencode`, or
+an unrecognized label are advisory. The local, agy, and OpenCode reviewers read the diff and cannot run probes,
+so none can be the only reviewer — the gate enforces that rather than trusting a prompt to say
 so. agy enforces no read-only mode in print mode, so `run-agy.sh --mode review` runs from an empty
 directory and exits 7 if the repository changed anyway.
 
@@ -286,11 +291,12 @@ one outcome with exit 143, 129, or 130 respectively.
   - latest Grok Build (`grok`), using Grok 4.7 by default
   - Meta Muse Code (`muse`); bounded work requests `muse-spark-1.3`, T3 pins `muse-wonder-full-1.0`, and `default` passes no `--model`
   - Google Antigravity CLI (`agy`) for the Gemini and Claude-overflow routes
+  - OpenCode v2 (`@opencode/cli`) with an OpenCode Go credential; v1 is not supported
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   the pool moves to the next worker.
 
-Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings and Python 3 for literal artifact redaction.
+Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings and Python 3 for literal artifact redaction.
 
 ## Configuration
 
@@ -309,7 +315,9 @@ catalog.
 | `MMO_MUSE_MODEL` | `muse-spark-1.3` | Direct runner default. `default` passes no `--model`. Pool rows supply their own `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
 | `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200 |
-| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/local-Qwen review |
+| `MMO_OPENCODE_MODEL` | `kimi-k3.1-pro` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
+| `MMO_OPENCODE_EFFORT` | `high` | OpenCode model variant (`default` passes none) |
+| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/local-Qwen review |
 | `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |
 | `MMO_HANDOFF_DIR` | `.claude/handoffs` | Repo-relative handoff directory in the target repository |
 | `MMO_AGY_MODEL` | `gemini-3.8-flash` | agy worker/reviewer model |

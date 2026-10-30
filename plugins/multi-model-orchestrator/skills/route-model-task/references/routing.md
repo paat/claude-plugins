@@ -30,6 +30,9 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate; review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-sonnet-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
+| OpenCode Go | `glm-5.3-flash` | Cheap bounded edits with an exact check; T1 at `low` | `default`, `low`, `high`, `max` |
+| OpenCode Go | `glm-5.3` | Specified implementation on Go capacity; T2 at `high`, T3 at `max` | `default`, `low`, `high`, `max` |
+| OpenCode Go | `kimi-k3.1-pro` | Complex coding candidate; T3 at `high`. All Go routes are advisory in review | `default`, `low`, `high`, `max` |
 
 Use `task-fit.md` to select model and effort from the task's acceptance criteria. A newer
 flagship does not retire cheaper tiers. Explicit model requests still take precedence.
@@ -49,7 +52,7 @@ restriction, availability and usage checks.
 |---|---|---|
 | Exact rename, fixture, file map, focused check | T1 | |
 | Well-specified everyday change with known tests | T2 | |
-| Bounded independent implementation or reproduction | T2 | `--prefer grok` or `--prefer muse` |
+| Bounded independent implementation or reproduction | T2 | `--prefer grok`, `--prefer muse`, or `--prefer opencode` |
 | Cross-module backend/data/API work or hard root cause | T3 | |
 | Large refactor, long tool loop, complex system design | T3 | task-fit model preference |
 | Ambiguous product intent, UX, copy, or visual replication | T3 | task-fit model preference; require actual visual/browser tools |
@@ -92,10 +95,10 @@ silently; select a supported level or return an incompatibility.
   another of them.
 - A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
   the user also authorized automatic effort adjustment.
-- Local Qwen (`qwen`) and agy are providers like any other: an allow/deny list that excludes them
+- Local Qwen (`qwen`), agy, and `opencode` are providers like any other: an allow/deny list that excludes them
   removes them from the pool, and a provider-only restriction (`Codex only`, `Claude only`,
   `Grok only`, `Muse only`) excludes them too. Pass restrictions to `pool.sh` as `--allow`/`--deny` lists of
-  providers or models. `--deny claude` also removes agy's `claude-*` rows; `--allow claude` admits
+  providers or models. `--deny opencode` denies OpenCode. `--deny claude` also removes agy's `claude-*` rows; `--allow claude` admits
   them only if `agy` or the model is listed too.
 
 ## Availability
@@ -104,8 +107,8 @@ Every runner exits `75` when its worker cannot take the task now: a transient pr
 plan limit, or — for `scripts/run-qwen-local.sh` — the one GPU slot busy, the server down, a
 pinned model not served (or several served and none pinned), or no wrapper. Local Qwen is never queued. `pool.sh run` moves to the next
 worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
-or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen and
-agy reviews remain advisory. Local implementation stays bounded and mechanical; agy
+or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen,
+agy, and OpenCode reviews remain advisory; OpenCode Go limits return 75. Local implementation stays bounded and mechanical; agy
 Flash stays in T1/T2 while Argon is a T3 implementation candidate. agy Sonnet 5.5 (T2) and Opus
 5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
 a plan leg returning `75` with `failure=limit` enables matching API overflow; transient

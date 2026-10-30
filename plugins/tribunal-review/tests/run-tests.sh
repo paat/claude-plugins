@@ -5457,17 +5457,28 @@ EOF
   tr_check "unset TRIBUNAL_RISK keeps the Claude CLI default effort" bash -c '! grep -qx -- --effort "$1"' _ "$work/claude.args"
   run_leg grok TRIBUNAL_RISK=T4
   tr_check "TRIBUNAL_RISK=T4 passes --reasoning-effort high to the Grok leg" pair grok --reasoning-effort high
+  tr_check "Grok T4 keeps the 30-turn inspect budget" pair grok --max-turns 30
+  run_leg grok TRIBUNAL_RISK=T3
+  tr_check "TRIBUNAL_RISK=T3 passes --reasoning-effort medium to the Grok leg" pair grok --reasoning-effort medium
+  tr_check "Grok T3 caps inspection at eight turns" pair grok --max-turns 8
+  run_leg grok TRIBUNAL_RISK=T3 TRIBUNAL_GROK_MAX_TURNS=4
+  tr_check "explicit Grok turn budget overrides the T3 cap" pair grok --max-turns 4
+  run_leg grok TRIBUNAL_RISK=T3 TRIBUNAL_GROK_MAX_TURNS=invalid
+  tr_check "invalid Grok T3 turn budget falls back to eight" pair grok --max-turns 8
+  run_leg grok TRIBUNAL_RISK=T3 TRIBUNAL_GROK_EFFORT=high
+  tr_check "explicit Grok high effort overrides the T3 medium default" pair grok --reasoning-effort high
   run_leg grok TRIBUNAL_RISK=T4 TRIBUNAL_GROK_EFFORT=xhigh
   tr_check "TRIBUNAL_GROK_EFFORT overrides the risk tier" pair grok --reasoning-effort xhigh
   run_leg grok
   tr_check "unset TRIBUNAL_RISK keeps the Grok CLI default effort" bash -c '! grep -qx -- --reasoning-effort "$1"' _ "$work/grok.args"
+  tr_check "unset Grok risk keeps the 30-turn inspect budget" pair grok --max-turns 30
   run_leg grok TRIBUNAL_RISK=T9
   tr_check "an invalid TRIBUNAL_RISK fails the leg before the CLI runs" test ! -e "$work/grok.args"
   rm -rf "$work"
 }
 
 test_grok_finalize_effort() {
-  local work fake host_grok tier override expected
+  local work fake host_grok tier override expected expected_turns
   work="$(mktemp -d)"; fake="$work/bin"; host_grok="$work/host-grok"; mkdir -p "$fake"
   install_grok_auth_fixture "$host_grok"
   (
@@ -5477,20 +5488,23 @@ test_grok_finalize_effort() {
   )
   cat > "$fake/grok" <<'EOF'
 #!/usr/bin/env bash
-phase=inspect effort=default tools_val=missing sid= prompt= prev=
+phase=inspect effort=default tools_val=missing sid= prompt= prev= max_turns=
 for arg in "$@"; do
   case "$prev" in
     --reasoning-effort) effort="$arg" ;;
     --tools) tools_val="$arg" ;;
     --resume) phase=finalize; sid="$arg" ;;
     --prompt-file) prompt="$arg" ;;
+    --max-turns) max_turns="$arg" ;;
   esac
   prev="$arg"
 done
-printf '%s %s\n' "$phase" "$effort" >> "$FIXTURE_STATE/phases"
+printf '%s %s %s\n' "$phase" "$effort" "$max_turns" >> "$FIXTURE_STATE/phases"
 # Model timeouts are simulated without spending the real 600/120-second budgets.
 if [ "$phase" = inspect ] || [ "$effort" != low ] || [ "${FIXTURE_PROGRESS_ONLY:-}" = yes ]; then
   printf '%s\n' '{"text":"still reviewing...","sessionId":"44444444-4444-4444-4444-444444444444"}'
+  # A reached turn cap can exit successfully without a schema verdict.
+  [ "$phase" != inspect ] || [ "$max_turns" != 8 ] || exit 0
   exit 124
 fi
 [ -z "$tools_val" ] && [ "$sid" = 44444444-4444-4444-4444-444444444444 ] \
@@ -5509,12 +5523,13 @@ EOF
   recovered() {
     jq -e '.provider=="grok" and .model=="grok-fixture-model" and .summary.verdict=="NEEDS_WORK"
       and (.findings|length)==1 and (has("error")|not)' "$work/out.json" >/dev/null \
-      && [ "$(cat "$work/phases")" = "$(printf 'inspect %s\nfinalize low' "$expected")" ]
+      && [ "$(cat "$work/phases")" = "$(printf 'inspect %s %s\nfinalize low 6' "$expected" "$expected_turns")" ]
   }
   for tier in T3 T4; do
-    override= expected=high
+    override= expected=high expected_turns=30
+    if [ "$tier" = T3 ]; then expected=medium; expected_turns=8; fi
     run_finalize_fixture
-    tr_check "grok $tier reasoning timeout recovers a schema verdict at low finalize effort" recovered
+    tr_check "grok $tier inspect budget recovers a schema verdict at low finalize effort" recovered
   done
   override=xhigh expected=xhigh
   run_finalize_fixture
@@ -5571,6 +5586,9 @@ CLI
   run_provenance_fixture FIXTURE_SCENARIO=direct TRIBUNAL_GROK_EFFORT=high
   tr_check "Grok direct inspection stamps runner-owned phase, exit and efforts" jq -e \
     '.summary.verdict=="APPROVE" and .grok_execution=={verdict_phase:"inspect",inspect_exit_code:0,requested_effort:"high",verdict_effort:"high"}' "$work/out.json"
+  run_provenance_fixture FIXTURE_SCENARIO=direct TRIBUNAL_RISK=T3
+  tr_check "Grok T3 direct inspection stamps medium effort without recovery" jq -e \
+    '.summary.verdict=="APPROVE" and .grok_execution=={verdict_phase:"inspect",inspect_exit_code:0,requested_effort:"medium",verdict_effort:"medium"}' "$work/out.json"
   run_provenance_fixture FIXTURE_SCENARIO=direct
   tr_check "Grok CLI-default inspection effort stays explicitly unknown" jq -e \
     '.grok_execution=={verdict_phase:"inspect",inspect_exit_code:0,requested_effort:null,verdict_effort:null}' "$work/out.json"

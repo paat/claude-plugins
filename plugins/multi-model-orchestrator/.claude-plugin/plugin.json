@@ -1,7 +1,7 @@
 {
   "name": "multi-model-orchestrator",
   "version": "0.25.11",
-  "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
+  "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, OpenCode Go, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
   "author": {
     "name": "Andre Paat"
   },
@@ -14,6 +14,7 @@
     "opus",
     "grok",
     "muse",
+    "opencode",
     "gpt-5.6",
     "gpt-6",
     "subagents",
