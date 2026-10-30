@@ -334,6 +334,8 @@ run_grok_call() {  # run_grok_call SECONDS PROMPT_FILE [extra grok args...]
       timeout -k 10 "$secs" grok "${grok_args[@]}" --prompt-file "$pf" "$@" > "$output_file" 2> "$call_err"
     rc=$?
   fi
+  # Provider exits must not impersonate runner validation codes.
+  case "$rc" in 0|124) ;; *) rc=1 ;; esac
   cat "$call_err" >> "${output_file}.stderr"
 }
 

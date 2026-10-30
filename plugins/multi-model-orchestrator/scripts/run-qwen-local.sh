@@ -273,6 +273,9 @@ rc=0
 mmo_run direct "" "" setsid "$wrapper" "${wrapper_args[@]}" <<< "$prompt_text" > "$output_file" 2>"$runtime_dir/err.txt" || rc=$?
 cat "$runtime_dir/err.txt" >&2
 
+# Preserve the wrapper's budget, timeout, and unavailable-engine contracts.
+case "$rc" in 0|55|75|124|127) ;; *) rc=1 ;; esac
+
 # The wrapper reports a missing/too-old qwen CLI as 127: that is the local engine
 # being unavailable, which this contract expresses as 75.
 if [ "$rc" -eq 127 ]; then
