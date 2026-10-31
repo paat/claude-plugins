@@ -70,7 +70,7 @@ tribunal_risk_effort() {
 
 # Backup leg order (environment override). When TRIBUNAL_BACKUP_LEGS is unset, uses
 # the selection's remaining available rows (or deepseek when called standalone);
-# "off" disables backups. Prints one provider per line; duplicates are rejected.
+# empty or "off" disables backups. Prints one provider per line; duplicates are rejected.
 tribunal_backup_legs() {
   if [ -z "${TRIBUNAL_BACKUP_LEGS+x}" ]; then
     if [ "${TRIBUNAL_PANEL_SELECTED:-0}" = 1 ]; then
@@ -82,10 +82,10 @@ tribunal_backup_legs() {
   fi
   local raw="$TRIBUNAL_BACKUP_LEGS" leg seen=" "
   local -a legs=()
-  [ "$raw" = off ] && return 0
+  [ -z "$raw" ] || [ "$raw" = off ] && return 0
   case "$raw" in
     *[[:space:]]*) printf 'invalid TRIBUNAL_BACKUP_LEGS value: whitespace is not allowed (comma-separated list)\n' >&2; return 1 ;;
-    ''|,*|*,|*,,*) printf 'invalid TRIBUNAL_BACKUP_LEGS value: %s (want comma-separated providers or off)\n' "$raw" >&2; return 1 ;;
+    ,*|*,|*,,*) printf 'invalid TRIBUNAL_BACKUP_LEGS value: %s (want comma-separated providers or off)\n' "$raw" >&2; return 1 ;;
   esac
   IFS=, read -r -a legs <<< "$raw"
   for leg in ${legs[@]+"${legs[@]}"}; do
@@ -143,8 +143,8 @@ tribunal_opencode_available() {
 tribunal_backup_installed() {
   case "$1" in
     codex) command -v codex >/dev/null 2>&1 ;;
-    claude) command -v claude >/dev/null 2>&1 ;;
-    grok) command -v grok >/dev/null 2>&1 ;;
+    claude) command -v claude >/dev/null 2>&1 && tribunal_claude_authenticated ;;
+    grok) command -v grok >/dev/null 2>&1 && tribunal_grok_authenticated ;;
     muse) command -v muse >/dev/null 2>&1 ;;
     opencode) tribunal_opencode_available >/dev/null ;;
     deepseek) tribunal_deepseek_available >/dev/null ;;
@@ -228,6 +228,14 @@ tribunal_select_panel() {
         return 1
         ;;
     esac
+    if [[ ! "$row_model" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+      printf 'invalid review panel row at %s:%d (bad model: %s)\n' "$panel_file" "$lineno" "$row_model" >&2
+      return 1
+    fi
+    if [ "$row_effort" != "-" ] && [[ ! "$row_effort" =~ ^[a-z]+$ ]]; then
+      printf 'invalid review panel row at %s:%d (bad effort: %s)\n' "$panel_file" "$lineno" "$row_effort" >&2
+      return 1
+    fi
     [ "$row_tier" = "$effective_tier" ] || continue
     case "$seen_rows" in *" $row_provider "*) continue ;; esac
     seen_rows="${seen_rows}${row_provider} "

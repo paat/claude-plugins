@@ -481,7 +481,11 @@ printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabl
 EOF
   chmod +x "$plugin/scripts/"*.sh
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+printf '%s\n' '{"loggedIn":true}'
+EOF
   chmod +x "$fake/codex" "$fake/claude"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
 
@@ -679,7 +683,11 @@ printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabl
 EOF
   chmod +x "$plugin/scripts/"*.sh
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+printf '%s\n' '{"loggedIn":true}'
+EOF
   chmod +x "$fake/codex" "$fake/claude"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
 
@@ -1171,6 +1179,17 @@ EOF
   tr_check "OpenCode leg passes plan agent and model variant without auto" bash -c '
     grep -qxF -- --agent "$1" && grep -qxF -- plan "$1" &&
     grep -qxF -- opencode-go/kimi-k3.1-pro#high "$1" && ! grep -qxF -- --auto "$1"' _ "$work/success.args"
+  run_opencode env TRIBUNAL_OPENCODE_MODEL=opencode-go/glm-5.3 TRIBUNAL_OPENCODE_EFFORT=low \
+    > "$work/prefixed.json" 2>/dev/null
+  tr_check "OpenCode strips the optional provider prefix and keeps effort separate" bash -c '
+    jq -e '\''.model=="opencode-go/glm-5.3" and .summary.verdict=="APPROVE"'\'' "$1" >/dev/null &&
+    grep -qxF -- opencode-go/glm-5.3#low "$2"' _ "$work/prefixed.json" "$work/args"
+  rm -f "$work/args"
+  run_opencode env TRIBUNAL_OPENCODE_MODEL='glm-5.3#max' > "$work/invalid-model.json" 2>/dev/null
+  tr_check "OpenCode rejects a model variant and directs the operator to the effort setting" bash -c '
+    jq -e '\''.provider=="opencode" and (.error|contains("bare OpenCode Go model id"))
+      and (.error|contains("TRIBUNAL_OPENCODE_EFFORT")) and (has("summary")|not)'\'' "$1" >/dev/null &&
+    [ ! -e "$2" ]' _ "$work/invalid-model.json" "$work/args"
   run_selected_panel env
   tr_check "default selection runs exactly Codex Claude and OpenCode with every other provider disabled" jq -e -s '
     (map({key:.provider,value:(if .status then .status elif has("summary") then "ok" else "failed" end)})|from_entries)
@@ -2872,7 +2891,11 @@ printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabl
 EOF
   chmod +x "$plugin/scripts/"*.sh
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+printf '%s\n' '{"loggedIn":true}'
+EOF
   chmod +x "$fake/codex" "$fake/claude"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
 
@@ -5549,9 +5572,14 @@ EOF
 test_panel_selection() {
   local work fake out bad
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
-  for cli in codex claude grok muse agy qwen dsh; do
+  for cli in codex grok muse agy qwen dsh; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/$cli"
   done
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+printf '%s\n' '{"loggedIn":true}'
+EOF
   cat > "$fake/opencode" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" != --version ] || printf '2.2.4\n'
@@ -5564,7 +5592,7 @@ EOF
       unset "TRIBUNAL_$upper" "TRIBUNAL_${upper}_MODEL" "TRIBUNAL_${upper}_EFFORT"
     done
     unset TRIBUNAL_RISK TRIBUNAL_PANEL_SIZE TRIBUNAL_BACKUP_LEGS TRIBUNAL_PANEL_SELECTED
-    export PATH="$fake:/usr/bin:/bin" DEEPSEEK_API_KEY=fixture
+    export PATH="$fake:/usr/bin:/bin" DEEPSEEK_API_KEY=fixture XAI_API_KEY=fixture
     for bad in "$@"; do export "$bad"; done
     . "$PLUGIN_ROOT/scripts/lib.sh"
     tribunal_select_panel || exit
@@ -5594,7 +5622,22 @@ EOF
   out="$(select_panel)"
   tr_check "a missing CLI is skipped and the next available row fills its seat" jqe \
     '[.panel[].provider] == ["codex","opencode","grok"]' <<< "$out"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"; chmod +x "$fake/claude"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+printf '%s\n' '{"loggedIn":false}'
+exit 1
+EOF
+  chmod +x "$fake/claude"
+  out="$(select_panel)"
+  tr_check "an installed logged-out Claude is skipped and authenticated Grok fills its seat" jqe \
+    '[.panel[].provider] == ["codex","opencode","grok"]' <<< "$out"
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+printf '%s\n' '{"loggedIn":true}'
+EOF
+  chmod +x "$fake/claude"
   out="$(select_panel TRIBUNAL_CODEX_MODEL=operator-model)"
   tr_check "an operator model override wins over the panel table" jqe \
     '.panel[0].model == "operator-model" and .panel[0].effort == "medium"' <<< "$out"
@@ -5608,6 +5651,25 @@ EOF
     done
   }
   tr_check "invalid panel sizes are rejected" invalid_panel_sizes
+  out="$(select_panel TRIBUNAL_BACKUP_LEGS=)"
+  tr_check "an explicitly empty TRIBUNAL_BACKUP_LEGS selects no backups" jqe '.backups == []' <<< "$out"
+  invalid_toggle() {
+    if select_panel TRIBUNAL_GROK=yes > /dev/null 2> "$work/invalid.err"; then return 1; fi
+    grep -Fq 'invalid TRIBUNAL_GROK value: yes (want on or off)' "$work/invalid.err"
+  }
+  tr_check "invalid provider toggle values still fail loudly" invalid_toggle
+  printf '# fixture\nT2\tcodex\tgpt-6.1-sol # trailing comment\tmedium\n' > "$work/bad-panel.tsv"
+  reject_bad_model() {
+    if select_panel TRIBUNAL_REVIEW_PANEL="$work/bad-panel.tsv" > /dev/null 2> "$work/invalid.err"; then return 1; fi
+    grep -Fq "invalid review panel row at $work/bad-panel.tsv:2 (bad model:" "$work/invalid.err"
+  }
+  tr_check "panel model trailing comments are rejected with file and line" reject_bad_model
+  printf '# fixture\nT2\tcodex\tgpt-6.1-sol\tmedium # trailing comment\n' > "$work/bad-panel.tsv"
+  reject_bad_effort() {
+    if select_panel TRIBUNAL_REVIEW_PANEL="$work/bad-panel.tsv" > /dev/null 2> "$work/invalid.err"; then return 1; fi
+    grep -Fq "invalid review panel row at $work/bad-panel.tsv:2 (bad effort:" "$work/invalid.err"
+  }
+  tr_check "panel effort trailing comments are rejected with file and line" reject_bad_effort
   rm -rf "$work"
 }
 
@@ -5627,6 +5689,7 @@ test_risk_tier_and_backup_config() {
     [ "$(env -u TRIBUNAL_BACKUP_LEGS bash -c ". \"$1/scripts/lib.sh\"; tribunal_backup_legs")" = deepseek ] &&
     [ "$(TRIBUNAL_BACKUP_LEGS=deepseek,qwen,codex,opencode tribunal_backup_legs | tr "\n" " ")" = "deepseek qwen codex opencode " ] &&
     [ -z "$(TRIBUNAL_BACKUP_LEGS=off tribunal_backup_legs)" ] &&
+    [ -z "$(TRIBUNAL_BACKUP_LEGS= tribunal_backup_legs)" ] &&
     ! TRIBUNAL_BACKUP_LEGS=deepseek,unknown tribunal_backup_legs >/dev/null 2>&1 &&
     ! TRIBUNAL_BACKUP_LEGS=deepseek,deepseek,gemini tribunal_backup_legs >/dev/null 2>&1 &&
     ! TRIBUNAL_BACKUP_LEGS="$(printf "deepseek\ncodex")" tribunal_backup_legs >/dev/null 2>&1 &&
@@ -5932,6 +5995,36 @@ test_preflight_risk_and_backups() {
   rm -rf "$work"
 }
 
+test_preflight_backup_quorum() {
+  local work fake panel out ec=0
+  work="$(mktemp -d)"; fake="$work/bin"; panel="$work/panel.tsv"; mkdir -p "$fake"
+  for cli in grok muse; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/$cli"; chmod +x "$fake/$cli"
+  done
+  (
+    cd "$work" && git init -q && git config user.email t@t && git config user.name t
+    printf 'one\n' > file.txt && git add file.txt && git commit -q -m base
+    git checkout -qb feature && printf 'two\n' > file.txt && git commit -q -am change
+  )
+  pre() { (cd "$work" && env -u TRIBUNAL_GROK -u TRIBUNAL_MUSE -u TRIBUNAL_BACKUP_LEGS \
+    -u TRIBUNAL_PANEL_SIZE -u TRIBUNAL_MIN_OK_LEGS -u TRIBUNAL_RISK \
+    PATH="$fake:/usr/bin:/bin" XAI_API_KEY=fixture TRIBUNAL_BASE_BRANCH=main \
+    TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_REVIEW_PANEL="$panel" \
+    TRIBUNAL_PANEL_SIZE=2 bash "$PLUGIN_ROOT/scripts/preflight.sh"); }
+  printf 'T2\tcodex\tgpt-6.1-sol\tmedium\nT2\tgrok\tgrok-4.7\tmedium\nT2\tmuse\tmuse-spark-1.3\tmedium\n' > "$panel"
+  out="$(pre 2> "$work/preflight.err")" || true
+  tr_check "preflight lets an available backup fill the quorum and warns with its name" jqe '
+    ([.providers[] | select(.status=="usable")] | length) == 1
+    and .backup_legs == ["muse"]
+    and any(.warnings[]; .name=="backup-quorum" and (.note|contains("muse")))' <<< "$out"
+  printf 'T2\tcodex\tgpt-6.1-sol\tmedium\nT2\tgrok\tgrok-4.7\tmedium\n' > "$panel"
+  pre > /dev/null 2> "$work/preflight.err" || ec=$?
+  tr_check "preflight keeps the existing quorum failure when no backup is available" bash -c '
+    [ "$1" -ne 0 ] && grep -Fxq "PREFLIGHT FAIL: usable legs (1) below TRIBUNAL_MIN_OK_LEGS (2)." "$2"' \
+    _ "$ec" "$work/preflight.err"
+  rm -rf "$work"
+}
+
 test_backup_leg_collection() {
   local work repo fake plugin state base head n scenario ec expected mutator mode manifest_sha
   local wrapper command worktree_config_message muse_status
@@ -6166,10 +6259,16 @@ EOF
   done
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
-  for cli in codex claude muse dsh; do
+  for cli in codex muse dsh; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/$cli"
     chmod +x "$fake/$cli"
   done
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+printf '%s\n' '{"loggedIn":true}'
+EOF
+  chmod +x "$fake/claude"
   cat > "$fake/gh" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = repo ] && [ "$2" = view ]; then
@@ -6807,6 +6906,7 @@ test_grok_finalize_effort
 test_grok_recovery_provenance
 test_grok_collector_provenance
 test_preflight_risk_and_backups
+test_preflight_backup_quorum
 test_backup_leg_collection
 test_collector_completion_order
 test_collector_pid_namespace

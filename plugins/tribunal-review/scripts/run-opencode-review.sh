@@ -19,6 +19,13 @@ opencode_note="$(tribunal_opencode_available)" || { tribunal_error opencode "$op
 
 OPENCODE_MODEL="${TRIBUNAL_OPENCODE_MODEL:-kimi-k3.1-pro}"
 OPENCODE_MODEL="${OPENCODE_MODEL#opencode-go/}"
+case "$OPENCODE_MODEL" in
+  *#*) tribunal_error opencode "invalid TRIBUNAL_OPENCODE_MODEL: use a bare OpenCode Go model id without '#'; set the variant with TRIBUNAL_OPENCODE_EFFORT"; exit 0 ;;
+esac
+if [[ ! "$OPENCODE_MODEL" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+  tribunal_error opencode "invalid TRIBUNAL_OPENCODE_MODEL: use a bare OpenCode Go model id"
+  exit 0
+fi
 MODEL_BASE="opencode-go/$OPENCODE_MODEL"
 RISK_EFFORT="$(tribunal_risk_effort opencode 2>&1)" || { tribunal_error opencode "$RISK_EFFORT"; exit 0; }
 if [ -n "${TRIBUNAL_OPENCODE_EFFORT+x}" ]; then

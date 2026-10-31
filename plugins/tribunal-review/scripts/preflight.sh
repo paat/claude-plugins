@@ -34,7 +34,7 @@ fi
 min_ok_legs="$(tribunal_min_ok_legs)" || exit 2
 risk_tier="$(tribunal_risk_tier)" || exit 2
 tribunal_select_panel || exit 2
-backup_legs="$(tribunal_backup_legs)" || exit 2
+backup_legs="${TRIBUNAL_SELECTED_BACKUPS:-}"
 
 providers_json="[]"
 warnings_json="[]"
@@ -187,8 +187,20 @@ if [ "$usable" -eq 0 ]; then
 fi
 
 if [ "$usable" -lt "$min_ok_legs" ]; then
-  echo "PREFLIGHT FAIL: usable legs ($usable) below TRIBUNAL_MIN_OK_LEGS ($min_ok_legs)." >&2
-  exit 1
+  available_backup_count=0
+  available_backup_names=""
+  while IFS= read -r backup; do
+    [ -n "$backup" ] || continue
+    if tribunal_backup_installed "$backup"; then
+      available_backup_count=$((available_backup_count + 1))
+      available_backup_names="${available_backup_names}${available_backup_names:+, }$backup"
+    fi
+  done <<< "$backup_legs"
+  if [ $((usable + available_backup_count)) -lt "$min_ok_legs" ]; then
+    echo "PREFLIGHT FAIL: usable legs ($usable) below TRIBUNAL_MIN_OK_LEGS ($min_ok_legs)." >&2
+    exit 1
+  fi
+  add_warning backup-quorum "quorum relies on available backup legs: $available_backup_names"
 fi
 
 jq -nc --arg base "$BASE_REF" --arg default "$DEFAULT_BRANCH" --argjson providers "$providers_json" \

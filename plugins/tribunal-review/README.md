@@ -130,7 +130,7 @@ The reviewer settings and optional caller identity are configurable via environm
 them before launching the host). By default `tribunal_select_panel` picks `TRIBUNAL_PANEL_SIZE` (`3`)
 available legs for `TRIBUNAL_RISK` (default `T2`) from `scripts/review-panel.tsv`, and remaining
 available rows serve as backups when a leg hits a plan limit or `ok` legs fall below
-`TRIBUNAL_MIN_OK_LEGS` (`2`).
+`TRIBUNAL_MIN_OK_LEGS` (`2`). Provider toggles accept only `on` or `off`.
 DeepSeek uses the direct DeepSeek API and walks the repository with a read-only sandbox. The sandbox restricts writes; reads remain within the development-container security boundary. For projects with data-residency constraints, enabling this leg is the operator's decision.
 
 | Variable | Default | Effect |
@@ -141,12 +141,12 @@ DeepSeek uses the direct DeepSeek API and walks the repository with a read-only 
 | `TRIBUNAL_PANEL_SIZE` | `3` | Number of reviewer legs selected from the active tier (`2..8`; forced `TRIBUNAL_<PROVIDER>=on` legs count toward seats and all run even if they exceed `TRIBUNAL_PANEL_SIZE`). Sealed in `panel_policy`. |
 | `TRIBUNAL_REVIEW_PANEL` | `scripts/review-panel.tsv` | Override path for the `tier<TAB>provider<TAB>model<TAB>effort` preference table (`-` passes no effort). Environment only. |
 | `TRIBUNAL_MIN_OK_LEGS` | `2` | Per-environment APPROVE floor (`2..8`; `1` is rejected because a one-leg `APPROVE` is not allowed). Environment only; sealed into `manifest.json` under `panel_policy`. |
-| `TRIBUNAL_BACKUP_LEGS` | remaining available rows | Comma-separated backup leg order (any of the 8 providers) or `off`. Runs idle installed backups for `plan limit:` failures and when `ok` legs after pass 1 are below `TRIBUNAL_MIN_OK_LEGS`; original failed legs stay `failed`. |
+| `TRIBUNAL_BACKUP_LEGS` | remaining available rows | Comma-separated backup leg order (any of the 8 providers); empty or `off` disables backups. Runs idle installed backups for `plan limit:` failures and when `ok` legs after pass 1 are below `TRIBUNAL_MIN_OK_LEGS`; original failed legs stay `failed`. |
 | `TRIBUNAL_CODEX` | selected by panel (`on` standalone) | `on` forces Codex into the panel; `off` excludes it (`disabled`). |
 | `TRIBUNAL_CODEX_MODEL` | tier row (`gpt-6-astra` standalone) | Model passed to `codex exec -m`; overrides the panel table row. |
 | `TRIBUNAL_CODEX_EFFORT` | tier row (`medium` standalone) | Reasoning effort passed through `model_reasoning_effort`; overrides the panel table row. |
 | `TRIBUNAL_OPENCODE` | selected by panel (`off` standalone) | `on` forces the OpenCode Go leg into the panel; `off` excludes it (`disabled`). Requires OpenCode v2+. |
-| `TRIBUNAL_OPENCODE_MODEL` | tier row (`kimi-k3.1-pro` standalone) | OpenCode Go model id passed as `opencode-go/<model>[#<effort>]` (e.g. `glm-5.3`, `kimi-k3.1-pro`). |
+| `TRIBUNAL_OPENCODE_MODEL` | tier row (`kimi-k3.1-pro` standalone) | Bare OpenCode Go model id (e.g. `glm-5.3`, `kimi-k3.1-pro`), with an optional `opencode-go/` prefix. Set the `#` variant separately with `TRIBUNAL_OPENCODE_EFFORT`. |
 | `TRIBUNAL_OPENCODE_EFFORT` | tier row (`high` standalone) | OpenCode Go variant appended after `#` (`low`, `high`, `max`, or `-` for none). |
 | `TRIBUNAL_OPENCODE_TIMEOUT_SECONDS` | `900` | OpenCode wall timeout in seconds (clamped `30..1800`). |
 | `TRIBUNAL_GEMINI` | selected by panel (`off` standalone) | `on` forces the Gemini (`agy`, web/CVE search) leg into the panel; `off` excludes it. |
