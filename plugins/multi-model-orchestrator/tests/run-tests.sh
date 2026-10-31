@@ -325,6 +325,9 @@ if [ -n "$debug_file" ]; then
     trailing_field) printf '%s duration_ms=3\n' "$allowlist_applied" > "$debug_file" ;;
     no_agent) printf '%s\n' "${allowlist_applied/ agent=grok-build-plan/}" > "$debug_file" ;;
     no_span) printf '%s\n' "${allowlist_applied/session.spawn\{session_id=fixture client_type=Generic start_type=\"new\"\}: /}" > "$debug_file" ;;
+    nested_spans)
+      printf '%s\n' '2026-10-31T06:53:11.583409Z DEBUG startup:startup.session_create:timer{name="session.new_session" otel.name="session.new_session"}:timer{name="session.spawn_session_actor" otel.name="session.spawn_session_actor"}:timer{name="session.spawn" otel.name="session.spawn"}:startup.session_spawn:session.spawn{session_id=fixture client_type=Generic start_type="new"}:startup.spawn_actor.agent_build: xai_grok_agent::builder: tools allowlist applied agent=grok-build-plan allowed=["read_file", "list_dir", "grep"]' > "$debug_file"
+      ;;
     reordered_allowed)
       printf '%s\n' '2026-08-27T07:16:41.995595Z DEBUG xai_grok_agent::builder: tools allowlist applied allowed=["grep", "read_file", "list_dir"]' > "$debug_file"
       ;;
@@ -438,7 +441,7 @@ for debug_case in absent empty; do
     "Grok $debug_case debug file shares the unenforced-allowlist diagnostic"
 done
 
-for drift_case in info trailing_field no_agent no_span reordered_allowed; do
+for drift_case in info trailing_field no_agent no_span nested_spans reordered_allowed; do
   drift_rc=0
   printf 'repo advice\n' | STUB_GROK_DEBUG="$drift_case" "$PLUGIN_ROOT/scripts/run-grok.sh" \
     --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-allowlist-$drift_case.err" \

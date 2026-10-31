@@ -382,11 +382,11 @@ if [ "$mode" != implement ]; then
         expected_set[expected_values[i]] = 1
       }
     }
-    /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ ([[:alnum:]_.-]+[{][^}]*[}]: )?xai_grok_agent::builder: tools allowlist / {
+    /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ ([[:alnum:]_.:-]+([{][^}]*[}])?: *)*xai_grok_agent::builder: tools allowlist / {
       last = $0
     }
     END {
-      applied = "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ ([[:alnum:]_.-]+[{][^}]*[}]: )?xai_grok_agent::builder: tools allowlist applied([[:space:]]|$)"
+      applied = "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]+Z [A-Z]+ ([[:alnum:]_.:-]+([{][^}]*[}])?: *)*xai_grok_agent::builder: tools allowlist applied([[:space:]]|$)"
       if (last !~ applied || !match(last, /(^|[[:space:]])allowed=\[[^]]*\]([[:space:]]|$)/)) {
         exit 1
       }
