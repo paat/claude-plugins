@@ -25,19 +25,32 @@ if [[ ${1:-} == --feeds-only ]]; then
   exit 0
 fi
 [[ $# == 0 ]] || { log 'usage: refresh-model-versions.sh [--feeds-only]'; exit 2; }
-section() { # name command...: append one sorted, non-empty catalog section
+section() { # [optional] name command...: append one sorted, non-empty catalog section
+  local optional=0
+  [[ ${1:-} == optional ]] && { optional=1; shift; }
   local ids
-  ids="$("${@:2}")" && [[ -n $ids ]] || { log "FAIL: empty $1 catalog"; exit 1; }
+  if ! ids="$("${@:2}")" || [[ -z $ids ]]; then
+    [[ $optional == 1 ]] || { log "FAIL: empty $1 catalog"; exit 1; }
+    log "skip: no $1 catalog (CLI missing or v1)"
+    return 0
+  fi
   printf '## %s\n%s\n' "$1" "$(sort -uV <<<"$ids")" >>"$STATE/catalog.new"
 }
 codex_ids() { jq -r '.models[].slug' "$HOME/.codex/models_cache.json"; }
 grok_ids() { timeout 120 grok models </dev/null | sed -nE 's/^ +[-*] ([^ ]+).*/\1/p'; }
 agy_ids() { timeout 120 agy models </dev/null | awk -F'\t' 'NF > 1 { print $1 }'; }
+opencode_ids() { timeout 120 opencode models --standalone </dev/null | sed -n 's#^opencode-go/##p'; }
 
 : >"$STATE/catalog.new"
 section "codex (~/.codex/models_cache.json)" codex_ids
 section "grok (grok models)" grok_ids
 section "agy (agy models)" agy_ids
+section optional "opencode (opencode models)" opencode_ids
+# First sight of the Go catalog seeds state so current models are not all "new".
+if grep -qF '## opencode (opencode models)' "$STATE/catalog.new" && ! grep -qF '## opencode (opencode models)' "$facts"; then
+  sed -n '/^## opencode (opencode models)$/,$p' "$STATE/catalog.new" >>"$facts"
+  log 'seeded opencode catalog'
+fi
 stale_feeds=''
 refresh_feeds "$STATE/catalog.new" "$pool" || stale_feeds='openrouter, arena-webdev, arena-agent, terminal'
 # A CLI addition must belong to a vendor family represented in the pool.
@@ -97,8 +110,9 @@ preference, not agentic success. Terminal-Bench is undocumented, licence UNKNOWN
    agent and command frontmatter, README or doc lines stating a current default)
    where the catalog lists a newer version of the same family and tier, e.g.
    gpt-6-astra -> gpt-6.1-astra. The new ID must be listed for the CLI that
-   runs the pin: a Codex pin needs the codex section. Leave pins for CLIs
-   without a catalog section unchanged. For pool-tiers.tsv, apply the local
+   runs the pin: a Codex pin needs the codex section, an OpenCode pin the
+   opencode section. Leave pins for CLIs without a catalog section unchanged.
+   For pool-tiers.tsv, apply the local
    outcome gate above even to a same-family version refresh.
 2. Never change family or tier (opus -> fable, flash -> pro, sol -> astra), local
    model names, Muse pins (do not follow the CLI catalog default), changelog or history text, or
