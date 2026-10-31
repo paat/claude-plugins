@@ -180,12 +180,6 @@ if [ -n "${avail_kb:-}" ] && [ "$avail_kb" -lt 2097152 ]; then
 fi
 
 usable="$(printf '%s' "$providers_json" | jq '[.[] | select(.status=="usable")] | length')"
-if [ "$usable" -eq 0 ]; then
-  echo "PREFLIGHT FAIL: zero active reviewer legs are usable." >&2
-  printf '%s\n' "$providers_json" >&2
-  exit 1
-fi
-
 if [ "$usable" -lt "$min_ok_legs" ]; then
   available_backup_count=0
   available_backup_names=""
@@ -196,6 +190,11 @@ if [ "$usable" -lt "$min_ok_legs" ]; then
       available_backup_names="${available_backup_names}${available_backup_names:+, }$backup"
     fi
   done <<< "$backup_legs"
+  if [ "$usable" -eq 0 ] && [ "$available_backup_count" -lt "$min_ok_legs" ]; then
+    echo "PREFLIGHT FAIL: zero active reviewer legs are usable." >&2
+    printf '%s\n' "$providers_json" >&2
+    exit 1
+  fi
   if [ $((usable + available_backup_count)) -lt "$min_ok_legs" ]; then
     echo "PREFLIGHT FAIL: usable legs ($usable) below TRIBUNAL_MIN_OK_LEGS ($min_ok_legs)." >&2
     exit 1

@@ -6022,6 +6022,12 @@ test_preflight_backup_quorum() {
   tr_check "preflight keeps the existing quorum failure when no backup is available" bash -c '
     [ "$1" -ne 0 ] && grep -Fxq "PREFLIGHT FAIL: usable legs (1) below TRIBUNAL_MIN_OK_LEGS (2)." "$2"' \
     _ "$ec" "$work/preflight.err"
+  printf 'T2\tcodex\tgpt-6.1-sol\tmedium\nT2\tclaude\tclaude-sonnet-5-5\tmedium\nT2\tgrok\tgrok-4.7\tmedium\nT2\tmuse\tmuse-spark-1.3\tmedium\n' > "$panel"
+  out="$(TRIBUNAL_CLAUDE=on pre 2> "$work/preflight.err")" || true
+  tr_check "preflight lets backups fill the quorum when no selected leg is usable" jqe '
+    ([.providers[] | select(.status=="usable")] | length) == 0
+    and .backup_legs == ["grok","muse"]
+    and any(.warnings[]; .name=="backup-quorum" and (.note|contains("grok")) and (.note|contains("muse")))' <<< "$out"
   rm -rf "$work"
 }
 
