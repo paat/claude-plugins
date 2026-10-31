@@ -146,7 +146,8 @@ The first run only seeds fresh state; triggers require a later run against the s
 State, the handled catalog, and the last run log live in `~/.local/state/model-refresh/`.
 It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and the `codex`, `grok`, and `agy` CLIs (the opencode CLI is optional); it
 fails closed when any of the `codex`, `grok`, or `agy` catalogs comes back
-empty, and the first run only seeds state.
+empty, and the first sight of the opencode section seeds it (codex/grok/agy are
+not seeded).
 
 The opt-in DeepSeek leg (`tribunal-review`, default `deepseek-v4-pro`) is excluded from this refresh; its pin is bumped by hand.
 

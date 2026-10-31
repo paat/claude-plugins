@@ -36,6 +36,9 @@ section() { # [optional] name command...: append one sorted, non-empty catalog s
   fi
   printf '## %s\n%s\n' "$1" "$(sort -uV <<<"$ids")" >>"$STATE/catalog.new"
 }
+section_block() { # name file: that section's block, bounded by the next ## header
+  awk -v h="## $1" '!f && $0 == h { f = 1; print; next } f { if (/^## /) exit; print }' "$2"
+}
 codex_ids() { jq -r '.models[].slug' "$HOME/.codex/models_cache.json"; }
 grok_ids() { timeout 120 grok models </dev/null | sed -nE 's/^ +[-*] ([^ ]+).*/\1/p'; }
 agy_ids() { timeout 120 agy models </dev/null | awk -F'\t' 'NF > 1 { print $1 }'; }
@@ -46,10 +49,15 @@ section "codex (~/.codex/models_cache.json)" codex_ids
 section "grok (grok models)" grok_ids
 section "agy (agy models)" agy_ids
 section optional "opencode (opencode models)" opencode_ids
-# First sight of the Go catalog seeds state so current models are not all "new".
-if grep -qF '## opencode (opencode models)' "$STATE/catalog.new" && ! grep -qF '## opencode (opencode models)' "$facts"; then
-  sed -n '/^## opencode (opencode models)$/,$p' "$STATE/catalog.new" >>"$facts"
-  log 'seeded opencode catalog'
+# First sight of the Go catalog seeds state so current models are not all "new";
+# a skipped sight carries the last block over so the baseline is not dropped.
+if grep -qF '## opencode (opencode models)' "$STATE/catalog.new"; then
+  if ! grep -qF '## opencode (opencode models)' "$facts"; then
+    section_block 'opencode (opencode models)' "$STATE/catalog.new" >>"$facts"
+    log 'seeded opencode catalog'
+  fi
+elif grep -qF '## opencode (opencode models)' "$facts"; then
+  section_block 'opencode (opencode models)' "$facts" >>"$STATE/catalog.new"
 fi
 stale_feeds=''
 refresh_feeds "$STATE/catalog.new" "$pool" || stale_feeds='openrouter, arena-webdev, arena-agent, terminal'
