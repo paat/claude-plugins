@@ -5,9 +5,10 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 
 # Tribunal Loop
 
-Multi-provider code review with inline arbitration. By default the panel is Codex
-(repo-walking), Grok (repo-walking), Muse (repo-walking), and Claude Code (diff-only).
-Gemini, DeepSeek, and Qwen are opt-in. The calling context arbitrates
+Multi-provider code review with inline arbitration. By default the tribunal selects
+3 available legs for `TRIBUNAL_RISK` (default `T2`) from `scripts/review-panel.tsv`
+(e.g. Codex, Claude, OpenCode Go, with Grok, Muse, DeepSeek, Gemini, and Qwen in
+fallback order); `TRIBUNAL_<PROVIDER>=on|off` forces inclusion or exclusion. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
@@ -60,28 +61,25 @@ one JSON object for its provider.
 
 ```bash
 mkdir -p "$RUN_DIR"
+. "$TRIBUNAL_PLUGIN_ROOT/scripts/lib.sh" && tribunal_select_panel
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-codex-review.sh" > "$RUN_DIR/codex.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-gemini-review.sh" > "$RUN_DIR/gemini.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-deepseek-review.sh" > "$RUN_DIR/deepseek.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$RUN_DIR/qwen.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-grok-review.sh" > "$RUN_DIR/grok.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-muse-review.sh" > "$RUN_DIR/muse.json" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-opencode-review.sh" > "$RUN_DIR/opencode.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-claude-review.sh" > "$RUN_DIR/claude.json" &
 wait
 ```
 
-The scripts preserve the previous runner behavior: unique temp dirs, capped
-`AGENTS.md` and `reachability.md` injection, default branch/base-ref overrides,
-disabled-provider markers, large diff staging as files where needed, JSON output
-normalization, and timeout-bounded provider calls. Codex and Claude use one strict
-review schema; Codex also persists its final response independently of stdout.
-The DeepSeek wrapper invokes `dsh` only when enabled, with a read-only sandbox,
-approval disabled, and a prompt-carried review schema.
+Each wrapper manages its own scratch dir, capped `AGENTS.md` / `reachability.md`
+injection, base-ref overrides, disabled markers, timeout, and output normalization.
 
-Collect Codex, Gemini, DeepSeek, Qwen, Grok, Muse, and Claude outputs. Treat disabled
+Collect Codex, Gemini, DeepSeek, Qwen, Grok, Muse, OpenCode, and Claude outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as
-provider failure and continue with remaining non-disabled providers. For an error starting
-with `plan limit:`, run one backup leg per `references/provider-policy.md`.
+provider failure and continue with remaining non-disabled providers. When a leg hits
+`plan limit:` or `ok` legs fall below `TRIBUNAL_MIN_OK_LEGS`, run backups per `references/provider-policy.md`.
 Report per-leg results with status using `references/output-contract.md`, including in human progress updates.
 
 ### PR delivery evidence
@@ -220,7 +218,7 @@ Any `must-remove-before-merge` scope finding makes the verdict at least
 - The zero-findings shortcut requires every non-disabled provider to have produced a leg (`status == "ok"`)
   with zero findings, no blocking scope findings, and no sealed ignored-path signals, deleted-path signals, or vacuous mutation-gate signals requiring repository-policy findings:
   `APPROVE`, confidence `0.95`.
-- `APPROVE` also requires at least the sealed `panel_policy.min_ok_legs` floor of `ok` legs (from `TRIBUNAL_MIN_OK_LEGS`, default 1; see `references/provider-policy.md`).
+- `APPROVE` also requires at least the sealed `panel_policy.min_ok_legs` floor of `ok` legs (from `TRIBUNAL_MIN_OK_LEGS`, default 2; a 1-leg `APPROVE` is never allowed; see `references/provider-policy.md`).
 - `APPROVE` requires confidence `0.95` when every non-disabled provider is `ok`. Any `failed` provider prevents the shortcut but still permits `APPROVE` with confidence `> 0` and `< 0.95`.
   Assess remaining evidence explicitly; justify reduced confidence and name each failed provider and missing independent review in `tribunal_verdict.rationale` and `summary`.
   Keep manifest statuses in `provider_assessment`; `disabled` remains excluded from quorum and never triggers reduced confidence.
@@ -256,5 +254,5 @@ conflicting arbitration for that collection fails.
 ## Trust Hierarchy
 
 The calling context makes the final decision. Codex, Gemini, DeepSeek,
-Qwen, Grok, Muse, and Claude are equal advisory peers. Verify reviewer claims against the
+Qwen, Grok, Muse, OpenCode, and Claude are equal advisory peers. Verify reviewer claims against the
 diff and reachable code before accepting them.

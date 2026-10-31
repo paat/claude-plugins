@@ -14,11 +14,13 @@ FILES=(
   scripts/dsh-review.patch.yml
   scripts/generate-runner-bundle.sh
   scripts/lib.sh
+  scripts/review-panel.tsv
   scripts/run-claude-review.sh
   scripts/run-codex-review.sh
   scripts/run-gemini-review.sh
   scripts/run-grok-review.sh
   scripts/run-muse-review.sh
+  scripts/run-opencode-review.sh
   scripts/run-deepseek-review.sh
   scripts/run-qwen-review.sh
 )

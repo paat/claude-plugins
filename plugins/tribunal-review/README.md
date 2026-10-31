@@ -1,6 +1,6 @@
 # tribunal-review
 
-Multi-provider code review plugin for Claude Code and Codex. **By default** it runs Codex (GPT-6 Astra at medium effort), **Grok** (grok-4.7) via the xAI Grok CLI, **Muse** (`muse-spark-1.3`) via Meta's Muse Code CLI, and **Claude** (sonnet) via the host Claude Code CLI, then the calling context arbitrates the findings and issues the verdict. **Gemini** (via agy, web/CVE search), **DeepSeek V4 Pro** via DeepSeek Harness (`dsh`), and **Qwen** (qwen3.8-max) via the Qwen Code CLI are available **opt-in**. To enable DeepSeek, set `TRIBUNAL_DEEPSEEK=on`; it defaults to `deepseek-v4-pro` on the direct DeepSeek API. Codex, Grok, and Muse **walk the repo**; Codex uses isolated user configuration and unrestricted execution inside the development-container security boundary while its review prompt prohibits file changes. Grok walks under a tools allowlist with host config isolated (web search off); sandbox defaults to `none` because the development container is the security boundary (kernel `read-only` needs nested user namespaces and fails inside many containers — issue #378; opt in with `TRIBUNAL_GROK_SANDBOX=read-only`). Muse walks with write and shell tools disabled. **Claude** is the panel's **diff-only** lens (run from a scratch dir with all tools disabled), restoring the harness/context diversity the walking legs give up. The opt-in Gemini leg is also diff-only; the opt-in DeepSeek and Qwen legs walk the repo on their own configured transports. When the checkout holds untracked `.env*` files outside ignored directories, every repo-walking leg walks a scratch clone of the reviewed HEAD instead, so it cannot read them and send the values to its provider; the shell-capable Qwen and DeepSeek legs also start with a scrubbed environment (issue [#589](https://github.com/paat/claude-plugins/issues/589)).
+Multi-provider code review plugin for Claude Code and Codex. **By default** it selects **3 distinct available reviewer legs** (`TRIBUNAL_PANEL_SIZE`, default `3`) for the PR risk tier (`TRIBUNAL_RISK`: `T1`–`T4`, default `T2`) from `scripts/review-panel.tsv` — e.g. at `T2`, **Codex** (`gpt-6.1-sol` at `medium` effort), **Claude** (`claude-sonnet-5-5` at `medium`), and **OpenCode Go** (`opencode-go/glm-5.3#high` via OpenCode v2), falling back in table order through **Grok** (`grok-4.7`), **Muse** (`muse-spark-1.3`), **DeepSeek V4 Pro** (`dsh`), **Gemini** (`agy`, web/CVE search), and **Qwen** (`qwen3.8-max`). At least **2 `ok` legs** (`TRIBUNAL_MIN_OK_LEGS`, default `2`, range `2..8`) are required for `APPROVE`. Set `TRIBUNAL_<PROVIDER>=on|off` to force a leg in or out, and `TRIBUNAL_<PROVIDER>_MODEL` / `TRIBUNAL_<PROVIDER>_EFFORT` to override its selected row. Codex, OpenCode, Grok, Muse, DeepSeek, and Qwen **walk the repo**: Codex runs inside the development-container security boundary while its review prompt prohibits file changes; OpenCode v2 runs `--agent plan` (edit tool denied); Grok walks under a read-only tools allowlist with host config isolated (web search off, `--sandbox none` by default — issue #378; opt in with `TRIBUNAL_GROK_SANDBOX=read-only`); Muse walks with write and shell tools disabled; DeepSeek walks under `dsh`'s read-only sandbox. **Claude** and **Gemini** are **diff-only** lenses. When the checkout holds untracked `.env*` files outside ignored directories, every repo-walking leg walks a scratch clone of the reviewed HEAD instead, and shell-capable OpenCode, Muse, Qwen, and DeepSeek legs start with a scrubbed environment (issue [#589](https://github.com/paat/claude-plugins/issues/589)).
 
 ## Mission Fit
 
@@ -16,8 +16,9 @@ process before merge.
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`, npm package `@deepseek-ai/dsh`; Node `^22.19 || >=24`) — **optional**, for the opt-in DeepSeek leg (`TRIBUNAL_DEEPSEEK=on`). Default model: `deepseek-v4-pro`; override with `TRIBUNAL_DEEPSEEK_MODEL`. Configure the key in the environment (`DEEPSEEK_API_KEY`), in `${DSH_HOME:-$HOME/.dsh}/.credentials.yaml` (`refs.DEEPSEEK_API_KEY`), or in `${DSH_HOME:-$HOME/.dsh}/.env`; dsh resolves the key, and preflight checks presence without printing it. The default model pin is not covered by the repository's daily model-ID refresh (`scripts/refresh-model-versions.sh` has no DeepSeek catalog source); bump `deepseek-v4-pro` by hand when DeepSeek ships a successor.
 - [Qwen Code CLI](https://github.com/QwenLM/qwen-code) (`npm install -g @qwen-code/qwen-code`, Node 20+) — **optional**, only for the **Qwen leg, which is opt-in** (`TRIBUNAL_QWEN=on`; off by default pending the issue #46 false-positive fix). Auth via `DASHSCOPE_API_KEY` (pay-as-you-go DashScope; new accounts get a free 1M+1M-token tier), an OpenAI-compatible / OpenRouter key, or a credential stored in `~/.qwen/settings.json`.
 - [Grok CLI](https://github.com/xai-org/grok-cli) (`grok`, "Grok Build") — needed for the **Grok leg, which runs by default** (disable with `TRIBUNAL_GROK=off`). Repo-walking under a tools allowlist (`read_file,list_dir,grep`) with `--sandbox none` by default (container is the security boundary; set `TRIBUNAL_GROK_SANDBOX=read-only` where unprivileged user namespaces work) and `--permission-mode bypassPermissions` (issue #378; `dontAsk` cancels multi-turn inspect). Host Claude/Grok user config is isolated to a scratch HOME while `auth.json` is **copied** (not symlinked) and any OIDC refresh is written back under `flock` so Max/SuperGrok autonomous loops keep a live session (issue #374). Web search off. The runner pins a session id, bounds inspect turns, and with `TRIBUNAL_GROK_RECOVERY=permit` (default), on progress-only/timeout **resumes tools-off** for a schema verdict (never reports success on a plan announcement alone; issue #331). Non-`EndTurn` stop reasons without a schema verdict fail as a dead leg (not a quiet empty review). Auth via the CLI's own login (`grok login`, or `grok login --device-code` headless); preflight skips a present CLI with no usable session. Max subscription users should prefer a durable OIDC session (`refresh_token` in `~/.grok/auth.json`) over pasting `XAI_API_KEY` (console billing rail). If the CLI is missing or unsigned-in the leg self-emits an error JSON and the run degrades to the remaining quorum.
-- [Muse Code CLI](https://meta.ai) (`muse`) — needed for the **Muse leg, which runs by default** (disable with `TRIBUNAL_MUSE=off`). Runs `muse exec --yolo` (headless exec otherwise blocks on an approval prompt) with `--disable-write --disable-shell --disable-web-tools`, so only read and search tools remain, and `--output-schema` for the review JSON. Requests `muse-spark-1.3` unless `TRIBUNAL_MUSE_MODEL` is set. `TRIBUNAL_MUSE_MODEL=default` passes no `--model` and runs whatever the installed CLI selects; a `-contributor` id lets Meta use the content for product improvement. Auth via `muse login` or `META_API_KEY`.
-- [Claude Code CLI](https://docs.claude.com/claude-code) (`claude`) — needed for the **Claude diff-only leg, which runs by default** (disable with `TRIBUNAL_CLAUDE=off`). This is the same CLI you launch the tribunal from, so it is already present and authenticated; the leg just invokes `claude -p` with the configured `TRIBUNAL_CLAUDE_MODEL` (default `sonnet`).
+- [Muse Code CLI](https://meta.ai) (`muse`) — **optional**, for the Muse leg (`muse exec --yolo` with `--disable-write --disable-shell --disable-web-tools` and `--output-schema`; default `muse-spark-1.3`; `TRIBUNAL_MUSE_MODEL=default` passes no `--model`, where a `-contributor` id may use content for product improvement; auth via `muse login` or `META_API_KEY`).
+- [OpenCode CLI v2+](https://opencode.ai) (`opencode`, `opencode --version` major >= 2) — **optional**, for the **OpenCode Go** leg (`opencode run --standalone --format json --agent plan -m "opencode-go/<model>[#<effort>]"`). OpenCode v1 is refused.
+- [Claude Code CLI](https://docs.claude.com/claude-code) (`claude`) — for the **Claude diff-only leg** (`claude -p` from a scratch directory with tools disabled).
 - [GitHub CLI](https://cli.github.com) (`gh`) — optional for standalone branch review (which can fall back to Git), but required for sealed PR delivery evidence
 - `jq` (used to parse and validate reviewer JSON output)
 - `python3` (fallback UUID generation when `uuidgen` and `/proc/sys/kernel/random/uuid` are unavailable)
@@ -126,63 +127,71 @@ The closing loop is **capped and severity-honest** so it cannot spiral:
 ## Configuration
 
 The reviewer settings and optional caller identity are configurable via environment variables (export
-them before launching the host). The default panel is **Codex + Grok + Muse + Claude**; Gemini, DeepSeek,
-and Qwen stay **off** until you opt in.
+them before launching the host). By default `tribunal_select_panel` picks `TRIBUNAL_PANEL_SIZE` (`3`)
+available legs for `TRIBUNAL_RISK` (default `T2`) from `scripts/review-panel.tsv`, and remaining
+available rows serve as backups when a leg hits a plan limit or `ok` legs fall below
+`TRIBUNAL_MIN_OK_LEGS` (`2`).
 DeepSeek uses the direct DeepSeek API and walks the repository with a read-only sandbox. The sandbox restricts writes; reads remain within the development-container security boundary. For projects with data-residency constraints, enabling this leg is the operator's decision.
 
 | Variable | Default | Effect |
 |---|---|---|
 | `TRIBUNAL_BASE_BRANCH` | resolved default branch | Override the default branch name used to build `origin/<branch>` when reviewing. Normally unnecessary; Codex resolves GitHub default branch, `git remote show origin`, then `origin/HEAD`. |
 | `TRIBUNAL_BASE_REF` | `origin/<resolved-default>` | Override the exact base ref used for `git diff "$BASE_REF"...HEAD`. Use this for unusual remotes or review bases. |
-| `TRIBUNAL_CODEX` | `on` | Set to `off` to skip the Codex leg. The run degrades to the remaining quorum; the arbiter reports Codex as `disabled`, not failed. Only the literal `off` disables. |
-| `TRIBUNAL_CODEX_MODEL` | `gpt-6-astra` | Model passed explicitly to `codex exec -m`. An environment value overrides this default. |
-| `TRIBUNAL_CODEX_EFFORT` | `medium`, or the `TRIBUNAL_RISK` effort | Reasoning effort passed explicitly through `model_reasoning_effort`. An environment value overrides this default. The Codex leg forces isolated user configuration and always passes `--dangerously-bypass-approvals-and-sandbox`; the development container is the security boundary. |
-| `TRIBUNAL_GEMINI` | `off` | Set to `on` to enable the Gemini leg (web/CVE search). **Off by default**; when off the arbiter reports Gemini as `disabled`, not failed. Only the literal `on` enables. |
-| `TRIBUNAL_GEMINI_MODEL` | agy default | Model passed to `agy --model` (see `agy models`). Point it at a faster/cheaper slot to keep a full quorum while controlling latency/cost. |
-| `TRIBUNAL_DEEPSEEK` | `off` | Set to `on` to enable the DeepSeek leg. **Off by default** (issue [#461](https://github.com/paat/claude-plugins/issues/461)); when off the arbiter reports DeepSeek as `disabled`, not failed. Only the literal `on` enables. |
-| `TRIBUNAL_DEEPSEEK_MODEL` | `deepseek-v4-pro` | Model in the dsh `agent-default-model` overlay row; provider stays `deepseek-official`. |
-| `DEEPSEEK_API_KEY` | _(unset)_ | DeepSeek direct-API credential; dsh also resolves it from `${DSH_HOME:-$HOME/.dsh}/.credentials.yaml` (`refs.DEEPSEEK_API_KEY`) or `${DSH_HOME:-$HOME/.dsh}/.env`. The wrapper never reads or copies the key. |
-| `TRIBUNAL_QWEN` | `off` | Set to `on` to enable the Qwen leg. **Off by default** — a real-world audit found it reasons over the diff text rather than grounding in files, emitting repeated false positives (phantom whitespace, nonexistent symbols/SQL, hallucinated line numbers; [issue #46](https://github.com/paat/claude-plugins/issues/46)); disabled pending the mandatory-verification fix. When off the arbiter reports Qwen as `disabled`, not failed. Only the literal `on` enables. |
-| `TRIBUNAL_QWEN_MODEL` | `qwen3.8-max` | Model passed to `qwen --model` (Qwen3.8 flagship, validated on DashScope Intl). With OpenAI-compatible auth, qwen-code runs only ids listed under `modelProviders.openai` in `~/.qwen/settings.json`, so add `qwen3.8-max` there first. Qwen ids change often through 2026 **and vary by account/region**; qwen-code **silently downgrades an unknown id to its default with no error** (the leg surfaces the model that actually ran in its output `model` field and warns on stderr when it differs from the requested id). Override with a valid id for your account — e.g. `qwen3.6-plus` for a 1M-context window, or a coder slot like `qwen3-coder-plus` if your account enables it. |
-| `DASHSCOPE_API_KEY` | _(unset)_ | Qwen DashScope credential (primary transport). The Qwen Code CLI also accepts `OPENAI_API_KEY`+`OPENAI_BASE_URL` (OpenAI-compatible) or `OPENROUTER_API_KEY` (`qwen/...` ids), or a credential stored via `~/.qwen/settings.json`. |
-| `TRIBUNAL_GROK` | `on` | Set to `off` to skip the Grok leg (xAI Grok CLI; repo-walking with tools allowlist; sandbox default `none` + `bypassPermissions` — issue #378; host config isolated with durable OIDC auth copy/write-back — issue #374; inspect→tools-off finalize resume for deterministic completion — issue #331). **On by default**; when off the arbiter reports Grok as `disabled`, not failed. Only the literal `off` disables. Autonomous Max/OAuth users need a live `grok login` session (refresh token), not re-login every round. |
-| `TRIBUNAL_GROK_EFFORT` | the `TRIBUNAL_RISK` effort, else CLI default | Inspect-phase Grok `--reasoning-effort` (`low`, `medium`, `high`, `xhigh`). Tools-off finalize always uses `low` to finish from the diff and session evidence within its shorter budget; high-effort reasoning can exhaust both timeouts (#661). |
-| `TRIBUNAL_GROK_MODEL` | `grok-4.7` | Model passed to `grok --model`. The leg surfaces the model that actually ran (from the CLI's `.modelUsage`) in its output `model` field. |
-| `TRIBUNAL_GROK_SANDBOX` | `none` | Grok CLI `--sandbox` profile. Defaults to `none` (development container is the boundary). Set `read-only` on hosts with working unprivileged user namespaces. Also honors `GROK_SANDBOX` when this variable is unset. |
-| `TRIBUNAL_LEG_ENV` | empty | Space-separated variable names (or `PREFIX*` patterns) passed into the scrubbed Qwen/DeepSeek leg environment, e.g. a custom proxy or auth variable. |
+| `TRIBUNAL_RISK` | _(unset, selects `T2` rows)_ | PR risk tier `T1`–`T4` (multi-model-orchestrator complexity tier). Selects the tier's rows, models, and efforts from `scripts/review-panel.tsv` (only Codex reaches `xhigh` at `T4`). Environment only; explicit `TRIBUNAL_<PROVIDER>_MODEL` / `*_EFFORT` win. |
+| `TRIBUNAL_PANEL_SIZE` | `3` | Number of reviewer legs selected from the active tier (`2..8`; forced `TRIBUNAL_<PROVIDER>=on` legs count toward seats and all run even if they exceed `TRIBUNAL_PANEL_SIZE`). Sealed in `panel_policy`. |
+| `TRIBUNAL_REVIEW_PANEL` | `scripts/review-panel.tsv` | Override path for the `tier<TAB>provider<TAB>model<TAB>effort` preference table (`-` passes no effort). Environment only. |
+| `TRIBUNAL_MIN_OK_LEGS` | `2` | Per-environment APPROVE floor (`2..8`; `1` is rejected because a one-leg `APPROVE` is not allowed). Environment only; sealed into `manifest.json` under `panel_policy`. |
+| `TRIBUNAL_BACKUP_LEGS` | remaining available rows | Comma-separated backup leg order (any of the 8 providers) or `off`. Runs idle installed backups for `plan limit:` failures and when `ok` legs after pass 1 are below `TRIBUNAL_MIN_OK_LEGS`; original failed legs stay `failed`. |
+| `TRIBUNAL_CODEX` | selected by panel (`on` standalone) | `on` forces Codex into the panel; `off` excludes it (`disabled`). |
+| `TRIBUNAL_CODEX_MODEL` | tier row (`gpt-6-astra` standalone) | Model passed to `codex exec -m`; overrides the panel table row. |
+| `TRIBUNAL_CODEX_EFFORT` | tier row (`medium` standalone) | Reasoning effort passed through `model_reasoning_effort`; overrides the panel table row. |
+| `TRIBUNAL_OPENCODE` | selected by panel (`off` standalone) | `on` forces the OpenCode Go leg into the panel; `off` excludes it (`disabled`). Requires OpenCode v2+. |
+| `TRIBUNAL_OPENCODE_MODEL` | tier row (`kimi-k3.1-pro` standalone) | OpenCode Go model id passed as `opencode-go/<model>[#<effort>]` (e.g. `glm-5.3`, `kimi-k3.1-pro`). |
+| `TRIBUNAL_OPENCODE_EFFORT` | tier row (`high` standalone) | OpenCode Go variant appended after `#` (`low`, `high`, `max`, or `-` for none). |
+| `TRIBUNAL_OPENCODE_TIMEOUT_SECONDS` | `900` | OpenCode wall timeout in seconds (clamped `30..1800`). |
+| `TRIBUNAL_GEMINI` | selected by panel (`off` standalone) | `on` forces the Gemini (`agy`, web/CVE search) leg into the panel; `off` excludes it. |
+| `TRIBUNAL_GEMINI_MODEL` | tier row (`default`) | Model passed to `agy --model` (`default` uses agy's default). |
+| `TRIBUNAL_DEEPSEEK` | selected by panel (`off` standalone) | `on` forces the DeepSeek (`dsh`) leg into the panel; `off` excludes it. |
+| `TRIBUNAL_DEEPSEEK_MODEL` | tier row (`deepseek-v4-pro`) | Model in the dsh `agent-default-model` overlay row; provider stays `deepseek-official`. |
+| `TRIBUNAL_DEEPSEEK_EFFORT` | tier row (`low` at T1, else `high`) | Effort in the dsh `agent-default-model` overlay row. |
+| `DEEPSEEK_API_KEY` | _(unset)_ | DeepSeek direct-API credential; dsh also resolves it from `${DSH_HOME:-$HOME/.dsh}/.credentials.yaml` (`refs.DEEPSEEK_API_KEY`) or `${DSH_HOME:-$HOME/.dsh}/.env`. |
+| `TRIBUNAL_QWEN` | selected by panel (`off` standalone) | `on` forces the Qwen leg into the panel; `off` excludes it. |
+| `TRIBUNAL_QWEN_MODEL` | tier row (`qwen3.8-max`) | Model passed to `qwen --model`. |
+| `DASHSCOPE_API_KEY` | _(unset)_ | Qwen DashScope credential (also accepts OpenAI-compatible, OpenRouter, or `~/.qwen/settings.json`). |
+| `TRIBUNAL_GROK` | selected by panel (`on` standalone) | `on` forces the Grok leg into the panel; `off` excludes it. |
+| `TRIBUNAL_GROK_EFFORT` | tier row | Inspect-phase Grok `--reasoning-effort` (`low`, `medium`, `high`, `xhigh`); finalize always uses `low`. |
+| `TRIBUNAL_GROK_MODEL` | tier row (`grok-4.7`) | Model passed to `grok --model`. |
+| `TRIBUNAL_GROK_SANDBOX` | `none` | Grok CLI `--sandbox` profile (`none` or `read-only`). |
+| `TRIBUNAL_LEG_ENV` | empty | Space-separated variable names (or `PREFIX*` patterns) passed into scrubbed leg environments (`opencode`, `muse`, `qwen`, `deepseek`). |
 | `TRIBUNAL_ALLOW_ENV_FILES` | `0` | `1` lets repo-walking legs walk a checkout that holds untracked `.env*` files instead of a scratch clone of HEAD. |
-| `TRIBUNAL_GROK_PERMISSION_MODE` | `bypassPermissions` | Grok CLI `--permission-mode`. `dontAsk` cancels multi-turn inspect in practice (issue #378). |
-| `TRIBUNAL_GROK_TIMEOUT_SECONDS` | `600` | Inspect-phase wall timeout (seconds) before tools-off finalize resume when recovery is `permit`. |
+| `TRIBUNAL_GROK_PERMISSION_MODE` | `bypassPermissions` | Grok CLI `--permission-mode`. |
+| `TRIBUNAL_GROK_TIMEOUT_SECONDS` | `600` | Inspect-phase wall timeout (seconds). |
 | `TRIBUNAL_GROK_RECOVERY` | `permit` | `permit` allows tools-off finalize recovery; `reject` excludes recovery from quorum. Sealed at collect. |
 | `TRIBUNAL_GROK_FINALIZE_TIMEOUT_SECONDS` | `120` | Finalize-phase wall timeout after resume with tools disabled. |
-| `TRIBUNAL_GROK_MAX_TURNS` | `8` at T3; otherwise `30` | Inspect-phase `--max-turns` budget; explicit values override the risk-tier default. |
+| `TRIBUNAL_GROK_MAX_TURNS` | `8` at T3; otherwise `30` | Inspect-phase `--max-turns` budget. |
 | `TRIBUNAL_GROK_FINALIZE_MAX_TURNS` | `6` | Finalize-phase `--max-turns` budget. |
-| `TRIBUNAL_MUSE` | `on` | Set to `off` to skip the Muse leg. When off the arbiter reports Muse as `disabled`, not failed. Only the literal `off` disables. |
-| `TRIBUNAL_MUSE_MODEL` | `muse-spark-1.3` | Model passed to `muse exec --model`. Unset requests `muse-spark-1.3`. `default` passes no `--model` and accepts the model the CLI configures (a `-contributor` id may let Meta use the content for product improvement). Any other id fails when the run configured a different model. The leg reports the configured model in its output `model` field. |
-| `TRIBUNAL_MUSE_EFFORT` | the `TRIBUNAL_RISK` effort, else CLI default | Muse `--reasoning-effort` (`minimal` through `max`). |
-| `TRIBUNAL_MUSE_TIMEOUT_SECONDS` | `600` | Wall timeout (30..1800). |
-| `TRIBUNAL_MUSE_MAX_STEPS` | `40` | `--max-model-steps` budget (1..80). |
-| `TRIBUNAL_CLAUDE` | `on` | Set to `off` to skip the Claude diff-only leg. **On by default**; when off the arbiter reports Claude as `disabled`, not failed. Only the literal `off` disables. |
-| `TRIBUNAL_CLAUDE_MODEL` | `sonnet` | Model passed to `claude -p --model` for the diff-only leg. Accepts an alias (`sonnet`, `haiku`, `opus`) or a full id (e.g. `claude-sonnet-5-5`). |
-| `TRIBUNAL_CLAUDE_EFFORT` | the `TRIBUNAL_RISK` effort, else CLI default | Claude `--effort` for the diff-only leg; never passed to a Haiku model. |
-| `TRIBUNAL_SMOKE_PROBE` | `off` | Set to `on` to make preflight verify the actual non-interactive Codex, Claude, and enabled DeepSeek transports with minimal structured responses. Each probe is a real provider request; a failed probe removes that leg from usable quorum. |
-| `TRIBUNAL_MIN_OK_LEGS` | `1` | Per-environment APPROVE floor: at least this many provider legs must seal as `ok` before `APPROVE` is valid (integer 1..7; unset/empty ⇒ 1). Set on the container/host only — never read from the repository under review. A documented lower value is the environment's degraded quorum. Membership still uses the `TRIBUNAL_<PROVIDER>` toggles. |
-| `TRIBUNAL_RISK` | _(unset)_ | PR risk tier `T1`–`T4` (multi-model-orchestrator's complexity tier). Sets reviewer effort: T1 `low`, T2 `medium`, T3 `high` (Grok `medium`), T4 `high` with Codex at `xhigh`. DeepSeek maps T1 to `low` and T2–T4 to `high`; unset uses `high`. Unset keeps other CLI defaults (Codex `medium`). Environment only; the per-provider `*_EFFORT` variables win. An invalid value fails preflight and collection. |
-| `TRIBUNAL_BACKUP_LEGS` | `deepseek` | Comma-separated opt-in legs (`deepseek`, `gemini`, `qwen`) or `off`. When a leg fails on a plan limit (402, usage limit, quota, or balance exhausted), the evidence collector runs one installed backup leg that sat out the run in its place; the limited leg stays `failed` in the manifest. Environment only. |
+| `TRIBUNAL_MUSE` | selected by panel (`on` standalone) | `on` forces the Muse leg into the panel; `off` excludes it. |
+| `TRIBUNAL_MUSE_MODEL` | tier row (`muse-spark-1.3`) | Model passed to `muse exec --model` (`default` passes no `--model`). |
+| `TRIBUNAL_MUSE_EFFORT` | tier row | Muse `--reasoning-effort` (`minimal` through `max`). |
+| `TRIBUNAL_MUSE_TIMEOUT_SECONDS` | `600` | Muse wall timeout (`30..1800`). |
+| `TRIBUNAL_MUSE_MAX_STEPS` | `40` | Muse `--max-model-steps` budget (`1..80`). |
+| `TRIBUNAL_CLAUDE` | selected by panel (`on` standalone) | `on` forces the Claude diff-only leg into the panel; `off` excludes it. |
+| `TRIBUNAL_CLAUDE_MODEL` | tier row (`sonnet` standalone) | Model passed to `claude -p --model` (alias or full id such as `claude-sonnet-5-5` or `claude-opus-5-5`). |
+| `TRIBUNAL_CLAUDE_EFFORT` | tier row | Claude `--effort` for the diff-only leg; never passed to a Haiku model. |
+| `TRIBUNAL_SMOKE_PROBE` | `off` | Set to `on` to make preflight probe usable selected Codex, Claude, OpenCode, and DeepSeek transports with minimal structured responses. |
 | `TRIBUNAL_SMOKE_TIMEOUT_SECONDS` | `60` | Per-provider timeout for the opt-in smoke probe; accepted range is 5–300 seconds. |
-| `TRIBUNAL_DIAGNOSTIC_TAILS` | `off` | Set to `on` only for local troubleshooting to include printable-ASCII 2 KiB stdout/stderr tails in failed provider artifacts. DeepSeek always omits tails to avoid exposing credentials. Phase, exit code, byte counts, and truncation remain available when tails are omitted. Tails may contain sensitive provider output. |
-| `TRIBUNAL_SCOPE_LENS` | `off` | Set to `on` to add the minimal-diff scope-control lens. The arbiter reports unrelated file changes, opportunistic refactors, unnecessary abstractions, and unrelated churn in a separate `scope_findings` section. |
-| `TRIBUNAL_CALLER_PROVIDER` | _(unset)_ | Optional informational identity for the inline calling context. It does not select or spawn an arbiter. |
-| `TRIBUNAL_CALLER_MODEL` | _(unset)_ | Optional caller model metadata. Standalone runs may leave it unset. |
-| `TRIBUNAL_CALLER_EFFORT` | _(unset)_ | Optional caller effort metadata. Standalone runs may leave it unset. |
+| `TRIBUNAL_DIAGNOSTIC_TAILS` | `off` | Set to `on` only for local troubleshooting to include printable-ASCII 2 KiB stdout/stderr tails in failed provider artifacts (DeepSeek always omits tails). |
+| `TRIBUNAL_SCOPE_LENS` | `off` | Set to `on` to add the minimal-diff scope-control lens (`scope_findings`). |
+| `TRIBUNAL_CALLER_PROVIDER` | _(unset)_ | Optional informational identity for the inline calling context. |
+| `TRIBUNAL_CALLER_MODEL` | _(unset)_ | Optional caller model metadata. |
+| `TRIBUNAL_CALLER_EFFORT` | _(unset)_ | Optional caller effort metadata. |
 
 ```bash
-export TRIBUNAL_GEMINI=on                           # add the opt-in Gemini leg (web/CVE search)
-export TRIBUNAL_DEEPSEEK=on  # add the opt-in DeepSeek leg on the direct API
-export TRIBUNAL_QWEN=on                              # add the opt-in Qwen leg (see issue #46)
-export DASHSCOPE_API_KEY=sk-...                     # Qwen auth (needed when TRIBUNAL_QWEN=on)
-export TRIBUNAL_GROK=off                             # skip the default-on Grok leg
-export TRIBUNAL_SCOPE_LENS=on                       # add minimal-diff scope-control findings
+export TRIBUNAL_RISK=T3                              # select T3 panel rows and efforts
+export TRIBUNAL_PANEL_SIZE=3                         # default: 3 distinct legs
+export TRIBUNAL_CODEX=off                            # exclude Codex; next available row fills its seat
+export TRIBUNAL_GEMINI=on                            # force Gemini into the panel
+export TRIBUNAL_SCOPE_LENS=on                        # add minimal-diff scope-control findings
 ```
 
 ### Minimal-diff scope lens
@@ -192,9 +201,9 @@ Enable `TRIBUNAL_SCOPE_LENS=on` for bug fixes, hotfixes, incident patches, and p
 Scope findings are reported separately from correctness/security findings. `must-remove-before-merge` scope findings make the verdict at least `NEEDS_WORK`; `follow-up-only` findings document cleanup without blocking approval.
 
 These knobs apply everywhere. Each standalone reviewer agent is a thin wrapper over
-its `scripts/run-*.sh` runner, so it honors the same enable/disable switches.
-Gemini, DeepSeek, and Qwen emit a `disabled` marker unless their
-`TRIBUNAL_<PROVIDER>` setting is `on`.
+its `scripts/run-*.sh` runner, so it honors the same `TRIBUNAL_<PROVIDER>` switches
+(OpenCode, Gemini, DeepSeek, and Qwen emit a `disabled` marker when invoked standalone
+without `TRIBUNAL_<PROVIDER>=on`).
 
 ## How It Works
 
@@ -202,11 +211,11 @@ Gemini, DeepSeek, and Qwen emit a `disabled` marker unless their
 Verifies you're on a feature branch (not the resolved default branch) and that there are changes to review against `origin/<default>`, then runs `scripts/preflight.sh`. The default branch is resolved from GitHub first, then `git remote show origin`, then `origin/HEAD`, with `TRIBUNAL_BASE_BRANCH` / `TRIBUNAL_BASE_REF` as overrides. Preflight checks each enabled reviewer leg and free disk space. DeepSeek needs `dsh` on PATH and a configured API key. With `TRIBUNAL_SMOKE_PROBE=on`, it also exercises the real non-interactive default transports using minimal structured responses. Problems are reported up front so a missing CLI, full disk, missing credential, or immediately broken transport fails fast here instead of hanging a launched reviewer; affected reviewers are marked skipped/failed and the run degrades to the available quorum. Preflight stops when zero reviewer legs are usable, or when fewer are usable than `TRIBUNAL_MIN_OK_LEGS`.
 
 ### Step 2: Parallel Review
-Runs Codex, Gemini, DeepSeek, Qwen, Grok, Muse, and Claude as **seven parallel Bash calls** through their `scripts/run-<provider>-review.sh` runners. By default only Codex, Grok, Muse, and Claude review; Gemini, DeepSeek, and Qwen emit disabled markers unless enabled. Codex, Grok, Muse, DeepSeek, and Qwen walk the repo with the controls described above. Claude is the default panel's diff-only reviewer, launched from a scratch directory with all tools disabled; Gemini adds the opt-in diff and web/CVE lens.
+Selects the active panel via `tribunal_select_panel` (`scripts/review-panel.tsv`) and runs Codex, Gemini, DeepSeek, Qwen, Grok, Muse, OpenCode, and Claude as **eight parallel Bash calls** through their `scripts/run-<provider>-review.sh` runners. Unselected legs emit `disabled` markers. Codex, OpenCode, Grok, Muse, DeepSeek, and Qwen walk the repo with the controls described above; Claude and Gemini are diff-only lenses.
 
 DeepSeek runs `dsh --profile headless --patch <overlay> --json -` from the review checkout, with the prompt on stdin and a scrubbed environment. The committed overlay enforces a read-only sandbox and `approval: never`, disables the permission plugin, session-log uploads, telemetry, and web tools, and sets the model and effort. The wrapper generates a per-run overlay outside the checkout for model overrides. The review prompt carries the JSON contract because dsh has no JSON-schema flag; the wrapper validates the final review and stamps `diff_stat` through the shared emitter.
 
-**Credential exposure.** Repo-walking legs (Codex, Grok, Muse, DeepSeek, Qwen) run as the operator's uid with network egress and can read any file that uid can read, including provider credentials such as `~/.dsh/.env`, `~/.codex/auth.json`, and Qwen Code credentials (settings in `~/.qwen/settings.json`, or DashScope, OpenAI, or OpenRouter keys); a prompt-injected diff could try to exfiltrate them. For repositories that review untrusted PR diffs, give the legs dedicated, low-limit review keys.
+**Credential exposure.** Repo-walking legs (Codex, OpenCode, Grok, Muse, DeepSeek, Qwen) run as the operator's uid with network egress and can read any file that uid can read, including provider credentials such as `~/.dsh/.env`, `~/.codex/auth.json`, and Qwen Code credentials (settings in `~/.qwen/settings.json`, or DashScope, OpenAI, or OpenRouter keys); a prompt-injected diff could try to exfiltrate them. For repositories that review untrusted PR diffs, give the legs dedicated, low-limit review keys.
 
 Each reviewer analyzes `git diff "$BASE_REF"...HEAD`, where `BASE_REF` defaults to the resolved `origin/<default>` branch, and returns structured findings covering logic, security, edge cases, performance, architecture, and meaningful DRY violations. If present, `AGENTS.md` is injected into each reviewer's prompt (capped at 16KB) as shared project conventions.
 
@@ -255,8 +264,9 @@ The tribunal produces a JSON verdict:
     "gemini":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
     "deepseek": { "findings_accepted": 1, "findings_rejected": 1, "false_positives": [], "status": "ok" },
     "qwen":     { "findings_accepted": 1, "findings_rejected": 0, "false_positives": [], "status": "ok" },
-    "grok":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" },
-    "muse":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" },
+    "grok":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
+    "muse":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
+    "opencode": { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" },
     "claude":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" }
   },
   "conflicts_resolved": [],
@@ -269,10 +279,10 @@ The tribunal produces a JSON verdict:
 ```
 Calling context (final decision, runs inline)
   |
-Codex · Gemini · DeepSeek · Qwen · Grok · Muse · Claude (equal advisory peers — verify findings)
+Codex · Gemini · DeepSeek · Qwen · Grok · Muse · OpenCode · Claude (equal advisory peers — verify findings)
 ```
 
-The reviewers are equal peers (up to seven; by default Codex + Grok + Muse + Claude, with Gemini, DeepSeek, and Qwen opt-in); a finding flagged by ≥2 is CONSENSUS. The calling context can override a reviewer finding, but must weigh claims on evidence rather than provider identity.
+The reviewers are equal peers (eight supported providers; 3 selected by default per tier from `scripts/review-panel.tsv`, with at least 2 `ok` legs required for `APPROVE`); a finding flagged by ≥2 is CONSENSUS. The calling context can override a reviewer finding, but must weigh claims on evidence rather than provider identity.
 
 Each review-shaped leg carries a `diff_stat` (`files_changed`, `insertions`,
 `deletions`, `base`, `base_oid`, `head_oid`, `truncated`) stamped by the runner

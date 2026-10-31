@@ -1,7 +1,7 @@
 {
   "name": "tribunal-review",
-  "version": "0.28.21",
-  "description": "Multi-provider code review — Codex + Grok + Muse + Claude (diff-only) by default; Gemini, DeepSeek via dsh and Qwen opt-in, with calling-context arbitration",
+  "version": "0.29.0",
+  "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (diff-only), OpenCode Go, Grok, Muse, DeepSeek, Gemini and Qwen, at least two must succeed, with calling-context arbitration",
   "author": {
     "name": "Andre Paat"
   },

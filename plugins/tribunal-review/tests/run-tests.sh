@@ -9,9 +9,11 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 
 # Pin product defaults so host shell exports cannot flip panel membership mid-suite.
 # Per-test prefixes still override (e.g. TRIBUNAL_GROK=off for disabled-marker cases).
-export TRIBUNAL_GROK=on
+unset TRIBUNAL_CODEX TRIBUNAL_CLAUDE TRIBUNAL_GROK TRIBUNAL_RISK TRIBUNAL_PANEL_SIZE \
+  TRIBUNAL_MIN_OK_LEGS TRIBUNAL_BACKUP_LEGS TRIBUNAL_REVIEW_PANEL
 export TRIBUNAL_GROK_RECOVERY=permit
-# Muse is on by default in product; off here so a real muse on PATH never answers a fixture.
+# Opt-out host-installed repo-walking CLIs by default so real CLIs on PATH never answer legacy fixtures.
+export TRIBUNAL_OPENCODE=off
 export TRIBUNAL_MUSE=off
 export TRIBUNAL_GEMINI=off
 export TRIBUNAL_QWEN=off
@@ -113,8 +115,9 @@ test_ignored_path_additions() {
   fi
 
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/muse"; chmod +x "$fake/muse"
   preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
-    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    TRIBUNAL_CODEX=on TRIBUNAL_MUSE=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
     bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
   if printf '%s' "$preflight_json" | jq -e '
       any(.warnings[]; .name == "ignored-path-additions"
@@ -128,7 +131,7 @@ test_ignored_path_additions() {
   fi
 
   subdir_preflight_json="$(cd "$work/scratch" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
-    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    TRIBUNAL_CODEX=on TRIBUNAL_MUSE=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
     bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
   if printf '%s' "$subdir_preflight_json" | jq -e '
       any(.warnings[]; .name == "ignored-path-additions" and (.note | contains("scratch/note.md")))
@@ -156,7 +159,7 @@ test_ignored_path_additions() {
   clean_rc=0
   clean_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_ignored_additions "$base" 2>/dev/null)" || clean_rc=$?
   preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
-    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    TRIBUNAL_CODEX=on TRIBUNAL_MUSE=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
     bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
   if [ "$clean_rc" -eq 0 ] && [ "$clean_json" = '[]' ] \
     && printf '%s' "$preflight_json" | jq -e 'all(.warnings[]; .name != "ignored-path-additions")' >/dev/null 2>&1; then
@@ -329,8 +332,9 @@ test_deleted_policy_paths() {
   fi
 
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/muse"; chmod +x "$fake/muse"
   preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
-    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    TRIBUNAL_CODEX=on TRIBUNAL_MUSE=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
     bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
   if printf '%s' "$preflight_json" | jq -e '
       any(.warnings[]; .name == "deleted-policy-paths"
@@ -349,7 +353,7 @@ test_deleted_policy_paths() {
   clean_rc=0
   clean_json="$(cd "$work" && . "$PLUGIN_ROOT/scripts/lib.sh" && tribunal_deleted_policy_paths "$base" 2>/dev/null)" || clean_rc=$?
   preflight_json="$(cd "$work" && PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF="$base" \
-    TRIBUNAL_CODEX=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    TRIBUNAL_CODEX=on TRIBUNAL_MUSE=on TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
     bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null)" || true
   if [ "$clean_rc" -eq 0 ] && [ "$clean_json" = '[]' ] \
     && printf '%s' "$preflight_json" | jq -e 'all(.warnings[]; .name != "deleted-policy-paths")' >/dev/null 2>&1; then
@@ -452,7 +456,7 @@ test_deleted_policy_paths_gate() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -464,7 +468,8 @@ base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":0,\"deletions\":1,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
-  for provider in gemini qwen grok muse claude; do
+  sed 's/"provider":"codex"/"provider":"claude"/' "$plugin/scripts/run-codex-review.sh" > "$plugin/scripts/run-claude-review.sh"
+  for provider in opencode gemini qwen grok muse; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -475,6 +480,9 @@ EOF
 printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
 EOF
   chmod +x "$plugin/scripts/"*.sh
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"
+  chmod +x "$fake/codex" "$fake/claude"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
 
   (
@@ -514,16 +522,17 @@ EOF
 
   cat > "$work/arbitration.json" <<'EOF'
 {
-  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"One valid reviewer found no defects."},
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"Two valid reviewers found no defects."},
   "findings":[],"scope_findings":[],
   "provider_assessment":{
     "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "opencode":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
 }
@@ -645,7 +654,7 @@ test_mutation_gate() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -657,7 +666,8 @@ base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
-  for provider in gemini qwen grok muse claude; do
+  sed 's/"provider":"codex"/"provider":"claude"/' "$plugin/scripts/run-codex-review.sh" > "$plugin/scripts/run-claude-review.sh"
+  for provider in opencode gemini qwen grok muse; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -668,6 +678,9 @@ EOF
 printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
 EOF
   chmod +x "$plugin/scripts/"*.sh
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"
+  chmod +x "$fake/codex" "$fake/claude"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
 
   (
@@ -705,16 +718,17 @@ EOF
 
   cat > "$work/arbitration.json" <<'EOF'
 {
-  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"One valid reviewer found no defects."},
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"Two valid reviewers found no defects."},
   "findings":[],"scope_findings":[],
   "provider_assessment":{
     "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "opencode":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
 }
@@ -1065,8 +1079,9 @@ EOF
   jq -e '.provider=="muse" and .status=="disabled"' "$work/off.json" >/dev/null || ok=0
   (cd "$work" && PATH="/usr/bin:/bin" TRIBUNAL_MUSE=on bash "$PLUGIN_ROOT/scripts/run-muse-review.sh") > "$work/missing.json" 2>/dev/null || ok=0
   jq -e '.provider=="muse" and .error=="Muse CLI not on PATH"' "$work/missing.json" >/dev/null || ok=0
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
   (cd "$work" && git branch -q -m main && git checkout -q -b feature && PATH="$fake:$PATH" TRIBUNAL_MUSE=on \
-    TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=off TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off \
+    TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off \
     bash "$PLUGIN_ROOT/scripts/preflight.sh") > "$work/preflight.json" 2>/dev/null || ok=0
   jq -e '.providers[]|select(.name=="muse")|.status=="usable"' "$work/preflight.json" >/dev/null || ok=0
   if [ "$ok" -eq 1 ]; then
@@ -1077,8 +1092,121 @@ EOF
   rm -rf "$work"
 }
 
+test_opencode_leg() {
+  local work fake
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/opencode" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then printf '%s\n' "${FIXTURE_OPENCODE_VERSION:-2.2.4}"; exit 0; fi
+printf '%s\n' "$@" > "$FIXTURE_OPENCODE_ARGS"
+cat >/dev/null
+case "${FIXTURE_OPENCODE_SCENARIO:-success}" in
+  plan)
+    printf '%s\n' '{"type":"error","error":{"type":"provider.go-limit","message":"usage limit reached"}}'
+    exit 1
+    ;;
+  auth)
+    printf '%s\n' '{"type":"error","error":{"type":"provider.auth","status":401,"message":"Upstream request failed: Invalid credential"}}'
+    exit 1
+    ;;
+  empty)
+    printf '%s\n' '{"type":"step_start","part":{"messageID":"m1"}}' \
+      '{"type":"step_finish","part":{"messageID":"m1","reason":"stop"}}'
+    exit 0
+    ;;
+esac
+review="$(jq -nc '{provider:"opencode",model:"fixture",files_examined:["file.txt"],findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}')"
+printf '%s\n' '{"type":"step_start","part":{"messageID":"m1"}}'
+jq -nc --arg text "$review" '{type:"text",part:{messageID:"m1",text:$text}}'
+printf '%s\n' '{"type":"step_finish","part":{"messageID":"m1","reason":"stop"}}'
+EOF
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$FIXTURE_CODEX_ARGS"
+cat >/dev/null
+out="" prev=""
+for arg in "$@"; do
+  [ "$prev" != out ] || { out="$arg"; prev=""; continue; }
+  [ "$arg" != --output-last-message ] || prev=out
+done
+review="$(jq -nc '{provider:"codex",model:"fixture",files_examined:["file.txt"],findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}')"
+[ -z "$out" ] || printf '%s\n' "$review" > "$out"
+printf '%s\n' "$review"
+EOF
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'; exit 0
+fi
+printf '%s\n' "$@" > "$FIXTURE_CLAUDE_ARGS"
+cat >/dev/null
+review="$(jq -nc '{provider:"claude",model:"fixture",files_examined:["file.txt"],findings:[],summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"}}')"
+jq -nc --argjson review "$review" '{structured_output:$review}'
+EOF
+  chmod +x "$fake/opencode" "$fake/codex" "$fake/claude"
+  (
+    cd "$work" && git init -q && git config user.email t@t && git config user.name t
+    printf 'one\n' > file.txt && git add file.txt && git commit -q -m base
+    printf 'two\n' > file.txt && git commit -q -am change
+  )
+  run_opencode() {
+    (cd "$work" && PATH="$fake:/usr/bin:/bin" TRIBUNAL_OPENCODE=on TRIBUNAL_BASE_REF=HEAD~1 \
+      FIXTURE_OPENCODE_ARGS="$work/args" "$@" bash "$PLUGIN_ROOT/scripts/run-opencode-review.sh")
+  }
+  run_selected_panel() {
+    (cd "$work" && env -u TRIBUNAL_OPENCODE -u TRIBUNAL_CODEX -u TRIBUNAL_CLAUDE \
+      PATH="$fake:/usr/bin:/bin" TRIBUNAL_BASE_REF=HEAD~1 \
+      FIXTURE_OPENCODE_ARGS="$work/opencode.args" FIXTURE_CODEX_ARGS="$work/codex.args" \
+      FIXTURE_CLAUDE_ARGS="$work/claude.args" "$@" bash -c \
+      '. "$1/scripts/lib.sh"; tribunal_select_panel || exit
+       for p in codex gemini deepseek qwen grok muse opencode claude; do
+         bash "$1/scripts/run-$p-review.sh" > "$2/$p.selected.json" || exit
+       done' _ "$PLUGIN_ROOT" "$work")
+  }
+  run_opencode env > "$work/success.json" 2>/dev/null
+  cp "$work/args" "$work/success.args"
+  tr_check "OpenCode leg emits stamped success JSON" jq -e \
+    '.provider=="opencode" and .model=="opencode-go/kimi-k3.1-pro" and .summary.verdict=="APPROVE" and (.diff_stat|type=="object")' \
+    "$work/success.json"
+  tr_check "OpenCode leg passes plan agent and model variant without auto" bash -c '
+    grep -qxF -- --agent "$1" && grep -qxF -- plan "$1" &&
+    grep -qxF -- opencode-go/kimi-k3.1-pro#high "$1" && ! grep -qxF -- --auto "$1"' _ "$work/success.args"
+  run_selected_panel env
+  tr_check "default selection runs exactly Codex Claude and OpenCode with every other provider disabled" jq -e -s '
+    (map({key:.provider,value:(if .status then .status elif has("summary") then "ok" else "failed" end)})|from_entries)
+    == {codex:"ok",claude:"ok",opencode:"ok",grok:"disabled",muse:"disabled",deepseek:"disabled",gemini:"disabled",qwen:"disabled"}' \
+    "$work"/*.selected.json
+  tr_check "default T2 selection sends Codex Sol medium to the CLI" bash -c '
+    grep -qxF -- gpt-6.1-sol "$1" && grep -qxF -- "model_reasoning_effort=\"medium\"" "$1"' _ "$work/codex.args"
+  tr_check "default T2 selection sends Claude Sonnet medium to the CLI" bash -c '
+    grep -qxF -- claude-sonnet-5-5 "$1" && grep -qxF -- --effort "$1" && grep -qxF -- medium "$1"' _ "$work/claude.args"
+  tr_check "default T2 selection sends OpenCode glm high to the CLI" \
+    grep -qxF -- opencode-go/glm-5.3#high "$work/opencode.args"
+  run_selected_panel env TRIBUNAL_RISK=T3
+  tr_check "T3 selection sends Codex Astra high to the CLI" bash -c '
+    grep -qxF -- gpt-6-astra "$1" && grep -qxF -- "model_reasoning_effort=\"high\"" "$1"' _ "$work/codex.args"
+  tr_check "T3 selection sends Claude Opus high to the CLI" bash -c '
+    grep -qxF -- claude-opus-5-5 "$1" && grep -qxF -- --effort "$1" && grep -qxF -- high "$1"' _ "$work/claude.args"
+  tr_check "T3 selection sends OpenCode Kimi high to the CLI" \
+    grep -qxF -- opencode-go/kimi-k3.1-pro#high "$work/opencode.args"
+  run_opencode env FIXTURE_OPENCODE_SCENARIO=plan > "$work/plan.json" 2>/dev/null
+  tr_check "OpenCode go-limit becomes a plan-limit leg error" jq -e \
+    '.provider=="opencode" and (.error|startswith("plan limit:"))' "$work/plan.json"
+  run_opencode env FIXTURE_OPENCODE_SCENARIO=auth > "$work/auth.json" 2>/dev/null
+  tr_check "OpenCode provider.auth 401 becomes a provider error" jq -e \
+    '.provider=="opencode" and (.error|contains("provider.auth")) and (.error|contains("Invalid credential")) and (.error|startswith("plan limit:")|not)' \
+    "$work/auth.json"
+  run_opencode env FIXTURE_OPENCODE_VERSION=1.19.5 > "$work/v1.json" 2>/dev/null
+  tr_check "OpenCode v1 is refused" jq -e \
+    '.provider=="opencode" and (.error|contains("OpenCode v2+ required"))' "$work/v1.json"
+  run_opencode env FIXTURE_OPENCODE_SCENARIO=empty > "$work/empty.json" 2>/dev/null
+  tr_check "OpenCode empty final text becomes a leg error" jq -e \
+    '.provider=="opencode" and (.error|contains("empty final text"))' "$work/empty.json"
+  rm -rf "$work"
+}
+
 test_executed_model_family_guard() {
-  local label="executed model family guard" work review off_family on_family qwen_namespaced qwen_claude qwen_coder unresolved
+  local label="executed model family guard" work review off_family on_family qwen_namespaced qwen_claude qwen_coder opencode_ok opencode_bad unresolved
   work="$(mktemp -d)"
   review='{"provider":"model-authored","model":"claude-haiku-4-5","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
   : > "$work/stdout"
@@ -1089,6 +1217,8 @@ test_executed_model_family_guard() {
   qwen_namespaced="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen qwen/qwen3-coder "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   qwen_claude="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen claude-haiku-4-5 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   qwen_coder="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen coder-qwen "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  opencode_ok="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model opencode opencode-go/glm-5.3 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  opencode_bad="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model opencode claude-haiku-4-5 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   unresolved="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen "" "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
 
   if printf '%s' "$off_family" | jq -e '
@@ -1110,6 +1240,12 @@ test_executed_model_family_guard() {
     ' >/dev/null \
     && printf '%s' "$qwen_coder" | jq -e '
       .provider == "qwen" and (.error | contains("requested provider qwen")) and (.error | contains("coder-qwen")) and (.error | contains("phase=model_family"))
+    ' >/dev/null \
+    && printf '%s' "$opencode_ok" | jq -e '
+      .provider == "model-authored" and .model == "opencode-go/glm-5.3" and .summary.verdict == "APPROVE"
+    ' >/dev/null \
+    && printf '%s' "$opencode_bad" | jq -e '
+      .provider == "opencode" and (.error | contains("requested provider opencode")) and (.error | contains("claude-haiku-4-5")) and (.error | contains("phase=model_family"))
     ' >/dev/null \
     && printf '%s' "$unresolved" | jq -e '
       .provider == "model-authored" and .model == "unverified" and .summary.verdict == "APPROVE"
@@ -1139,7 +1275,11 @@ EOF
 #!/usr/bin/env bash
 exit 0
 EOF
-  chmod +x "$fake/claude" "$fake/codex"
+  cat > "$fake/muse" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "$fake/claude" "$fake/codex" "$fake/muse"
 
   if (
     set -e
@@ -1153,8 +1293,8 @@ EOF
     printf 'two\n' > file.txt
     git commit -q -am change
     export PATH="$fake:$PATH" CLAUDE_RUN_MARKER="$work/provider-ran"
-    TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on \
-      TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_DEEPSEEK=off \
+    TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on TRIBUNAL_MUSE=on \
+      TRIBUNAL_GROK=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_DEEPSEEK=off \
       bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
     bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/review.json"
   ) && jq -e 'any(.providers[]; .name=="claude" and .status=="skipped" and .note=="CLI not authenticated")' "$work/preflight.json" >/dev/null \
@@ -1233,7 +1373,7 @@ EOF
     printf 'two\n' > file.txt
     git commit -q -am change
     PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
-      DEEPSEEK_API_KEY=fixture TRIBUNAL_DEEPSEEK=on TRIBUNAL_SMOKE_PROBE=on bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
+      TRIBUNAL_GROK=off DEEPSEEK_API_KEY=fixture TRIBUNAL_DEEPSEEK=on TRIBUNAL_SMOKE_PROBE=on bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
   )
   if jq -e '
       [.providers[] | select(.name=="codex" or .name=="claude" or .name=="deepseek")]
@@ -2222,7 +2362,7 @@ EOF
     git commit -q -am change
     export PATH="$fake:$PATH" GROK_HOME="$host_grok" GROK_RUN_MARKER="$work/provider-ran"
     env -u XAI_API_KEY \
-      TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=off \
+      TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on \
       TRIBUNAL_GROK=on TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_DEEPSEEK=off \
       bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/preflight.json"
     env -u XAI_API_KEY GROK_HOME="$host_grok" PATH="$fake:$PATH" \
@@ -2653,7 +2793,7 @@ test_trusted_evidence_collection() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$work/tmp" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -2695,7 +2835,7 @@ else
   printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},'"$(fixture_stat)"'}'
 fi
 EOF
-  for provider in gemini qwen grok muse; do
+  for provider in opencode gemini qwen grok muse; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -2705,8 +2845,12 @@ EOF
 #!/usr/bin/env bash
 if [ "${FIXTURE_ZERO_SUCCESS:-off}" = on ]; then
   printf '%s\n' '{"provider":"claude","error":"fixture Claude transport failure"}'
-else
+elif [ "${TRIBUNAL_CLAUDE:-on}" = off ]; then
   printf '%s\n' '{"provider":"claude","status":"disabled","note":"fixture disabled"}'
+else
+  base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
+  head="$(git rev-parse --verify 'HEAD^{commit}')"
+  printf '%s\n' "{\"provider\":\"claude\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 fi
 EOF
   cat > "$plugin/scripts/run-qwen-review.sh" <<'EOF'
@@ -2727,6 +2871,9 @@ EOF
 printf '%s\n' '{"provider":"deepseek","status":"disabled","note":"fixture disabled"}'
 EOF
   chmod +x "$plugin/scripts/"*.sh
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"
+  chmod +x "$fake/codex" "$fake/claude"
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
 
   (
@@ -2874,16 +3021,17 @@ EOF
 
   cat > "$work/arbitration.json" <<'EOF'
 {
-  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"One valid reviewer found no defects."},
+  "tribunal_verdict":{"decision":"APPROVE","confidence":0.95,"rationale":"Two valid reviewers found no defects."},
   "findings":[],"scope_findings":[],
   "provider_assessment":{
     "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "opencode":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
 }
@@ -3026,12 +3174,13 @@ EOF
   "scope_findings":[],
   "provider_assessment":{
     "codex":{"findings_accepted":1,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "opencode":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
   },
   "conflicts_resolved":[],"summary":"One medium finding remains non-blocking."
 }
@@ -3385,7 +3534,7 @@ EOF
   if CODEX_HOME="$host_codex" FIXTURE_CODEX_HOME_FILE="$work/codex-home-used" \
     PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_BODY_FILE="$work/pr-body" \
     TRIBUNAL_CODEX=on TRIBUNAL_GEMINI=off TRIBUNAL_DEEPSEEK=off \
-    TRIBUNAL_QWEN=off TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off \
+    TRIBUNAL_QWEN=off TRIBUNAL_GROK=off TRIBUNAL_CLAUDE=off TRIBUNAL_BACKUP_LEGS=off \
     "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
       --output "$work/oversized-codex-state" > "$work/oversized-codex-state.json" \
     && jq -e '.provider=="codex" and .summary.verdict=="APPROVE"' \
@@ -3511,9 +3660,9 @@ EOF
     FAILURES+=("preflight usable at min_ok_legs")
   fi
 
-  # Invalid values → exit 2 naming the key; unset → floor 1.
+  # Invalid values → exit 2 naming the key (including 1: one-leg APPROVE rejected); unset → floor 2.
   local bad
-  for bad in 0 abc 8 9; do
+  for bad in 0 1 abc 9; do
     ec=0
     (
       cd "$work"
@@ -3522,7 +3671,8 @@ EOF
         TRIBUNAL_DEEPSEEK=off TRIBUNAL_MIN_OK_LEGS="$bad" \
         bash "$PLUGIN_ROOT/scripts/preflight.sh" > /dev/null 2> "$work/bad.err"
     ) || ec=$?
-    if [ "$ec" -eq 2 ] && grep -q 'TRIBUNAL_MIN_OK_LEGS' "$work/bad.err"; then
+    if [ "$ec" -eq 2 ] && grep -q 'TRIBUNAL_MIN_OK_LEGS' "$work/bad.err" \
+      && { [ "$bad" != 1 ] || grep -Fq 'one-leg APPROVE is not allowed' "$work/bad.err"; }; then
       echo -e "  ${GREEN}PASS${NC} preflight rejects invalid TRIBUNAL_MIN_OK_LEGS=$bad"; PASS=$((PASS+1))
     else
       echo -e "  ${RED}FAIL${NC} preflight rejects invalid TRIBUNAL_MIN_OK_LEGS=$bad"; FAIL=$((FAIL+1))
@@ -3533,14 +3683,14 @@ EOF
   (
     cd "$work"
     PATH="$fake:$PATH" XAI_API_KEY=fixture TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 \
-      TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off \
+      TRIBUNAL_CODEX=on TRIBUNAL_GROK=on TRIBUNAL_CLAUDE=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off \
       TRIBUNAL_DEEPSEEK=off \
       env -u TRIBUNAL_MIN_OK_LEGS bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/unset.json" 2> "$work/unset.err"
   ) || ec=$?
-  if [ "$ec" -eq 0 ] && jq -e '.status=="ok" and .min_ok_legs==1' "$work/unset.json" >/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} preflight defaults TRIBUNAL_MIN_OK_LEGS to 1"; PASS=$((PASS+1))
+  if [ "$ec" -eq 0 ] && jq -e '.status=="ok" and .min_ok_legs==2' "$work/unset.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} preflight defaults TRIBUNAL_MIN_OK_LEGS to 2"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} preflight defaults TRIBUNAL_MIN_OK_LEGS to 1"; FAIL=$((FAIL+1))
+    echo -e "  ${RED}FAIL${NC} preflight defaults TRIBUNAL_MIN_OK_LEGS to 2"; FAIL=$((FAIL+1))
     FAILURES+=("preflight default min_ok_legs")
   fi
   rm -rf "$work"
@@ -3724,7 +3874,7 @@ test_blind_approve_guard() {
   repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -3768,7 +3918,7 @@ DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
 printf '%s\n' '{"provider":"grok","model":"fixture","files_examined":[],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
   | tribunal_stamp_diff_stat "$DIFF_STAT"
 EOF
-  for provider in gemini qwen muse; do
+  for provider in opencode gemini qwen muse; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -3828,6 +3978,7 @@ EOF
   "findings":[],"scope_findings":[],
   "provider_assessment":{
     "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "opencode":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
@@ -4144,7 +4295,7 @@ test_sealed_panel_quorum() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -4156,7 +4307,7 @@ base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
-  for provider in gemini qwen grok muse claude; do
+  for provider in opencode gemini qwen grok muse claude; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -4208,7 +4359,7 @@ EOF
     FAILURES+=("collect seals panel_policy"); rm -rf "$work"; return
   fi
   manifest_sha="$(jq -r .manifest_sha256 "$work/collect.json")"
-  if jq -e '.panel_policy == {"min_ok_legs":2,"source":"env"}' "$collection/manifest.json" >/dev/null; then
+  if jq -e '.panel_policy.min_ok_legs == 2 and .panel_policy.panel_size == 3 and (.panel_policy.panel | type == "array") and .panel_policy.source == "env"' "$collection/manifest.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} collect seals panel_policy from TRIBUNAL_MIN_OK_LEGS"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} collect seals panel_policy from TRIBUNAL_MIN_OK_LEGS"; FAIL=$((FAIL+1))
@@ -4221,6 +4372,7 @@ EOF
   "findings":[],"scope_findings":[],
   "provider_assessment":{
     "codex":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "opencode":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "gemini":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "deepseek":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
@@ -4262,7 +4414,7 @@ EOF_GROK
         --output "$collection" > "$work/collect-recovery.json"
     manifest_sha="$(jq -r .manifest_sha256 "$work/collect-recovery.json")"
     if jq -e --arg policy "$recovery_policy" --arg status "$recovery_status" '
-      .grok_recovery==$policy and .panel_policy.min_ok_legs==2 and (.providers|length)==7
+      .grok_recovery==$policy and .panel_policy.min_ok_legs==2 and (.providers|length)==8
       and any(.providers[]; .provider=="grok" and .status==$status)' "$collection/manifest.json" >/dev/null \
       && { [ "$recovery_policy" = permit ] || jq -e '.error|contains("grok_recovery_rejected")' "$collection/providers/grok.json" >/dev/null; }; then
       echo -e "  ${GREEN}PASS${NC} collector seals $recovery_policy recovery policy, named status and unchanged panel floor"; PASS=$((PASS+1))
@@ -4732,6 +4884,7 @@ for script in \
   scripts/lib.sh \
   scripts/preflight.sh \
   scripts/run-codex-review.sh \
+  scripts/run-opencode-review.sh \
   scripts/run-gemini-review.sh \
   scripts/run-deepseek-review.sh \
   scripts/run-qwen-review.sh \
@@ -4747,6 +4900,7 @@ do
   assert_executable "$script executable" "$script"
   assert_bash_n "$script parses" "$script"
 done
+assert_file "review panel table exists" "scripts/review-panel.tsv"
 assert_grep "diff_stat oid schema accepts sha256 ids" "scripts/collect-review-evidence.sh" '{64}'
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
@@ -4769,7 +4923,7 @@ assert_grep "skill references claude runner" "$SK" "scripts/run-claude-review.sh
 assert_grep "merge gate uses trusted aggregate runner" "$SK" "scripts/collect-review-evidence.sh"
 assert_grep "caller provider JSON is not merge evidence" "$SK" "caller-created provider JSON as merge evidence"
 assert_no_grep "skill no inline provider command bloat" "$SK" "timeout -k 10 600 codex exec"
-assert_grep "skill default panel lists DeepSeek with opt-in providers" "$SK" "Gemini, DeepSeek, and Qwen are opt-in."
+assert_grep "skill default panel references review-panel.tsv" "$SK" "scripts/review-panel.tsv"
 
 echo "Preflight/base-ref behavior:"
 assert_grep "resolves GitHub default branch" "$LIB" "defaultBranchRef"
@@ -4830,6 +4984,7 @@ assert_grep "Grok payload completeness helper" "scripts/lib.sh" "tribunal_review
 assert_grep "Grok payload requires enum verdict" "scripts/lib.sh" 'APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"'
 
 echo "Disabled-provider markers:"
+assert_json_field "opencode defaults to disabled JSON" "env -u TRIBUNAL_OPENCODE bash '$PLUGIN_ROOT/scripts/run-opencode-review.sh' | jq -e '.provider==\"opencode\" and .status==\"disabled\"'"
 assert_json_field "deepseek defaults to disabled JSON" "env -u TRIBUNAL_DEEPSEEK bash '$PLUGIN_ROOT/scripts/run-deepseek-review.sh' | jq -e ' .provider==\"deepseek\" and .status==\"disabled\"'"
 assert_json_field "codex disabled JSON" "TRIBUNAL_CODEX=off bash '$PLUGIN_ROOT/scripts/run-codex-review.sh' | jq -e '.provider==\"codex\" and .status==\"disabled\"'"
 assert_json_field "gemini disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-gemini-review.sh' | jq -e '.provider==\"gemini\" and .status==\"disabled\"'"
@@ -4892,7 +5047,7 @@ assert_json_field "source-checkout collection and root-drift regressions" "bash 
 echo "Finding position validation:"
 assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
 assert_grep "line check derives NUL-delimited changed paths from pinned range" "$LIB" 'diff --name-only -z "$base_oid...$head_oid"'
-for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-deepseek-review.sh; do
+for runner in run-codex-review.sh run-opencode-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-muse-review.sh run-deepseek-review.sh; do
   assert_grep "$runner passes pinned range to line check" "scripts/$runner" 'tribunal_line_check "$REPO_ROOT" "$DIFF_STAT"'
   assert_grep "$runner stamps the reviewed range" "scripts/$runner" "tribunal_stamp_diff_stat"
   assert_grep "$runner takes the range off disk before the provider runs" "scripts/$runner" 'DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"'
@@ -5336,7 +5491,16 @@ cat >/dev/null
 jq -nc --arg text '${review/PROVIDER/deepseek}' '{type:"final",text:\$text}'
 printf '%s\n' '{"type":"status","phase":"turn_end","reason":{"kind":"completed"}}'
 EOF
-  chmod +x "$fake/codex" "$fake/grok" "$fake/qwen" "$fake/dsh"
+  cat > "$fake/opencode" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = --version ]; then printf '2.2.4\n'; exit 0; fi
+printf '%s %s %s %s %s\n' "\$PWD" "\$([ -e .env ] && echo env || echo noenv)" "\$(cat file.txt)" "\${LEG_SECRET-unset}" "\${OPENCODE_API_KEY-unset}:\${XDG_CONFIG_HOME-unset}" > "$work/opencode.walk"
+cat >/dev/null
+printf '%s\n' '{"type":"step_start","part":{"messageID":"m1"}}'
+jq -nc --arg text '${review/PROVIDER/opencode}' '{type:"text",part:{messageID:"m1",text:\$text}}'
+printf '%s\n' '{"type":"step_finish","part":{"messageID":"m1","reason":"stop"}}'
+EOF
+  chmod +x "$fake/codex" "$fake/grok" "$fake/qwen" "$fake/dsh" "$fake/opencode"
   (
     set -e
     cd "$work/repo"
@@ -5351,23 +5515,25 @@ EOF
     git commit -q -am change
     printf 'dirty\n' > file.txt
     printf 'TOKEN=1\n' > .env
-    export PATH="$fake:$PATH" GROK_HOME="$host_grok" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK=on TRIBUNAL_QWEN=on
-    export DEEPSEEK_API_KEY=fixture TRIBUNAL_DEEPSEEK=on LEG_SECRET=leak OPENROUTER_API_KEY=or-key
+    export PATH="$fake:$PATH" GROK_HOME="$host_grok" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_GROK=on TRIBUNAL_QWEN=on TRIBUNAL_OPENCODE=on
+    export DEEPSEEK_API_KEY=fixture TRIBUNAL_DEEPSEEK=on LEG_SECRET=leak OPENROUTER_API_KEY=or-key OPENCODE_API_KEY=oc-key XDG_CONFIG_HOME="$work/xdg"
     unset TRIBUNAL_QWEN_MODEL
     bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/codex.json"
     env -u XAI_API_KEY bash "$PLUGIN_ROOT/scripts/run-grok-review.sh" > "$work/grok.json"
     bash "$PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$work/qwen.json"
     bash "$PLUGIN_ROOT/scripts/run-deepseek-review.sh" | jq -c 'select(.provider=="deepseek")' > "$work/deepseek.json"
-    for leg in codex grok qwen deepseek; do mv "$work/$leg.walk" "$work/$leg.envwalk"; done
+    bash "$PLUGIN_ROOT/scripts/run-opencode-review.sh" > "$work/opencode.json"
+    for leg in codex grok qwen deepseek opencode; do mv "$work/$leg.walk" "$work/$leg.envwalk"; done
     rm .env
     bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/codex-clean.json"
   ) || ok=0
-  for leg in codex grok qwen deepseek; do
+  for leg in codex grok qwen deepseek opencode; do
     jq -e '.summary.verdict=="APPROVE"' "$work/$leg.json" >/dev/null 2>&1 || ok=0
     read -r dir env content secret auth < "$work/$leg.envwalk" 2>/dev/null || ok=0
     [ "${dir:-}" != "$work/repo" ] && [ "${env:-}" = noenv ] && [ "${content:-}" = two ] || ok=0
-    case "$leg" in qwen|deepseek) [ "${secret:-}" = unset ] || ok=0 ;; esac
+    case "$leg" in qwen|deepseek|opencode) [ "${secret:-}" = unset ] || ok=0 ;; esac
     [ "$leg" != qwen ] || [ "${auth:-}" = or-key ] || ok=0
+    [ "$leg" != opencode ] || [ "${auth:-}" = "oc-key:$work/xdg" ] || ok=0
   done
   read -r dir env content < "$work/codex.walk" 2>/dev/null || ok=0
   [ "${dir:-}" = "$work/repo" ] || ok=0
@@ -5377,6 +5543,71 @@ EOF
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
     for leg in codex grok qwen deepseek; do echo "    $leg: $(cat "$work/$leg.envwalk" 2>/dev/null) $(head -c 300 "$work/$leg.json" 2>/dev/null)" >&2; done
   fi
+  rm -rf "$work"
+}
+
+test_panel_selection() {
+  local work fake out bad
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  for cli in codex claude grok muse agy qwen dsh; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/$cli"
+  done
+  cat > "$fake/opencode" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" != --version ] || printf '2.2.4\n'
+EOF
+  chmod +x "$fake/"*
+  select_panel() (
+    local p upper
+    for p in codex claude opencode grok muse deepseek gemini qwen; do
+      upper="${p^^}"
+      unset "TRIBUNAL_$upper" "TRIBUNAL_${upper}_MODEL" "TRIBUNAL_${upper}_EFFORT"
+    done
+    unset TRIBUNAL_RISK TRIBUNAL_PANEL_SIZE TRIBUNAL_BACKUP_LEGS TRIBUNAL_PANEL_SELECTED
+    export PATH="$fake:/usr/bin:/bin" DEEPSEEK_API_KEY=fixture
+    for bad in "$@"; do export "$bad"; done
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    tribunal_select_panel || exit
+    jq -nc --argjson panel "$TRIBUNAL_SELECTED_PANEL_JSON" --arg backups "$TRIBUNAL_SELECTED_BACKUPS" '
+      {panel:$panel,backups:($backups|split("\n")|map(select(length>0))),
+       toggles:{codex:env.TRIBUNAL_CODEX,claude:env.TRIBUNAL_CLAUDE,opencode:env.TRIBUNAL_OPENCODE,
+         grok:env.TRIBUNAL_GROK,muse:env.TRIBUNAL_MUSE,deepseek:env.TRIBUNAL_DEEPSEEK,
+         gemini:env.TRIBUNAL_GEMINI,qwen:env.TRIBUNAL_QWEN}}'
+  )
+  out="$(select_panel)"
+  tr_check "default selection runs the T2 Codex Claude OpenCode panel and disables every other provider" jqe '
+    .panel == [{provider:"codex",model:"gpt-6.1-sol",effort:"medium"},
+      {provider:"claude",model:"claude-sonnet-5-5",effort:"medium"},
+      {provider:"opencode",model:"glm-5.3",effort:"high"}]
+    and .toggles == {codex:"on",claude:"on",opencode:"on",grok:"off",muse:"off",deepseek:"off",gemini:"off",qwen:"off"}' <<< "$out"
+  tr_check "default backup order uses the remaining available T2 rows" jqe \
+    '.backups == ["grok","muse","deepseek","gemini","qwen"]' <<< "$out"
+  out="$(select_panel TRIBUNAL_RISK=T3)"
+  tr_check "T3 selection uses tiered Codex Claude and OpenCode models and efforts" jqe '
+    .panel == [{provider:"codex",model:"gpt-6-astra",effort:"high"},
+      {provider:"claude",model:"claude-opus-5-5",effort:"high"},
+      {provider:"opencode",model:"kimi-k3.1-pro",effort:"high"}]' <<< "$out"
+  out="$(select_panel TRIBUNAL_CLAUDE=off TRIBUNAL_CODEX=off)"
+  tr_check "explicitly disabled legs are replaced by OpenCode Grok and Muse" jqe \
+    '[.panel[].provider] == ["opencode","grok","muse"]' <<< "$out"
+  rm "$fake/claude"
+  out="$(select_panel)"
+  tr_check "a missing CLI is skipped and the next available row fills its seat" jqe \
+    '[.panel[].provider] == ["codex","opencode","grok"]' <<< "$out"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"; chmod +x "$fake/claude"
+  out="$(select_panel TRIBUNAL_CODEX_MODEL=operator-model)"
+  tr_check "an operator model override wins over the panel table" jqe \
+    '.panel[0].model == "operator-model" and .panel[0].effort == "medium"' <<< "$out"
+  out="$(select_panel TRIBUNAL_PANEL_SIZE=2)"
+  tr_check "TRIBUNAL_PANEL_SIZE=2 selects exactly two legs" jqe \
+    '[.panel[].provider] == ["codex","claude"]' <<< "$out"
+  invalid_panel_sizes() {
+    for bad in 1 9 invalid; do
+      if select_panel TRIBUNAL_PANEL_SIZE="$bad" > /dev/null 2> "$work/invalid.err"; then return 1; fi
+      grep -q 'TRIBUNAL_PANEL_SIZE' "$work/invalid.err" || return 1
+    done
+  }
+  tr_check "invalid panel sizes are rejected" invalid_panel_sizes
   rm -rf "$work"
 }
 
@@ -5391,12 +5622,12 @@ test_risk_tier_and_backup_config() {
     [ "$(TRIBUNAL_RISK=T4 tribunal_risk_effort grok)" = high ] &&
     [ -z "$(env -u TRIBUNAL_RISK bash -c ". \"$1/scripts/lib.sh\"; tribunal_risk_effort codex")" ] &&
     ! TRIBUNAL_RISK=T9 tribunal_risk_effort codex 2>/dev/null' _ "$PLUGIN_ROOT"
-  tr_check "backup legs default to deepseek, accept lists and off, reject unknown" bash -c '
+  tr_check "backup legs default to deepseek, accept any of the 8 providers and off, reject unknown" bash -c '
     . "$1/scripts/lib.sh"
     [ "$(env -u TRIBUNAL_BACKUP_LEGS bash -c ". \"$1/scripts/lib.sh\"; tribunal_backup_legs")" = deepseek ] &&
-    [ "$(TRIBUNAL_BACKUP_LEGS=deepseek,qwen tribunal_backup_legs | tr "\n" " ")" = "deepseek qwen " ] &&
+    [ "$(TRIBUNAL_BACKUP_LEGS=deepseek,qwen,codex,opencode tribunal_backup_legs | tr "\n" " ")" = "deepseek qwen codex opencode " ] &&
     [ -z "$(TRIBUNAL_BACKUP_LEGS=off tribunal_backup_legs)" ] &&
-    ! TRIBUNAL_BACKUP_LEGS=deepseek,codex tribunal_backup_legs >/dev/null 2>&1 &&
+    ! TRIBUNAL_BACKUP_LEGS=deepseek,unknown tribunal_backup_legs >/dev/null 2>&1 &&
     ! TRIBUNAL_BACKUP_LEGS=deepseek,deepseek,gemini tribunal_backup_legs >/dev/null 2>&1 &&
     ! TRIBUNAL_BACKUP_LEGS="$(printf "deepseek\ncodex")" tribunal_backup_legs >/dev/null 2>&1 &&
     ! TRIBUNAL_BACKUP_LEGS="deepseek, qwen" tribunal_backup_legs >/dev/null 2>&1' _ "$PLUGIN_ROOT"
@@ -5676,35 +5907,38 @@ test_grok_collector_provenance() {
 test_preflight_risk_and_backups() {
   local work fake out ec
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
+  for cli in codex grok muse dsh; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/$cli"; chmod +x "$fake/$cli"
+  done
   (
     cd "$work" && git init -q && git config user.email t@t && git config user.name t
     printf 'one\n' > file.txt && git add file.txt && git commit -q -m base
     git checkout -qb feature && printf 'two\n' > file.txt && git commit -q -am change
   )
-  pre() { (cd "$work" && env -u TRIBUNAL_RISK -u TRIBUNAL_BACKUP_LEGS PATH="$fake:$PATH" TRIBUNAL_BASE_BRANCH=main \
-    TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off "$@" \
+  pre() { (cd "$work" && env -u TRIBUNAL_RISK -u TRIBUNAL_BACKUP_LEGS -u TRIBUNAL_MUSE -u TRIBUNAL_DEEPSEEK \
+    PATH="$fake:/usr/bin:/bin" XAI_API_KEY=fixture DEEPSEEK_API_KEY=fixture TRIBUNAL_BASE_BRANCH=main \
+    TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CLAUDE=off "$@" \
     bash "$PLUGIN_ROOT/scripts/preflight.sh" 2>/dev/null); }
   out="$(pre TRIBUNAL_RISK=T3)" || true
-  tr_check "preflight reports the risk tier and default backup legs" \
-    jqe '.risk_tier == "T3" and .backup_legs == ["deepseek"]' <<< "$out"
+  tr_check "preflight reports the risk tier, selected panel, and backup legs" \
+    jqe '.risk_tier == "T3" and .panel_size == 3 and ([.panel[].provider] == ["codex","grok","muse"]) and .backup_legs == ["deepseek"]' <<< "$out"
   out="$(pre TRIBUNAL_BACKUP_LEGS=off)" || true
   tr_check "preflight reports no risk tier and no backups when unset/off" \
     jqe '.risk_tier == null and .backup_legs == []' <<< "$out"
   ec=0; pre TRIBUNAL_RISK=high >/dev/null || ec=$?
   tr_check "preflight rejects an invalid TRIBUNAL_RISK" test "$ec" -eq 2
-  ec=0; pre TRIBUNAL_BACKUP_LEGS=codex >/dev/null || ec=$?
-  tr_check "preflight rejects a non-opt-in backup leg" test "$ec" -eq 2
+  ec=0; pre TRIBUNAL_BACKUP_LEGS=unknown >/dev/null || ec=$?
+  tr_check "preflight rejects an unknown backup leg" test "$ec" -eq 2
   rm -rf "$work"
 }
 
 test_backup_leg_collection() {
   local work repo fake plugin state base head n scenario ec expected mutator mode manifest_sha
-  local wrapper command worktree_config_message
+  local wrapper command worktree_config_message muse_status
   local -a verify_args
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"; state="$work/state"
   mkdir -p "$repo" "$fake" "$state" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
-  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/lib.sh" \
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" \
     "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -5906,7 +6140,17 @@ EOF
 #!/usr/bin/env bash
 bash "$(dirname "$0")/fixture-review.sh" claude
 EOF
-  for provider in gemini qwen grok muse; do
+  cat > "$plugin/scripts/run-muse-review.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${TRIBUNAL_MUSE:-off}" = off ]; then
+  printf '%s\n' '{"provider":"muse","status":"disabled","note":"fixture disabled"}'
+elif [ -n "${FIXTURE_MUSE_ERROR:-}" ]; then
+  jq -nc --arg e "$FIXTURE_MUSE_ERROR" '{provider:"muse",error:$e}'
+else
+  bash "$(dirname "$0")/fixture-review.sh" muse
+fi
+EOF
+  for provider in opencode gemini qwen grok; do
     printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' \
       "'{\"provider\":\"$provider\",\"status\":\"disabled\",\"note\":\"fixture disabled\"}'" > "$plugin/scripts/run-$provider-review.sh"
   done
@@ -5922,7 +6166,10 @@ EOF
   done
   chmod +x "$plugin/scripts/"*.sh
   "$plugin/scripts/generate-runner-bundle.sh" >/dev/null
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/dsh"
+  for cli in codex claude muse dsh; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/$cli"
+    chmod +x "$fake/$cli"
+  done
   cat > "$fake/gh" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = repo ] && [ "$2" = view ]; then
@@ -5995,8 +6242,8 @@ EOF
   collect() {  # collect ENV... -> sets $collection, returns collect's exit
     n=$((n + 1)); collection="$work/collection-$n"; rm -f "$state/deepseek.runs"
     (ulimit -S -c 1
-    env -u TRIBUNAL_BACKUP_LEGS -u TRIBUNAL_RISK -u TRIBUNAL_DEEPSEEK -u TRIBUNAL_DEEPSEEK_MODEL \
-      PATH="$fake:$PATH" DEEPSEEK_API_KEY=fixture DSH_HOME="$work/dsh-home" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+    env -u TRIBUNAL_BACKUP_LEGS -u TRIBUNAL_RISK -u TRIBUNAL_DEEPSEEK -u TRIBUNAL_DEEPSEEK_MODEL -u TRIBUNAL_MUSE \
+      TRIBUNAL_GROK=off PATH="$fake:$PATH" DEEPSEEK_API_KEY=fixture DSH_HOME="$work/dsh-home" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
       FIXTURE_WORK="$work" FIXTURE_ROOT="$repo" FIXTURE_ROOT_GITDIR="${root_gitdir:-}" \
       FIXTURE_CODEX_ERROR="plan limit: Codex execution failed or timed out; phase=execution; exit=1" "$@" \
       timeout -k 1 30 "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
@@ -6133,20 +6380,44 @@ EOF
   collect TRIBUNAL_BACKUP_LEGS=off
   tr_check "TRIBUNAL_BACKUP_LEGS=off runs no backup" test "$(status_of deepseek) $(runs)" = "disabled 1"
   collect FIXTURE_CODEX_ERROR="Codex execution failed or timed out; phase=execution; exit=1"
-  tr_check "an ordinary failure runs no backup" test "$(status_of codex) $(status_of deepseek) $(runs)" = "failed disabled 1"
+  tr_check "an ordinary failure with quorum intact runs no backup" test "$(status_of codex) $(status_of deepseek) $(runs)" = "failed disabled 1"
+  collect FIXTURE_CODEX_ERROR="Codex execution failed or timed out; phase=execution; exit=1" \
+    FIXTURE_MUSE_ERROR="Muse execution failed; phase=execution; exit=1"
+  tr_check "a failed leg below the quorum floor pulls the next selected backup" \
+    test "$(status_of codex) $(status_of claude) $(status_of deepseek) $(runs)" = "failed ok ok 2"
+  tr_check "the quorum backup run is announced on stderr" \
+    grep -q 'running backup legs for quorum: deepseek' "$work/collect-$n.err"
+  collect FIXTURE_CODEX_ERROR="Codex execution failed or timed out; phase=execution; exit=1" \
+    FIXTURE_MUSE_ERROR="Muse execution failed; phase=execution; exit=1" TRIBUNAL_BACKUP_LEGS=off
+  tr_check "three selected legs can finish with only one ok leg" \
+    jqe '([.providers[]|select(.provider=="codex" or .provider=="claude" or .provider=="muse")|.status]
+      | sort == ["failed","failed","ok"])' "$collection/manifest.json"
+  jq '{tribunal_verdict:{decision:"APPROVE",confidence:0.9,rationale:"One valid reviewer found no defects."},
+    findings:[],scope_findings:[],conflicts_resolved:[],summary:"Fixture review.",
+    provider_assessment:(.providers|map({key:.provider,value:{status:.status,
+      findings_accepted:0,findings_rejected:0,false_positives:[]}})|from_entries)}' \
+    "$collection/manifest.json" > "$work/one-ok-arbitration.json"
+  manifest_sha="$(jq -r .manifest_sha256 "$work/collect-$n.json")"
+  ec=0
+  env PATH="$fake:$PATH" FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_STATE="$state" \
+    "$plugin/scripts/collect-review-evidence.sh" finalize --collection "$collection" \
+    --expected-manifest-sha256 "$manifest_sha" --arbitration "$work/one-ok-arbitration.json" \
+    > /dev/null 2> "$work/one-ok.err" || ec=$?
+  tr_check "one ok leg out of three cannot APPROVE" \
+    bash -c '[ "$1" -ne 0 ] && grep -q arbitration "$2"' _ "$ec" "$work/one-ok.err"
   collect DEEPSEEK_API_KEY=
   tr_check "a backup without credentials is not run" test "$(status_of deepseek) $(runs)" = "disabled 1"
   collect TRIBUNAL_DEEPSEEK=on
   tr_check "a backup never reruns a wrapper that already ran" test "$(status_of deepseek) $(runs)" = "ok 1"
   collect TRIBUNAL_BACKUP_LEGS=deepseek,qwen
   tr_check "one backup per plan-limited leg, in list order" test "$(status_of deepseek) $(status_of qwen) $(runs)" = "ok disabled 2"
-  collect TRIBUNAL_BACKUP_LEGS=codex || true
+  collect TRIBUNAL_BACKUP_LEGS=unknown || true
   tr_check "an invalid backup list fails collection before any leg runs" test "$(runs)" -eq 0
   collect TRIBUNAL_RISK=T5 || true
   tr_check "an invalid TRIBUNAL_RISK fails collection before any leg runs" test "$(runs)" -eq 0
   # Mutation fixtures print valid reviews bound to the original HEAD, even after committing.
   for scenario in dirty commit clean deepseek disabled backup backup-commit many orphan; do
-    mutator=codex; mode="$scenario"; expected='{"codex":"failed","claude":"ok","deepseek":"ok"}'
+    mutator=codex; mode="$scenario"; expected='{"codex":"failed","claude":"ok","deepseek":"ok"}'; muse_status=ok
     case "$scenario" in
       clean) mutator=none; expected='{"codex":"ok","claude":"ok","deepseek":"ok"}' ;;
       deepseek) mutator=deepseek; mode=dirty; expected='{"codex":"ok","claude":"ok","deepseek":"failed"}' ;;
@@ -6157,15 +6428,16 @@ EOF
     ec=0
     case "$scenario" in
       backup*) collect FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" || ec=$? ;;
-      *) collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" \
-           TRIBUNAL_MIN_OK_LEGS="$([ "$scenario" = many ] && echo 4 || echo 1)" \
+      *) [ "$scenario" = disabled ] || muse_status=disabled
+        collect FIXTURE_CODEX_ERROR= FIXTURE_MUTATOR="$mutator" FIXTURE_MUTATION="$mode" \
+           TRIBUNAL_MIN_OK_LEGS="$([ "$scenario" = many ] && echo 4 || echo 2)" \
            TRIBUNAL_BACKUP_LEGS=off TRIBUNAL_DEEPSEEK="$([ "$scenario" = disabled ] && echo off || echo on)" || ec=$? ;;
     esac
     mutation_case_ok() {
       [ "$ec" -eq 0 ] || return 1
-      jq -e --argjson expected "$expected" '
+      jq -e --argjson expected "$expected" --arg muse "$muse_status" '
         ([.providers[] | {key:.provider,value:.status}] | from_entries) as $actual
-        | $actual == ({gemini:"disabled",qwen:"disabled",grok:"disabled",muse:"disabled"} + $expected)
+        | $actual == ({opencode:"disabled",gemini:"disabled",qwen:"disabled",grok:"disabled",muse:$muse} + $expected)
       ' "$collection/manifest.json" >/dev/null || return 1
       manifest_sha="$(jq -r .manifest_sha256 "$work/collect-$n.json")"
       fixture_finalize() {
@@ -6527,6 +6799,8 @@ echo ""
 test_prior_rejections
 
 echo "Risk tier, effort, and backup legs"
+test_panel_selection
+test_opencode_leg
 test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok
 test_grok_finalize_effort

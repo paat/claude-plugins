@@ -40,6 +40,9 @@ provider="${0##*/}"
 if [ "$provider" = claude ] && [ "${1:-}" = auth ]; then
   printf '%s\n' '{"loggedIn":true}'; exit
 fi
+if [ "$provider" = opencode ] && [ "${1:-}" = --version ]; then
+  printf '%s\n' '2.2.4'; exit
+fi
 last=""; prompt=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -62,16 +65,17 @@ case "$provider" in
   deepseek) jq -nc --arg review "$review" '{type:"final",text:$review},{type:"status",phase:"turn_end",reason:{kind:"completed"}}' ;;
   grok) jq -nc --argjson review "$review" '{structuredOutput:$review}' ;;
   muse) jq -nc --arg review "$review" '{payload_type:"run.terminal.completed",payload:{text:$review}}' ;;
+  opencode) jq -nc --arg review "$review" '{type:"step_start",part:{messageID:"m1"}},{type:"text",part:{messageID:"m1",text:$review}},{type:"step_finish",part:{messageID:"m1",reason:"stop"}}' ;;
   claude) jq -nc --argjson review "$review" '{structured_output:$review}' ;;
   qwen) jq -nc --arg review "$review" '{response:$review}' ;;
 esac
 STUB
   chmod +x "$fake/gh" "$fake/provider"
-  for provider in codex agy dsh qwen grok muse claude; do ln -s provider "$fake/$provider"; done
+  for provider in codex agy dsh qwen grok muse opencode claude; do ln -s provider "$fake/$provider"; done
   local -a fixture_env=(env PATH="$fake:$PATH" HOME="$work/home" CODEX_HOME="$work/home/.codex"
     FIXTURE_BASE="$base" FIXTURE_HEAD="$head" FIXTURE_PROMPTS="$work/prompts"
     TRIBUNAL_CODEX=on TRIBUNAL_GEMINI=on TRIBUNAL_DEEPSEEK=on TRIBUNAL_QWEN=on
-    TRIBUNAL_GROK=on TRIBUNAL_MUSE=on TRIBUNAL_CLAUDE=on TRIBUNAL_BACKUP_LEGS=off
+    TRIBUNAL_GROK=on TRIBUNAL_MUSE=on TRIBUNAL_OPENCODE=on TRIBUNAL_CLAUDE=on TRIBUNAL_BACKUP_LEGS=off
     TRIBUNAL_LEG_ENV='FIXTURE_*' GEMINI_API_KEY=fixture XAI_API_KEY=fixture
     TRIBUNAL_PLUGIN_ROOT="$plugin")
   printf '[{"title":"Disproved splitlines claim","file":"app.txt","reason":"Execution returns one line"}]\n' > "$work/prior.json"
@@ -91,11 +95,11 @@ STUB
     > "$work/collect.json" 2> "$work/collect.err" || rc=$?
   tr_check '#667 prior rejections copied byte-for-byte and digest sealed' \
     bash -c '[ "$1" = 0 ] && cmp -s "$2/prior.json" "$2/collection/prior-rejections.json" && jq -e --arg sha "$(sha256sum "$2/prior.json" | cut -d " " -f 1)" --argjson bytes "$(wc -c < "$2/prior.json")" '\'' .prior_rejections == {path:"prior-rejections.json",sha256:$sha,bytes:$bytes} '\'' "$2/collection/manifest.json" >/dev/null' _ "$rc" "$work"
-  for provider in codex gemini deepseek qwen grok muse claude; do
+  for provider in codex gemini deepseek qwen grok muse opencode claude; do
     tr_check "#667 $provider stub receives rejected finding and execution-evidence reminder" \
       bash -c 'test -f "$1" && grep -Fq "Already rejected in earlier rounds — do not re-raise without NEW execution evidence:" "$1" && grep -Fq "Disproved splitlines claim —  — Disproved splitlines claim" "$1"' _ "$work/prompts/$provider"
   done
-  jq -n '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"All seven fixture legs reviewed the diff."},findings:[],scope_findings:[],provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","claude"]|map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:"ok"}})|from_entries),conflicts_resolved:[],summary:"All seven legs are clean."}' > "$work/arbitration.json"
+  jq -n '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"All eight fixture legs reviewed the diff."},findings:[],scope_findings:[],provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","opencode","claude"]|map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:"ok"}})|from_entries),conflicts_resolved:[],summary:"All eight legs are clean."}' > "$work/arbitration.json"
   local clean_finalize=1 tamper_rc=0
   if [ "$rc" = 0 ]; then
     manifest_sha="$(jq -r .manifest_sha256 "$work/collect.json")"

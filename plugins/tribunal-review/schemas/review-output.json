@@ -4,7 +4,7 @@
   "properties": {
     "provider": {
       "type": "string",
-      "enum": ["codex", "gemini", "deepseek", "qwen", "grok", "muse", "claude"]
+      "enum": ["codex", "gemini", "deepseek", "qwen", "grok", "muse", "opencode", "claude"]
     },
     "model": { "type": "string" },
     "findings": {

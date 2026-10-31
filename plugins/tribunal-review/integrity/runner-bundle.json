@@ -2,15 +2,15 @@
   "files": [
     {
       "path": "schemas/review-output.json",
-      "sha256": "2aaf4cbec57f5f263f170d9a3ec0bbf66889befe5db06b038f4ecb586438f357"
+      "sha256": "959da5f2357d67ac8667e9ae5872e823859311bcc77d56f23146dd57095c34fe"
     },
     {
       "path": "scripts/check-runner-bundle.sh",
-      "sha256": "2826e833d371c525b69840ba09c875167fbb92f72d3535a6ab4145d00d10442b"
+      "sha256": "6576c1ad44f2425a209b3175d6e84c0c70a460005f810d42357b2c1045fe17b3"
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "59d2179176b0927e0702f0200af8d8f238c82b50bd12bdc7d250104bff34277c"
+      "sha256": "1423386747351f7d7341085a2181b1c40f86385aa959f1027edb06adce30fed5"
     },
     {
       "path": "scripts/dsh-review.patch.yml",
@@ -18,11 +18,15 @@
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
-      "sha256": "e7e393c050467ad522b6437a1f6728b7144019f5faa26a4a8f8328c3b2e6edaa"
+      "sha256": "19caf907146a7c758643b0ccd3958f391d14bdfc57fecd2bbf7eaadc7dd06d80"
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "30aaf3968aa6b557d213166bf6658da6b46cb132257a013bef274ac2177bc6f9"
+      "sha256": "559fc1f68f208537c4df14920d823d4f6afe25804b6d52393be76036b7b059b1"
+    },
+    {
+      "path": "scripts/review-panel.tsv",
+      "sha256": "05e75632c14f45334fa79886b376fcf0d17cdf06b89a63259b9c8d059b7b903e"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -30,7 +34,7 @@
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "444e8f82e89272dad6d17e7f443eb464d4aef7a71753d49ea5e498178b62d14b"
+      "sha256": "55dee7bd161a2264b6d37f82d9dfb65ce85168fe8a390c33eb00cc6048512590"
     },
     {
       "path": "scripts/run-gemini-review.sh",
@@ -45,8 +49,12 @@
       "sha256": "3954ced1228df500ef95d172fb9fe734fcad440240196fb3ef63bc531d439a2a"
     },
     {
+      "path": "scripts/run-opencode-review.sh",
+      "sha256": "9110a848e7a3a8973ac9bda532f79ed16fa54fa081a679293610834ef73bcd33"
+    },
+    {
       "path": "scripts/run-deepseek-review.sh",
-      "sha256": "f21764895bed9e7b538bbfff7c6fdaf71c06ed6104fa554b2c7b32e1569d2592"
+      "sha256": "f7a08521138dbde0f1e776e8056e9dfa9bd091dde25099370a6e1e981935b98f"
     },
     {
       "path": "scripts/run-qwen-review.sh",

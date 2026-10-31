@@ -11,7 +11,7 @@ set -euo pipefail
 provider="$1"
 if [ "$provider" = codex ] && [ -n "${FIXTURE_CODEX_ERROR:-}" ]; then
   jq -nc --arg e "$FIXTURE_CODEX_ERROR" '{provider:"codex",error:$e}'
-elif [ "$provider" = codex ] || { [ "$provider" = qwen ] && [ "${TRIBUNAL_QWEN:-off}" = on ]; }; then
+elif [ "$provider" = codex ] || [ "$provider" = claude ] || { [ "$provider" = qwen ] && [ "${TRIBUNAL_QWEN:-off}" = on ]; }; then
   source "$(dirname "$0")/lib.sh"
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   BASE_REF="$TRIBUNAL_BASE_REF"
@@ -23,7 +23,7 @@ else
   jq -nc --arg p "$provider" '{provider:$p,status:"disabled",note:"fixture disabled"}'
 fi
 FIXTURE
-for provider in codex gemini qwen grok muse claude; do
+for provider in codex gemini qwen grok muse opencode claude; do
   printf '#!/usr/bin/env bash\nbash "$(dirname "$0")/fixture-review.sh" %s\n' "$provider" > "$plugin/scripts/run-$provider-review.sh"
 done
 cat > "$fake/dsh" <<'FIXTURE'
@@ -37,6 +37,8 @@ fi
 jq -nc --arg text '{"model":"deepseek-v4-pro","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' '{type:"final",text:$text}'
 printf '%s\n' '{"type":"status","phase":"turn_end","reason":{"kind":"completed"}}'
 FIXTURE
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/claude"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/qwen"
 cat > "$fake/gh" <<'FIXTURE'
 #!/usr/bin/env bash
@@ -59,7 +61,7 @@ printf 'two\n' >> "$repo/app.txt"
 git -C "$repo" commit -qam change
 export FIXTURE_BASE="$(git -C "$repo" rev-parse HEAD~1)" FIXTURE_HEAD="$(git -C "$repo" rev-parse HEAD)"
 export PATH="$fake:$PATH" TRIBUNAL_LEG_ENV='FIXTURE_*' DEEPSEEK_API_KEY=DSH_COLLECT_SENTINEL_651
-export TRIBUNAL_DEEPSEEK=on TRIBUNAL_QWEN=off TRIBUNAL_BACKUP_LEGS=off
+export TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on TRIBUNAL_DEEPSEEK=on TRIBUNAL_QWEN=off TRIBUNAL_BACKUP_LEGS=off
 export TRIBUNAL_DIAGNOSTIC_TAILS=on
 export DSH_HOME="$work/dsh-home"
 collect() {
@@ -67,7 +69,7 @@ collect() {
 }
 case=enabled
 collect
-jq -e '(.providers|length)==7 and all(.providers[]; .provider!="glm") and any(.providers[]; .provider=="deepseek" and .status=="ok" and (.wrapper.path|endswith("/run-deepseek-review.sh")))' "$work/$case/manifest.json" >/dev/null
+jq -e '(.providers|length)==8 and all(.providers[]; .provider!="glm") and any(.providers[]; .provider=="deepseek" and .status=="ok" and (.wrapper.path|endswith("/run-deepseek-review.sh")))' "$work/$case/manifest.json" >/dev/null
 jq -e '.provider=="deepseek" and .summary.verdict=="APPROVE" and (.diff_stat.base_oid|length)>0' "$work/$case/providers/deepseek.json" >/dev/null
 printf 'PASS: enabled DeepSeek seals its own artifact without a retired provider\n'
 case=backup

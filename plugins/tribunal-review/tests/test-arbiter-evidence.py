@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
 
     check('documented lookup fails visibly when pinned object is pruned', missing_pinned_object)
 
-    providers = ('codex', 'gemini', 'deepseek', 'qwen', 'grok', 'muse', 'claude')
+    providers = ('codex', 'gemini', 'deepseek', 'qwen', 'grok', 'muse', 'opencode', 'claude')
     (work / 'providers').mkdir()
 
     def verdict_case(statuses, decision, confidence, accepts=True, findings=[],
@@ -133,19 +133,22 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
     check('mixed ok and failed panel can retain NEEDS_WORK',
           lambda: verdict_case({'codex': 'ok', 'deepseek': 'failed'}, 'NEEDS_WORK', 0.7))
     check('healthy empty panel with disabled legs keeps APPROVE shortcut',
-          lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95))
+          lambda: verdict_case({'codex': 'ok', 'claude': 'ok'}, 'APPROVE', 0.95))
     check('all failed panel keeps NEEDS_WORK confidence zero',
           lambda: verdict_case({'codex': 'failed', 'deepseek': 'failed'}, 'NEEDS_WORK', 0))
     check('failed leg forbids APPROVE confidence 0.95',
-          lambda: verdict_case({'codex': 'ok', 'deepseek': 'failed'}, 'APPROVE', 0.95, accepts=False))
+          lambda: verdict_case({'codex': 'ok', 'claude': 'ok', 'deepseek': 'failed'}, 'APPROVE', 0.95, accepts=False))
     check('failed leg permits APPROVE confidence 0.90',
-          lambda: verdict_case({'codex': 'ok', 'deepseek': 'failed'}, 'APPROVE', 0.90))
+          lambda: verdict_case({'codex': 'ok', 'claude': 'ok', 'deepseek': 'failed'}, 'APPROVE', 0.90))
     check('full healthy empty panel rejects APPROVE confidence 0.90',
           lambda: verdict_case(dict.fromkeys(providers, 'ok'), 'APPROVE', 0.90, accepts=False))
     check('healthy panel with findings rejects APPROVE confidence 0.90',
-          lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.90, accepts=False,
+          lambda: verdict_case({'codex': 'ok', 'claude': 'ok'}, 'APPROVE', 0.90, accepts=False,
                                findings=[{'file': 'f.txt'}]))
     floor2 = {'min_ok_legs': 2, 'source': 'env'}
+    floor3 = {'min_ok_legs': 3, 'source': 'env'}
+    check('default floor 2 rejects single-ok APPROVE without panel_policy',
+          lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95, accepts=False))
     check('sealed floor 2 rejects single-ok APPROVE',
           lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95, accepts=False,
                                panel_policy=floor2))
@@ -154,8 +157,12 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
     check('sealed floor 2 accepts two-ok APPROVE',
           lambda: verdict_case({'codex': 'ok', 'grok': 'ok'}, 'APPROVE', 0.95,
                                panel_policy=floor2))
-    check('legacy manifest without panel_policy keeps floor 1',
-          lambda: verdict_case({'codex': 'ok'}, 'APPROVE', 0.95))
+    check('sealed floor 3 rejects two-ok APPROVE',
+          lambda: verdict_case({'codex': 'ok', 'grok': 'ok'}, 'APPROVE', 0.95, accepts=False,
+                               panel_policy=floor3))
+    check('sealed floor 3 accepts three-ok APPROVE',
+          lambda: verdict_case({'codex': 'ok', 'grok': 'ok', 'opencode': 'ok'}, 'APPROVE', 0.95,
+                               panel_policy=floor3))
 
 print(f'{passed} PASS / {failed} FAIL')
 sys.exit(bool(failed))
