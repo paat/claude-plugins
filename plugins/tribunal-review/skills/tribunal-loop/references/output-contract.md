@@ -51,6 +51,7 @@ The deterministic ignored-path and deleted-path sources are attributed as
     "qwen": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "grok": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "muse": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "opencode": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "claude": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"}
   },
   "conflicts_resolved": [],
@@ -102,12 +103,11 @@ Every sealed ignored-path or deleted-path signal must be represented by a findin
 attributed to `repository-policy`. Sealed vacuous mutation signals must appear as
 `repository-policy` findings before APPROVE.
 
-Collections seal the environment APPROVE floor as
-`panel_policy: {"min_ok_legs": <1..7>, "source": "env"}` (from
-`TRIBUNAL_MIN_OK_LEGS` at collect time). Finalize enforces that sealed floor for
-`APPROVE` — never the ambient env — so a later lower `TRIBUNAL_MIN_OK_LEGS`
-cannot weaken an already-sealed gate. Manifests without `panel_policy` keep
-floor 1.
+Collections seal the selected panel and environment APPROVE floor as
+`panel_policy: {"min_ok_legs": <2..8>, "panel_size": <2..8>, "panel": [...], "source": "env"}`.
+Finalize enforces that sealed floor for `APPROVE` — never the ambient env — so
+a later lower `TRIBUNAL_MIN_OK_LEGS` cannot weaken an already-sealed gate.
+Manifests without `panel_policy` use floor 2.
 
 `collect-review-evidence.sh finalize` retains the canonical arbitration and
 emits a proof with this shape:

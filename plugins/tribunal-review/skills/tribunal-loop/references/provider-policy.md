@@ -1,62 +1,59 @@
 # Provider Policy
 
-- Codex: on by default; disable with `TRIBUNAL_CODEX=off`; defaults to
-  `gpt-6-astra` at `medium` effort; override with `TRIBUNAL_CODEX_MODEL` and
-  `TRIBUNAL_CODEX_EFFORT`; repo-walking with unrestricted execution inside the
-  development-container security boundary; the review prompt prohibits changes.
-- DeepSeek: off by default; `TRIBUNAL_DEEPSEEK=on` enables it and makes
-  `TRIBUNAL_DEEPSEEK_MODEL` effective (default `deepseek-v4-pro`); repo-walking
-  through dsh with a read-only sandbox, approval disabled, and session uploads,
-  telemetry, and web tools disabled. Requires dsh and a configured API key.
-- Claude: on by default; disable with `TRIBUNAL_CLAUDE=off`; model override
-  `TRIBUNAL_CLAUDE_MODEL`; diff-only from a scratch directory with tools disabled.
-- Gemini: off by default; enable with `TRIBUNAL_GEMINI=on`; diff plus web/CVE
-  lens.
-- Qwen: off by default; enable with `TRIBUNAL_QWEN=on`; repo-walking on its own
-  transport.
-- Grok: on by default; disable with `TRIBUNAL_GROK=off`; model override
-  `TRIBUNAL_GROK_MODEL` (default `grok-4.7`); repo-walking on the xAI Grok CLI
-  with tools allowlist, sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`),
-  `bypassPermissions`, isolated host config, web search off (issue #378).
-- Muse: on by default; disable with `TRIBUNAL_MUSE=off`; requests `muse-spark-1.3`
-  unless `TRIBUNAL_MUSE_MODEL` is set (`default` passes no `--model`; a `-contributor`
-  id the CLI then selects may use content for product improvement); repo-walking via
-  `muse exec --yolo` with write, shell, and web tools off.
+## Panel selection and risk tiers
 
-## Risk tier and effort
+By default the tribunal selects **3 distinct available reviewer legs** (`TRIBUNAL_PANEL_SIZE`,
+default `3`, range `2..8`) for the PR risk tier (`TRIBUNAL_RISK`: `T1`–`T4`; unset uses `T2`)
+from `scripts/review-panel.tsv` (override with `TRIBUNAL_REVIEW_PANEL=<file>`, environment only).
+Rows are ranked in preference order (`tier<TAB>provider<TAB>model<TAB>effort`, where `-` passes no
+effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers over-report.
 
-`TRIBUNAL_RISK` (environment only: `T1`–`T4`, the multi-model-orchestrator complexity tier)
-sets reviewer effort: T1 `low`, T2 `medium`, T3 `high`, T4 `high` with only Codex at `xhigh`
-(maximum-effort reviewers over-report speculative findings). DeepSeek maps T1 to `low`
-and T2–T4 to `high`; unset uses `high`. Unset keeps other CLI defaults.
-Grok T3 uses `medium` and defaults to eight inspect turns to start finalization earlier;
-`TRIBUNAL_GROK_MAX_TURNS` overrides the cap. Timeouts remain 600 s inspect + 120 s finalize.
-`TRIBUNAL_CODEX_EFFORT`, `TRIBUNAL_CLAUDE_EFFORT`, `TRIBUNAL_GROK_EFFORT`, and
-`TRIBUNAL_MUSE_EFFORT` override it.
-Panel membership never depends on the tier.
+- `TRIBUNAL_<PROVIDER>=on` forces that leg into the panel (all forced legs run even if they exceed
+  `TRIBUNAL_PANEL_SIZE`).
+- `TRIBUNAL_<PROVIDER>=off` excludes that leg from selection.
+- Explicit `TRIBUNAL_<PROVIDER>_MODEL` and `TRIBUNAL_<PROVIDER>_EFFORT` settings always override
+  the table row.
+- Remaining available rows in table order become the automatic backup order unless the operator
+  sets `TRIBUNAL_BACKUP_LEGS`.
+
+## Providers
+
+- Codex (`codex` CLI): repo-walking with unrestricted execution inside the development-container
+  security boundary; the review prompt prohibits changes.
+- OpenCode (`opencode` v2+ CLI on OpenCode Go): repo-walking via
+  `opencode run --standalone --format json --agent plan -m "opencode-go/<model>[#<effort>]"`
+  (`--agent plan` denies edit tools); OpenCode v1 is refused.
+- Claude (`claude` CLI): diff-only from a scratch directory with tools disabled (`--effort`
+  omitted on Haiku models).
+- Grok (`grok` CLI): repo-walking with read-only tools allowlist, sandbox default `none`
+  (`TRIBUNAL_GROK_SANDBOX`), `bypassPermissions`, isolated host config, web search off; T3
+  defaults to 8 inspect turns (`TRIBUNAL_GROK_MAX_TURNS`).
+- Muse (`muse` CLI): repo-walking via `muse exec --yolo` with write, shell, and web tools off
+  (`TRIBUNAL_MUSE_MODEL=default` passes no `--model`).
+- DeepSeek (`dsh` CLI + `DEEPSEEK_API_KEY` or dsh credentials): repo-walking with read-only
+  sandbox, approval disabled, and session uploads, telemetry, and web tools disabled.
+- Gemini (`agy` CLI): diff plus web/CVE lens.
+- Qwen (`qwen` CLI): repo-walking on its configured transport.
 
 ## Grok recovery
 
-`TRIBUNAL_GROK_RECOVERY=permit` (default) keeps tools-off, low-effort finalization
-when inspection times out or returns incomplete output. `reject` turns a recovered
-verdict into a named `grok_recovery_rejected` failed leg, excluded from quorum;
-unknown phase on a nonempty diff also fails. Only `permit` and `reject` are valid.
-The collector seals this policy as `grok_recovery`; later environment changes cannot
-weaken it. Neither policy lowers `TRIBUNAL_MIN_OK_LEGS` or changes panel membership.
+`TRIBUNAL_GROK_RECOVERY=permit` (default) keeps tools-off, low-effort finalization when inspection
+times out or returns incomplete output. `reject` turns a recovered verdict into a named
+`grok_recovery_rejected` failed leg, excluded from quorum; unknown phase on a nonempty diff also
+fails. Sealed at collect time as `grok_recovery`.
 
-## Plan-limited legs
+## Backups for plan-limited and sub-quorum runs
 
-A leg whose CLI failed on a plan limit (402, usage limit, quota, resource/balance/credits
-exhausted; never a timeout) reports an error starting with `plan limit:`. The evidence
-collector then runs one backup leg per limited leg from `TRIBUNAL_BACKUP_LEGS` (environment
-only; default `deepseek`; `off` disables): an installed leg whose wrapper sat out the run.
-The limited leg stays `failed`, so confidence still reflects it.
+A leg failing on a plan limit (402, usage limit, quota, resource/balance/credits exhausted, or
+OpenCode `provider.{go,free,budget,model-budget}-limit`; never a timeout) emits an error starting
+with `plan limit:`. After the first pass, the collector runs idle installed backup legs — one per
+plan-limited leg, and enough to cover any shortfall when `ok` legs are below `TRIBUNAL_MIN_OK_LEGS`
+— using the selection's backup order (or `TRIBUNAL_BACKUP_LEGS`, comma-separated providers or
+`off`). Original failed legs remain `failed`.
 
 ## APPROVE quorum
 
-`TRIBUNAL_MIN_OK_LEGS` (default `1`, range 1..7) is the per-environment floor
-of `ok` provider legs required for `APPROVE`. It is environment-only — never
-read from the repository under review — and is sealed into the collection
-manifest as `panel_policy` at collect time. A documented lower value is that
-environment's degraded quorum; membership still uses the `TRIBUNAL_<PROVIDER>`
-toggles.
+`TRIBUNAL_MIN_OK_LEGS` (default `2`, range `2..8`; `1` is rejected because a one-leg `APPROVE` is
+not allowed) is the per-environment floor of `ok` legs required for `APPROVE`. It is
+environment-only and sealed into `manifest.json` inside `panel_policy` alongside `panel_size` and
+the selected `panel`.

@@ -15,7 +15,12 @@ command -v codex >/dev/null 2>&1 || { tribunal_error codex "Codex CLI not on PAT
 
 CODEX_MODEL="${TRIBUNAL_CODEX_MODEL:-gpt-6-astra}"
 RISK_EFFORT="$(tribunal_risk_effort codex 2>&1)" || { tribunal_error codex "$RISK_EFFORT"; exit 0; }
-CODEX_EFFORT="${TRIBUNAL_CODEX_EFFORT:-${RISK_EFFORT:-medium}}"
+if [ "${TRIBUNAL_PANEL_SELECTED:-0}" = 1 ]; then
+  CODEX_EFFORT="${TRIBUNAL_CODEX_EFFORT:-}"
+else
+  CODEX_EFFORT="${TRIBUNAL_CODEX_EFFORT:-${RISK_EFFORT:-medium}}"
+fi
+[ "$CODEX_EFFORT" != "-" ] || CODEX_EFFORT=""
 TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
 # The sealed collector limits every wrapper to 4 GiB (ulimit -f 4194304). Keep Codex's mutable
@@ -54,13 +59,14 @@ model_args=(
   --ephemeral --color never
   -c 'mcp_servers={}' -c 'shell_environment_policy.inherit="core"'
 )
+[ -z "$CODEX_EFFORT" ] || model_args+=(-c "model_reasoning_effort=\"$CODEX_EFFORT\"")
 rc=0
 RUN_TIMEOUT=600
 [ "$MODE" = smoke ] && RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
 LAST_FILE="$TMPDIR/last-message.json"
 SCHEMA_FILE="$(tribunal_review_schema)"
 env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
-  -c "model_reasoning_effort=\"$CODEX_EFFORT\"" --output-schema "$SCHEMA_FILE" \
+  --output-schema "$SCHEMA_FILE" \
   --output-last-message "$LAST_FILE" -C "$WALK_ROOT" - \
   < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
 if [ "$rc" -eq 0 ]; then

@@ -21,7 +21,8 @@ REPO_ROOT="$(tribunal_repo_root)"
 WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
   || { tribunal_error deepseek "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
 MODEL="$(tribunal_deepseek_model)"
-EFFORT="$(tribunal_risk_effort deepseek)" || { tribunal_error deepseek 'invalid TRIBUNAL_RISK'; exit 0; }
+RISK_EFFORT="$(tribunal_risk_effort deepseek)" || { tribunal_error deepseek 'invalid TRIBUNAL_RISK'; exit 0; }
+EFFORT="${TRIBUNAL_DEEPSEEK_EFFORT:-$RISK_EFFORT}"
 case "$EFFORT" in
   low) ;;
   ''|medium|high) EFFORT=high ;;

@@ -9,7 +9,7 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_SSH_COMMAND
 
-for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid unshare ps kill codex agy dsh qwen grok muse claude; do
+for command_name in git gh jq sha256sum awk sed wc date mktemp chmod mkdir mv rm rmdir cat dirname basename tr pwd env bash printf timeout head cp cmp stat setsid unshare ps kill codex agy dsh qwen grok muse opencode claude; do
   unset -f "$command_name" 2>/dev/null || true
 done
 unset command_name
@@ -67,7 +67,7 @@ PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 SCHEMA_COLLECTION="tribunal-collection/v1"
 SCHEMA_PROOF="tribunal-proof/v1"
-PROVIDERS="codex gemini deepseek qwen grok muse claude"
+PROVIDERS="codex gemini deepseek qwen grok muse opencode claude"
 STAGING=""
 REVIEW_SOURCE=""
 REVIEW_WORKTREES=()
@@ -752,6 +752,7 @@ wrapper_for_provider() {
     qwen) printf '%s/run-qwen-review.sh\n' "$SCRIPT_DIR" ;;
     grok) printf '%s/run-grok-review.sh\n' "$SCRIPT_DIR" ;;
     muse) printf '%s/run-muse-review.sh\n' "$SCRIPT_DIR" ;;
+    opencode) printf '%s/run-opencode-review.sh\n' "$SCRIPT_DIR" ;;
     claude) printf '%s/run-claude-review.sh\n' "$SCRIPT_DIR" ;;
     *) die "unknown provider: $1" ;;
   esac
@@ -764,8 +765,8 @@ collect() {
   local root="" pr="" output="" started binding head_oid base_oid parent review_tmp bundle
   local wrapper name rc provider status artifact stderr wrapper_name providers_json ignored_paths_json deleted_paths_json
   local mutation_gate_json sensitive_paths sensitive_paths_sha256="" source line path content
-  local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree claude_worktree review_worktree
-  local min_ok_legs backup_legs backups backup limited grok_recovery
+  local codex_worktree gemini_worktree deepseek_worktree qwen_worktree grok_worktree muse_worktree opencode_worktree claude_worktree review_worktree
+  local min_ok_legs panel_size panel_json backup_legs backups backup backup_worktree_var limited ok_count missing_ok needed grok_recovery
   local prior_rejections="" prior_rejections_sha256=""
   local -x TRIBUNAL_PRIOR_REJECTIONS_FILE=""
   local -A mutation_errors=() review_gitdirs=()
@@ -787,8 +788,10 @@ collect() {
     permit|reject) ;;
     *) die "invalid TRIBUNAL_GROK_RECOVERY: $grok_recovery (allowed: permit, reject)" ;;
   esac
-  tribunal_risk_tier >/dev/null || exit 1
-  backup_legs="$(tribunal_backup_legs)" || exit 1
+  tribunal_select_panel || exit 1
+  panel_size="$TRIBUNAL_SELECTED_PANEL_SIZE"
+  panel_json="$TRIBUNAL_SELECTED_PANEL_JSON"
+  backup_legs="$TRIBUNAL_SELECTED_BACKUPS"
   root="$(real_dir "$root")"
   SURFACE_ROOT="$root"
   load_safe_directories
@@ -859,7 +862,7 @@ collect() {
   fi
 
   REVIEW_SOURCE="$root"; REVIEW_WORKTREES=()
-  for name in codex gemini deepseek qwen grok muse claude; do
+  for name in codex gemini deepseek qwen grok muse opencode claude; do
     review_tmp="$(mktemp -d "${TMPDIR:-/tmp}/tribunal-$name.XXXXXX")"; rmdir "$review_tmp"
     git -C "$root" worktree add --detach --quiet "$review_tmp" "$head_oid"
     review_tmp="$(real_dir "$review_tmp")"
@@ -873,6 +876,7 @@ collect() {
       qwen) qwen_worktree="$review_tmp" ;;
       grok) grok_worktree="$review_tmp" ;;
       muse) muse_worktree="$review_tmp" ;;
+      opencode) opencode_worktree="$review_tmp" ;;
       claude) claude_worktree="$review_tmp" ;;
     esac
   done
@@ -884,6 +888,7 @@ collect() {
   run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper grok "$SCRIPT_DIR/run-grok-review.sh" "$grok_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper muse "$SCRIPT_DIR/run-muse-review.sh" "$muse_worktree" "$base_oid" "$STAGING/wrappers"
+  run_wrapper opencode "$SCRIPT_DIR/run-opencode-review.sh" "$opencode_worktree" "$base_oid" "$STAGING/wrappers"
   run_wrapper claude "$SCRIPT_DIR/run-claude-review.sh" "$claude_worktree" "$base_oid" "$STAGING/wrappers"
   wait_wrappers
 
@@ -894,31 +899,45 @@ collect() {
   done
   fail_mutated_providers "$head_oid" "$STAGING"
 
-  # One backup leg per plan-limited leg, from TRIBUNAL_BACKUP_LEGS: an installed leg whose
-  # wrapper sat idle this run. The limited leg stays failed.
+  # Run idle installed backups for plan-limited legs and when ok legs fall below min_ok_legs.
+  # Original failed legs stay failed.
   limited=0
+  ok_count=0
   for provider in $PROVIDERS; do
-    jq -e '(.error // "") | startswith("plan limit:")' "$STAGING/providers/$provider.json" >/dev/null \
-      && limited=$((limited + 1))
+    status="$(provider_status "$STAGING/providers/$provider.json")"
+    if [ "$status" = ok ]; then
+      ok_count=$((ok_count + 1))
+    fi
+    if jq -e '(.error // "") | startswith("plan limit:")' "$STAGING/providers/$provider.json" >/dev/null; then
+      limited=$((limited + 1))
+    fi
   done
+  missing_ok=0
+  if [ "$ok_count" -lt "$min_ok_legs" ]; then
+    missing_ok=$((min_ok_legs - ok_count))
+  fi
+  needed="$limited"
+  if [ "$missing_ok" -gt "$needed" ]; then
+    needed="$missing_ok"
+  fi
   backups=""
   for backup in $backup_legs; do
-    [ "$limited" -gt 0 ] || break
+    [ "$needed" -gt 0 ] || break
     [ "$(provider_status "$STAGING/providers/$backup.json")" = disabled ] || continue
     tribunal_backup_installed "$backup" || continue
-    backups="$backups $backup "; limited=$((limited - 1))
+    backups="$backups $backup "; needed=$((needed - 1))
   done
   if [ -n "$backups" ]; then
-    printf 'tribunal evidence: running backup legs for plan-limited legs:%s\n' "$backups" >&2
-    case "$backups" in *" deepseek "*)
-      TRIBUNAL_DEEPSEEK=on run_wrapper deepseek "$SCRIPT_DIR/run-deepseek-review.sh" "$deepseek_worktree" "$base_oid" "$STAGING/wrappers" ;;
-    esac
-    case "$backups" in *" gemini "*)
-      TRIBUNAL_GEMINI=on run_wrapper gemini "$SCRIPT_DIR/run-gemini-review.sh" "$gemini_worktree" "$base_oid" "$STAGING/wrappers" ;;
-    esac
-    case "$backups" in *" qwen "*)
-      TRIBUNAL_QWEN=on run_wrapper qwen "$SCRIPT_DIR/run-qwen-review.sh" "$qwen_worktree" "$base_oid" "$STAGING/wrappers" ;;
-    esac
+    if [ "$limited" -gt 0 ]; then
+      printf 'tribunal evidence: running backup legs for plan-limited legs:%s\n' "$backups" >&2
+    else
+      printf 'tribunal evidence: running backup legs for quorum:%s\n' "$backups" >&2
+    fi
+    for backup in $backups; do
+      backup_worktree_var="${backup}_worktree"
+      export "TRIBUNAL_${backup^^}=on"
+      run_wrapper "$backup" "$(wrapper_for_provider "$backup")" "${!backup_worktree_var}" "$base_oid" "$STAGING/wrappers"
+    done
     wait_wrappers
     for backup in $backups; do
       normalize_single "$backup" "$STAGING/wrappers/$backup.raw" "$(cat "$STAGING/wrappers/$backup.exit")" \
@@ -993,7 +1012,8 @@ collect() {
     --arg library_path "$SCRIPT_DIR/lib.sh" --arg library_sha256 "$(sha_file "$SCRIPT_DIR/lib.sh")" \
     --arg bundle_manifest_path "$PLUGIN_ROOT/integrity/runner-bundle.json" \
     --arg bundle_manifest_sha256 "$(printf '%s' "$bundle" | jq -r .sha256)" \
-    --argjson min_ok_legs "$min_ok_legs" --arg grok_recovery "$grok_recovery" \
+    --argjson min_ok_legs "$min_ok_legs" --argjson panel_size "$panel_size" --argjson panel "$panel_json" \
+    --arg grok_recovery "$grok_recovery" \
     --slurpfile providers "$providers_json" \
     '{schema:$schema,started_at:$started_at,completed_at:$completed_at,
       repository:$binding.repository,
@@ -1007,7 +1027,7 @@ collect() {
         bundle_manifest_path:$bundle_manifest_path,bundle_manifest_sha256:$bundle_manifest_sha256},
       providers:$providers,
       containment:(if all($providers[]; .containment == "pid-namespace") then "pid-namespace" else "session" end),
-      panel_policy:{min_ok_legs:$min_ok_legs,source:"env"},grok_recovery:$grok_recovery}
+      panel_policy:{min_ok_legs:$min_ok_legs,panel_size:$panel_size,panel:$panel,source:"env"},grok_recovery:$grok_recovery}
       + (if $prior_rejections_sha256 == "" then {} else
           {prior_rejections:{path:"prior-rejections.json",sha256:$prior_rejections_sha256,bytes:$prior_rejections_bytes}} end)
       + (if $ignored_paths_sha256 == "" then {} else
@@ -1101,20 +1121,27 @@ validate_manifest_shape() {
          (.mutation_gate | exact(["path","sha256","bytes"];["path","sha256","bytes"])
           and .path=="mutation-gate.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("panel_policy")|not) or
-         (.panel_policy | exact(["min_ok_legs","source"];["min_ok_legs","source"])
-          and (.min_ok_legs|type=="number" and .>=1 and .<=7 and .==floor)
+         (.panel_policy | exact(["min_ok_legs","panel_size","panel","source"];["min_ok_legs","panel_size","panel","source"])
+          and (.min_ok_legs|type=="number" and .>=2 and .<=8 and .==floor)
+          and (.panel_size|type=="number" and .>=2 and .<=8 and .==floor)
+          and (.panel|type=="array"
+               and ([.[].provider]|length)==([.[].provider]|unique|length)
+               and all(.[]; exact(["provider","model","effort"];["provider","model","effort"])
+                 and (.provider|IN("codex","gemini","deepseek","qwen","grok","muse","opencode","claude"))
+                 and (.model|text)
+                 and (.effort == null or (.effort|text))))
           and .source=="env"))
     and (.runner | exact(["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"];
                          ["path","sha256","library_path","library_sha256","bundle_manifest_path","bundle_manifest_sha256"])
          and (.path|text and startswith("/")) and (.sha256|sha)
          and (.library_path|text and startswith("/")) and (.library_sha256|sha)
          and (.bundle_manifest_path|text and startswith("/")) and (.bundle_manifest_sha256|sha))
-    and (.providers|type=="array" and length==7
-         and ([.[].provider]|sort)==(["claude","codex","deepseek","gemini","grok","muse","qwen"])
+    and (.providers|type=="array" and length==8
+         and ([.[].provider]|sort)==(["claude","codex","deepseek","gemini","grok","muse","opencode","qwen"])
          and all(.[];
            exact(["provider","status","wrapper","artifact","started_at","finished_at","exit_code","stderr","containment"];
                  ["provider","status","wrapper","artifact","started_at","finished_at","exit_code","stderr"])
-           and (.provider|IN("codex","gemini","deepseek","qwen","grok","muse","claude"))
+           and (.provider|IN("codex","gemini","deepseek","qwen","grok","muse","opencode","claude"))
            and (.status|IN("ok","failed","disabled"))
            and (.wrapper|exact(["path","sha256"];["path","sha256"])
                 and (.path|text and startswith("/")) and (.sha256|sha))
@@ -1304,16 +1331,16 @@ validate_arbitration() {
   local arbitration="$1" manifest="$2" statuses dir evidence ignored_paths deleted_paths mutation_gate sensitive_paths
   local min_ok_legs
   statuses="$(jq -c '[.providers[]|{key:.provider,value:.status}]|from_entries' "$manifest")"
-  # Sealed floor only — never re-read ambient TRIBUNAL_MIN_OK_LEGS (issue #519).
-  min_ok_legs="$(jq '.panel_policy.min_ok_legs // 1' "$manifest")"
+  # Sealed floor only — never re-read ambient TRIBUNAL_MIN_OK_LEGS (issue #519); a 1-leg APPROVE is never allowed.
+  min_ok_legs="$(jq '[(.panel_policy.min_ok_legs // 2), 2] | max' "$manifest")"
   dir="$(dirname "$manifest")"
   evidence="$(jq -nc \
     --slurpfile codex "$dir/providers/codex.json" --slurpfile gemini "$dir/providers/gemini.json" \
     --slurpfile deepseek "$dir/providers/deepseek.json" \
     --slurpfile qwen "$dir/providers/qwen.json" --slurpfile grok "$dir/providers/grok.json" \
-    --slurpfile muse "$dir/providers/muse.json" \
+    --slurpfile muse "$dir/providers/muse.json" --slurpfile opencode "$dir/providers/opencode.json" \
     --slurpfile claude "$dir/providers/claude.json" \
-    '{codex:$codex[0],gemini:$gemini[0],deepseek:$deepseek[0],qwen:$qwen[0],grok:$grok[0],muse:$muse[0],claude:$claude[0]}')"
+    '{codex:$codex[0],gemini:$gemini[0],deepseek:$deepseek[0],qwen:$qwen[0],grok:$grok[0],muse:$muse[0],opencode:$opencode[0],claude:$claude[0]}')"
   if jq -e 'has("ignored_paths")' "$manifest" >/dev/null; then
     ignored_paths="$(jq -c . "$dir/ignored-paths.json")"
   else
@@ -1352,7 +1379,7 @@ validate_arbitration() {
                  or ($deleted_paths | any(.[]; .path == $finding.file))
                  or ($mutation_gate | any(.[]; .path == $finding.file))
                else
-                 ($p | IN("codex","gemini","deepseek","qwen","grok","muse","claude"))
+                 ($p | IN("codex","gemini","deepseek","qwen","grok","muse","opencode","claude"))
                  and $statuses[$p] == "ok"
                  and (($evidence[$p].findings // []) | any(.[]; .file == $finding.file))
                end))
@@ -1403,13 +1430,14 @@ validate_arbitration() {
           and .severity == "high")))
     and (.scope_findings|type=="array" and all(.[];scope) and ([.[].id]|length)==([.[].id]|unique|length))
     and (.findings as $final_findings | .provider_assessment
-         | exact(["codex","gemini","deepseek","qwen","grok","muse","claude"];
-                 ["codex","gemini","deepseek","qwen","grok","muse","claude"])
+         | exact(["codex","gemini","deepseek","qwen","grok","muse","opencode","claude"];
+                 ["codex","gemini","deepseek","qwen","grok","muse","opencode","claude"])
          and (.codex|assessment("codex";$final_findings))
          and (.gemini|assessment("gemini";$final_findings))
          and (.deepseek|assessment("deepseek";$final_findings))
          and (.qwen|assessment("qwen";$final_findings)) and (.grok|assessment("grok";$final_findings))
          and (.muse|assessment("muse";$final_findings))
+         and (.opencode|assessment("opencode";$final_findings))
          and (.claude|assessment("claude";$final_findings)))
     and (.conflicts_resolved|type=="array" and all(.[];type=="string")) and (.summary|text)
     and (if .tribunal_verdict.decision=="APPROVE" then

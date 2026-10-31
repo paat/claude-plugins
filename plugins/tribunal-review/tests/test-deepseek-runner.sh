@@ -25,11 +25,12 @@ cat "$FIXTURE_STDERR" >&2
 exit "${FIXTURE_RC:-0}"
 DSH
   printf '#!/usr/bin/env bash\nexit 0\n' > "$work/bin/codex"
-  chmod +x "$work/bin/dsh" "$work/bin/codex"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$work/bin/muse"
+  chmod +x "$work/bin/dsh" "$work/bin/codex" "$work/bin/muse"
   export PATH="$work/bin:$PATH" HOME="$work/home" DSH_HOME="$work/home/dsh"
   export TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=main TRIBUNAL_LEG_ENV='FIXTURE_*'
-  export TRIBUNAL_DEEPSEEK=on TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off TRIBUNAL_MUSE=off
-  export TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_SMOKE_PROBE=off TRIBUNAL_DIAGNOSTIC_TAILS=on
+  export TRIBUNAL_DEEPSEEK=on TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off TRIBUNAL_MUSE=on
+  export TRIBUNAL_OPENCODE=off TRIBUNAL_GEMINI=off TRIBUNAL_QWEN=off TRIBUNAL_SMOKE_PROBE=off TRIBUNAL_DIAGNOSTIC_TAILS=on
   export DEEPSEEK_API_KEY=sentinel-deepseek-secret-651
   export FIXTURE_STDOUT="$work/events" FIXTURE_STDERR="$work/errors" FIXTURE_RC=0
   export FIXTURE_PATCH="$work/output/patch" FIXTURE_CWD="$work/output/cwd" FIXTURE_PROMPT="$work/output/prompt"
@@ -120,7 +121,7 @@ DSH
   mkdir -p "$HOME/.dsh"; printf 'DEEPSEEK_API_KEY=sentinel-deepseek-secret-651\n' > "$HOME/.dsh/.env"
   scenario='preflight default home key usable'; preflight
   check jq -e 'any(.providers[]; .name=="deepseek" and .status=="usable")' "$work/output/preflight"
-  mkdir "$work/missing-bin"; cp "$work/bin/codex" "$work/missing-bin/codex"
+  mkdir "$work/missing-bin"; cp "$work/bin/codex" "$work/missing-bin/codex"; cp "$work/bin/muse" "$work/missing-bin/muse"
   scenario='preflight missing dsh skipped'; PATH="$work/missing-bin:/usr/bin:/bin" preflight
   check jq -e 'any(.providers[];.name=="deepseek" and .status=="skipped" and (.note|contains("dsh CLI not on PATH")))' "$work/output/preflight"
   scenario='runner missing dsh named error'; PATH="$work/missing-bin:/usr/bin:/bin" run_leg

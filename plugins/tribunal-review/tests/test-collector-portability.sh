@@ -6,21 +6,23 @@ work="$(mktemp -d)"
 trap 'chmod -R u+w "$work"; rm -rf "$work"' EXIT
 plugin="$work/source-checkout"; other="$work/other-install"; repo="$work/repo"
 mkdir -p "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$work/bin" "$repo"
-for script in collect-review-evidence.sh lib.sh check-runner-bundle.sh generate-runner-bundle.sh dsh-review.patch.yml; do
+for script in collect-review-evidence.sh lib.sh review-panel.tsv check-runner-bundle.sh generate-runner-bundle.sh dsh-review.patch.yml; do
   cp "$PLUGIN_ROOT/scripts/$script" "$plugin/scripts/"
 done
 cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
 cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$plugin/.claude-plugin/"
-cat > "$plugin/scripts/run-codex-review.sh" <<'EOF'
+for provider in codex claude; do
+  cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
-base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
-head="$(git rev-parse --verify 'HEAD^{commit}')"
-jq -nc --arg base "$base" --arg head "$head" --arg ref "$TRIBUNAL_BASE_REF" \
-  '{provider:"codex",model:"fixture",files_examined:["app.txt"],findings:[],
+base="\$(git rev-parse --verify "\${TRIBUNAL_BASE_REF}^{commit}")"
+head="\$(git rev-parse --verify 'HEAD^{commit}')"
+jq -nc --arg p "$provider" --arg base "\$base" --arg head "\$head" --arg ref "\$TRIBUNAL_BASE_REF" \\
+  '{provider:\$p,model:"fixture",files_examined:["app.txt"],findings:[],
     summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"},
-    diff_stat:{files_changed:1,insertions:1,deletions:0,base:$ref,base_oid:$base,head_oid:$head,truncated:false}}'
+    diff_stat:{files_changed:1,insertions:1,deletions:0,base:\$ref,base_oid:\$base,head_oid:\$head,truncated:false}}'
 EOF
-for provider in gemini deepseek qwen grok muse claude; do
+done
+for provider in gemini deepseek qwen grok muse opencode; do
   printf '#!/usr/bin/env bash\nprintf '\''%%s\\n'\'' '\''{"provider":"%s","status":"disabled","note":"fixture disabled"}'\''\n' "$provider" \
     > "$plugin/scripts/run-$provider-review.sh"
 done
@@ -49,13 +51,15 @@ else
   printf 'unexpected gh invocation: %s\n' "$*" >&2; exit 2
 fi
 EOF
-chmod +x "$work/bin/gh"
-export PATH="$work/bin:$PATH" TRIBUNAL_PLUGIN_ROOT="$plugin" TRIBUNAL_MIN_OK_LEGS=1
-export TRIBUNAL_BACKUP_LEGS=off TRIBUNAL_LEG_ENV='FIXTURE_*'
+printf '#!/usr/bin/env bash\nexit 0\n' > "$work/bin/codex"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$work/bin/claude"
+chmod +x "$work/bin/gh" "$work/bin/codex" "$work/bin/claude"
+export PATH="$work/bin:$PATH" TRIBUNAL_PLUGIN_ROOT="$plugin" TRIBUNAL_MIN_OK_LEGS=2
+export TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on TRIBUNAL_BACKUP_LEGS=off TRIBUNAL_LEG_ENV='FIXTURE_*'
 jq -nc '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"Fixture review passed."},
   findings:[],scope_findings:[],conflicts_resolved:[],summary:"No blocking findings.",
-  provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","claude"] |
-    map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:(if .=="codex" then "ok" else "disabled" end)}}) | from_entries)}' \
+  provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","opencode","claude"] |
+    map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:(if (.=="codex" or .=="claude") then "ok" else "disabled" end)}}) | from_entries)}' \
   > "$work/arbitration.json"
 bash "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \
   --output "$work/collection" > "$work/collect.json"

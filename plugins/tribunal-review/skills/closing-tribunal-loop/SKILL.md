@@ -144,7 +144,7 @@ undocumented on the PR.
 
 The loop only exits when the arbiter's verdict has **zero critical and zero high
 findings** on the current diff **and** the CI gate below passes on `LOCAL_HEAD`.
-Default panel: Codex, Grok, Muse, Claude (Gemini, DeepSeek, Qwen opt-in).
+Default panel: 3 legs selected per `TRIBUNAL_RISK` tier from `scripts/review-panel.tsv` (`TRIBUNAL_MIN_OK_LEGS` floor default 2).
 
 ### CI-proven green (refuse-to-merge)
 
