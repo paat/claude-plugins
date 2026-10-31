@@ -119,7 +119,8 @@ Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.m
 ## Model ID Refresh
 
 `scripts/refresh-model-versions.sh` snapshots the model catalogs of the installed
-`codex`, `grok`, and `agy` CLIs. A new pool-vendor model, newly unmappable public
+`codex`, `grok`, and `agy` CLIs, plus the optional opencode Go catalog (skipped
+when the CLI is missing or v1). A new pool-vendor model, newly unmappable public
 name, or rank change with non-overlapping old/new CIs on a non-preliminary row
 wakes a headless `claude -p` session in a throwaway worktree. It proposes
 superseded pins and evidence-backed tier-order/retirement edits and opens a
@@ -143,8 +144,9 @@ for an isolated live fetch/build with no model calls.
 The first run only seeds fresh state; triggers require a later run against the same state directory.
 
 State, the handled catalog, and the last run log live in `~/.local/state/model-refresh/`.
-It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and all four provider CLIs; it
-fails closed when any catalog comes back empty.
+It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and the `codex`, `grok`, and `agy` CLIs (the opencode CLI is optional); it
+fails closed when any of the `codex`, `grok`, or `agy` catalogs comes back
+empty, and the first run only seeds state.
 
 The opt-in DeepSeek leg (`tribunal-review`, default `deepseek-v4-pro`) is excluded from this refresh; its pin is bumped by hand.
 
