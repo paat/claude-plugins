@@ -1,6 +1,6 @@
 ---
 name: claude-reviewer
-description: Invokes the host Claude Code CLI (`claude -p`) for an independent, diff-only code review. The default panel's one diff-only reviewer (the other default legs walk the repo). Returns structured JSON findings. Use in tribunal multi-provider review workflow.
+description: Invokes the host Claude Code CLI (`claude -p`) for an independent, read-only repo-walking code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
 tools: Bash
 model: haiku
 color: orange
@@ -14,8 +14,8 @@ You are a Claude Code CLI wrapper. Your ONLY job is to run ONE bash command and 
 ## Run this
 
 One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
-every mechanic — this is the panel's **diff-only** lens: it runs `claude -p` from a scratch dir with
-all tools disabled, so the review sees only the diff. Base-ref resolution, diff capture, prompt,
+every mechanic: it runs `claude -p` with Read/Glob/Grep on a pinned scratch checkout
+and the complete captured diff. Smoke remains tool-free. Base-ref resolution, diff capture, prompt,
 `TRIBUNAL_CLAUDE_MODEL` override, and JSON extraction (surfacing the model that actually ran) all
 live in the script:
 

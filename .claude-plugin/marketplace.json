@@ -30,8 +30,8 @@
     },
     {
       "name": "tribunal-review",
-      "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (diff-only), OpenCode Go, Grok, Muse, DeepSeek, Gemini and Qwen, at least two must succeed, with calling-context arbitration",
-      "version": "0.29.0",
+      "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (read-only repo-walking), OpenCode Go, Grok, Muse, DeepSeek, Gemini and Qwen, at least two must succeed, with calling-context arbitration",
+      "version": "0.29.1",
       "author": {
         "name": "Andre Paat"
       },
