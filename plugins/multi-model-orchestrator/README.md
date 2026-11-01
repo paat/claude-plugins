@@ -319,7 +319,7 @@ catalog.
 | `MMO_MUSE_MODEL` | `muse-spark-1.3` | Direct runner default. `default` passes no `--model`. Pool rows supply their own `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
 | `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200 |
-| `MMO_OPENCODE_MODEL` | `kimi-k3.1-pro` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
+| `MMO_OPENCODE_MODEL` | `glm-5.3` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
 | `MMO_OPENCODE_EFFORT` | `high` | OpenCode model variant (`default` passes none) |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/local-Qwen review |
 | `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |

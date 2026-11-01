@@ -3067,7 +3067,7 @@ printf 'one\n' > "$OR/f.txt"; git -C "$OR" add f.txt; git -C "$OR" -c user.email
 oc_env=(env -u MMO_OPENCODE_MODEL -u MMO_OPENCODE_EFFORT PATH="$OC/bin:$PATH" STUB_OPENCODE_CALLS="$OC/calls")
 
 out="$(printf 'make f say two\n' | "${oc_env[@]}" bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30 2>"$OC/err")" || fail "run-opencode implement succeeds: $(cat "$OC/err")"
-for flag in run --standalone --format json --auto -m 'opencode-go/kimi-k3.1-pro#high'; do
+for flag in run --standalone --format json --auto -m 'opencode-go/glm-5.3#high'; do
   exact_line "$OC/calls/call.0.args" "$flag" "opencode implement passes $flag"
 done
 absent "$OC/calls/call.0.args" '--agent' 'opencode implement is not the plan agent'
