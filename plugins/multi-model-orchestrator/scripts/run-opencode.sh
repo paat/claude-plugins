@@ -24,7 +24,9 @@ usage() {
 mode=""
 repo_dir="$PWD"
 base_ref=""
-model="${MMO_OPENCODE_MODEL:-kimi-k3.1-pro}"
+# Direct calls default to GLM-5.3: Kimi K3.1 Pro drains the Go allowance fastest, and
+# pool.sh passes it explicitly for T3.
+model="${MMO_OPENCODE_MODEL:-glm-5.3}"
 effort="${MMO_OPENCODE_EFFORT:-high}"
 run_timeout=1200
 output_file=""
