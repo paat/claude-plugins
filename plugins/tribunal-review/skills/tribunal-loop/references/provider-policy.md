@@ -23,8 +23,10 @@ effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers ove
 - OpenCode (`opencode` v2+ CLI on OpenCode Go): repo-walking via
   `opencode run --standalone --format json --agent plan -m "opencode-go/<model>[#<effort>]"`
   (`--agent plan` denies edit tools); OpenCode v1 is refused.
-- Claude (`claude` CLI): diff-only from a scratch directory with tools disabled (`--effort`
-  omitted on Haiku models).
+- Claude (`claude` CLI): reads the complete captured diff and a scratch checkout pinned to
+  its head through Read/Glob/Grep only; restricted/safe mode, empty settings sources,
+  strict empty MCP, and `dontAsk` permissions. Repository content is untrusted data.
+  Truncated captures fail; smoke has no tools. `--effort` is omitted on Haiku models.
 - Grok (`grok` CLI): repo-walking with read-only tools allowlist, sandbox default `none`
   (`TRIBUNAL_GROK_SANDBOX`), `bypassPermissions`, isolated host config, web search off; T3
   defaults to 8 inspect turns (`TRIBUNAL_GROK_MAX_TURNS`).

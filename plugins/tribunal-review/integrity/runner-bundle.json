@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "551fcab18cbc722c20f4112714ec2277d5c19ad99b6abac26015ccaeec92fc66"
+      "sha256": "9267d447deefea89b91fecfe83a020d76451018d65cb91e79bb4a44ffda8b1df"
     },
     {
       "path": "scripts/review-panel.tsv",
@@ -30,7 +30,7 @@
     },
     {
       "path": "scripts/run-claude-review.sh",
-      "sha256": "be74325931994c4b9243c88e84224fea8cf124c1c283ea25365aeb2ed73b1ddc"
+      "sha256": "049db76705ced8e6c85745052f7dc8c804f3c8904bb95ef293d4871699cab413"
     },
     {
       "path": "scripts/run-codex-review.sh",

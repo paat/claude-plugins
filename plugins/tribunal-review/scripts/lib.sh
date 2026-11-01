@@ -378,18 +378,19 @@ tribunal_repo_root() {
 # checkout holds untracked .env* files (ignored or not; ignored directories are not entered),
 # walk a scratch clone of HEAD instead, so a leg cannot read them and send the values to its
 # provider. The reviewed range ends at HEAD, so the clone holds everything a reviewer needs.
-# TRIBUNAL_ALLOW_ENV_FILES=1 walks the checkout. Prints the root to walk.
-tribunal_walk_root() {  # tribunal_walk_root SCRATCH_DIR
+# TRIBUNAL_ALLOW_ENV_FILES=1 walks the checkout. A supplied PINNED_HEAD always
+# clones that commit, excluding dirty/untracked files. Prints the root to walk.
+tribunal_walk_root() {  # tribunal_walk_root SCRATCH_DIR [PINNED_HEAD]
   local repo
   repo="$(tribunal_repo_root)"
-  if [ "${TRIBUNAL_ALLOW_ENV_FILES:-0}" = 1 ] || ! { git -C "$repo" ls-files -z --others --exclude-standard
+  if [ -z "${2:-}" ] && { [ "${TRIBUNAL_ALLOW_ENV_FILES:-0}" = 1 ] || ! { git -C "$repo" ls-files -z --others --exclude-standard
       git -C "$repo" ls-files -z --others --ignored --exclude-standard --directory; } \
-      | tr '\0' '\n' | grep -Eq '(^|/)\.env[^/]*$'; then
+      | tr '\0' '\n' | grep -Eq '(^|/)\.env[^/]*$'; }; then
     printf '%s\n' "$repo"
     return 0
   fi
   git clone -q --shared --no-checkout "$repo" "$1" 2>/dev/null \
-    && git -C "$1" -c core.hooksPath=/dev/null checkout -q --detach "$(git -C "$repo" rev-parse HEAD)" 2>/dev/null \
+    && git -C "$1" -c core.hooksPath=/dev/null checkout -q --detach "${2:-$(git -C "$repo" rev-parse HEAD)}" 2>/dev/null \
     && printf '%s\n' "$1"
 }
 

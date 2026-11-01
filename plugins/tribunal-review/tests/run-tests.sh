@@ -4974,7 +4974,7 @@ assert_grep "large diff uses head -c" "$LIB" 'head -c "$max"'
 assert_grep "Codex writes its final response independently of stdout" "scripts/run-codex-review.sh" "--output-last-message"
 assert_grep "Codex requests the shared output schema" "scripts/run-codex-review.sh" "--output-schema"
 assert_grep "Claude requests the shared output schema" "scripts/run-claude-review.sh" "--json-schema"
-assert_grep "Claude disables the complete tool surface" "scripts/run-claude-review.sh" '--tools ""'
+assert_grep "Claude smoke disables the complete tool surface" "scripts/run-claude-review.sh" '--tools ""'
 assert_grep "Grok requests the shared output schema" "scripts/run-grok-review.sh" "--json-schema"
 assert_grep "Grok tools allowlist is read-only" "scripts/run-grok-review.sh" "read_file,list_dir,grep"
 assert_grep "Grok sandbox profile is configurable" "scripts/run-grok-review.sh" 'GROK_SANDBOX_PROFILE='
@@ -5026,6 +5026,7 @@ test_smoke_prompt_files_examined
 test_preflight_smoke_probe
 test_preflight_min_ok_legs
 test_claude_tmpdir_cleanup
+assert_json_field "Claude complete-diff read-only transport regressions" "python3 '$PLUGIN_ROOT/tests/test-claude-transport.py'"
 assert_json_field "DeepSeek dsh runner, credentials, and preflight regressions" "bash '$PLUGIN_ROOT/tests/test-deepseek-runner.sh'"
 assert_json_field "DeepSeek sealed collection and quota backup regressions" "bash '$PLUGIN_ROOT/tests/test-deepseek-collection.sh'"
 test_codex_pins gpt-6-astra medium no "codex defaults pin Astra and medium in argv"
