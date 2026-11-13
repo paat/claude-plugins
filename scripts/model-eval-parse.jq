@@ -35,7 +35,7 @@ def common:
         and (.leaderboard_publish_date|date) and (.rank|number); "Arena keys")
     | . as $r | (.model_name | options) as $options
     | {name: .model_name, vendor: .organization, rank: .rank,
-       lookup_name: (.model_name | rtrimstr($options.suffix // "") | sub(" +$"; "")),
+       lookup_name: (.model_name | if $options.suffix then rtrimstr($options.suffix) else . end | sub(" +$"; "")),
        metric: ($feed + ":" + .category), as_of: .leaderboard_publish_date,
        harness: ($options.harness // ""),
        preliminary: (preliminary or (.model_name|test("preliminary|preview"; "i"))),
