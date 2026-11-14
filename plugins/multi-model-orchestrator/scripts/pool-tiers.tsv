@@ -28,6 +28,7 @@ T3	agy	claude-opus-5-5	high
 T3	muse	muse-wonder-full-1.0	high
 T3	codex	gpt-6.1-sol	high
 T3	agy	gemini-4-argon	high
+T3	agy	gemini-4-hydrogen	high
 T3	opencode	kimi-k3.1-pro	high
 T3	opencode	glm-5.3	max
 T4	codex	gpt-6-astra	xhigh

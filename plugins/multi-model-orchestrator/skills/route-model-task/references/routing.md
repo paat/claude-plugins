@@ -28,6 +28,7 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Local Qwen | `default` | Runs whatever model the local endpoint serves (a pinned id must be served). Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
 | agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate; review remains advisory | `low`, `medium`, `high` |
+| agy (Antigravity) | `gemini-4-hydrogen` | Trial T3 candidate behind Argon, added 2026-11-14 when `agy models` first listed it; no local outcomes yet; review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-sonnet-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
 | OpenCode Go | `glm-5.3-flash` | Cheap bounded edits with an exact check; T1 at `low` | `default`, `low`, `high`, `max` |
@@ -109,11 +110,12 @@ pinned model not served (or several served and none pinned), or no wrapper. Loca
 worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen,
 agy, and OpenCode reviews remain advisory; OpenCode Go limits return 75. Local implementation stays bounded and mechanical; agy
-Flash stays in T1/T2 while Argon is a T3 implementation candidate. agy Sonnet 5.5 (T2) and Opus
+Flash stays in T1/T2 while Argon and Hydrogen are T3 implementation candidates. agy Sonnet 5.5 (T2) and Opus
 5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
 a plan leg returning `75` with `failure=limit` enables matching API overflow; transient
 failures fall through to agy. agy's three
-quota pools (Gemini Flash, Claude, Argon) each gate only their own models. None of agy's routes is
+quota pools (Gemini Flash, Claude, Argon) each gate only their own models; `/usage` reported no
+Hydrogen pool on 2026-11-14, so none of the three gates Hydrogen. None of agy's routes is
 a T4 route. For reviewer independence an `agy/claude-*` worker counts as Claude: its reviewer must
 be another vendor.
 
