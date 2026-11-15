@@ -392,13 +392,11 @@ if [ "$mode" != implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "
 fi
 while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
   left=$((run_timeout - (SECONDS - started)))
+  [ "$left" -ge 30 ] || break
   if [ "$mode" = implement ]; then
-    [ "$left" -ge 30 ] || break
     now="$(mmo_tree_state "$repo_dir" "$output_file")"
     [ "$now" != "$before" ] || break
     before="$now"
-  else
-    [ "$left" -ge 1 ] || break
   fi
   continues=$((continues + 1))
   run_grok_call "$left" "$resume_prompt" ${resume_args[@]+"${resume_args[@]}"} --resume "$session_id"
@@ -497,6 +495,10 @@ if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_
 fi
 if [ "$truncated" = turns ] && [ "$rc" -eq 0 ]; then
   printf 'run-grok: max turns reached (%s) in --mode %s; synthesized from truncated inspection\n' "$max_turns" "$mode" >&2
+  if [ "$mode" = review ] && [ "$(mmo_terminal_verdict "$output_file")" = APPROVE ]; then
+    printf '\nInspection truncated at the turn cap (%s turns): an approval from a partial inspection is not accepted.\nVERDICT: NEEDS_WORK\n' "$max_turns" >> "$output_file"
+    printf 'run-grok: inspection truncated at the turn cap (%s turns): an approval from a partial inspection is not accepted; overriding APPROVE to NEEDS_WORK\n' "$max_turns" >&2
+  fi
 fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.
