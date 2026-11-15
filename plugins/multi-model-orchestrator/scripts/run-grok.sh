@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty final
+# message; 6 review without APPROVE/NEEDS_WORK; 7 allowlist debug evidence missing or
+# not enforced; 75 transient or plan limit; 76 implement max turns reached; 77 auth;
+# 78 review/advise/research leg ended on the turn cap without a report; 124 timeout; 127 git/grok missing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,19 +75,27 @@ case "$model" in
     ;;
 esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: timeout must be a positive integer\n' >&2; exit 2; }
-if [ "$mode" = implement ]; then turns_cap=300 turns_default=150; else turns_cap=100 turns_default=30; fi
+case "$mode" in
+  implement) turns_cap=300 turns_default=150 ;;
+  review) turns_cap=100 turns_default=60 ;;
+  *) turns_cap=100 turns_default=30 ;;
+esac
 if [ -z "$max_turns" ]; then
   max_turns="${MMO_GROK_MAX_TURNS:-$turns_default}"
   if [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -gt "$turns_cap" ] && [ "$mode" != implement ]; then max_turns="$turns_cap"; fi
 fi
 [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le "$turns_cap" ] || { printf 'run-grok: max turns must be an integer from 1 to %s for --mode %s\n' "$turns_cap" "$mode" >&2; exit 2; }
 if [ -z "$continue_n" ]; then
-  if [ "$mode" = implement ]; then continue_n="${MMO_GROK_CONTINUE_ON_MAX_TURNS:-1}"; else continue_n=0; fi
+  case "$mode" in
+    implement) continue_n="${MMO_GROK_CONTINUE_ON_MAX_TURNS:-1}" ;;
+    review|advise) continue_n=1 ;;
+    *) continue_n=0 ;;
+  esac
 fi
 [[ "$continue_n" =~ ^[0-3]$ ]] || { printf 'run-grok: continue-on-max-turns must be an integer from 0 to 3\n' >&2; exit 2; }
-if [ "$mode" != implement ]; then
-  [ "$continue_set" -eq 0 ] || [ "$continue_n" -eq 0 ] || { printf 'run-grok: --continue-on-max-turns applies only to --mode implement\n' >&2; exit 2; }
-  continue_n=0
+if [ "$mode" != implement ] && [ "$continue_set" -eq 1 ] && [ "$continue_n" -ne 0 ]; then
+  printf 'run-grok: --continue-on-max-turns applies only to --mode implement\n' >&2
+  exit 2
 fi
 command -v git >/dev/null 2>&1 || { printf 'run-grok: git not found\n' >&2; exit 127; }
 command -v grok >/dev/null 2>&1 || { printf 'run-grok: grok CLI not found\n' >&2; exit 127; }
@@ -95,6 +107,7 @@ request_file="$runtime_dir/request.txt"
 prompt_file="$runtime_dir/prompt.txt"
 diff_file="$runtime_dir/review.diff"
 debug_file="$runtime_dir/grok.debug"
+resume_debug_file="$runtime_dir/grok.resume.debug"
 isolated_home="$runtime_dir/home"
 isolated_grok_home="$isolated_home/.grok"
 host_grok_home="${GROK_HOME:-${HOME}/.grok}"
@@ -103,12 +116,18 @@ isolated_auth="$isolated_grok_home/auth.json"
 # Snapshot of host auth at leg start; writeback only if host still matches this
 # and the isolated copy actually changed (avoids clobbering a concurrent refresh).
 start_auth_snapshot="$runtime_dir/auth.start.json"
+user_out=0
+[ -z "$output_file" ] || user_out=1
 [ -n "$output_file" ] || output_file="$(mktemp)"
 out_dev=""
 case "$output_file" in
-  /dev/*) out_dev="$output_file"; output_file="$runtime_dir/out.txt" ;;
+  /dev/*) out_dev="$output_file"; output_file="$runtime_dir/out.txt"; user_out=0 ;;
   *) output_file="$(realpath -m "$output_file")" ;;
 esac
+if [ "$stream_log_set" -eq 0 ] && [ "$user_out" -eq 1 ] && { [ "$mode" = review ] || [ "$mode" = advise ]; }; then
+  stream_file="${output_file}.stream"
+  stream_log_set=1
+fi
 if [ "$stream_log_set" -eq 1 ]; then
   case "$stream_file" in /dev/*) ;; *) stream_file="$(realpath -m "$stream_file")" ;; esac
 fi
@@ -247,6 +266,7 @@ case "$mode" in
     }
     {
       printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files.'
+      printf 'You have at most %s agent turns: read the diff first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
       printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
       printf '%s\n' 'End with APPROVE or NEEDS_WORK.'
       printf '\n## Task and acceptance\n'
@@ -258,6 +278,7 @@ case "$mode" in
   advise)
     {
       printf '%s\n' 'You are a semantically read-only adviser. Do not modify files.'
+      printf 'You have at most %s agent turns: read the diff or named files first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
       printf '%s\n' 'Return only constraints, risks, and the minimal file map needed for the question.'
       printf '\n## Question\n'
       cat "$request_file"
@@ -302,15 +323,28 @@ fi
 if [ "$mode" != implement ] && [ "$mode" != research ]; then
   allowed_tools="read_file,list_dir,grep"
 fi
-[ -n "$allowed_tools" ] && grok_args+=(--tools "$allowed_tools")
-[ "$mode" = implement ] || grok_args+=(--debug-file "$debug_file")
+[ -z "$allowed_tools" ] || grok_args+=(--tools "$allowed_tools")
+inspect_args=()
+[ "$mode" = implement ] || inspect_args+=(--debug-file "$debug_file")
+resume_args=()
+[ "$mode" = implement ] || resume_args+=(--debug-file "$resume_debug_file" --no-plan)
 
 child_home="$isolated_home"
 [ "$mode" != implement ] || child_home="$HOME"
 
 call_err="$runtime_dir/call.stderr"
 resume_prompt="$runtime_dir/resume-prompt.txt"
-printf '%s\n' 'Finish the remaining edits now. Do not start new exploration. Run the named test, then give the final message required by the task packet. Do not commit.' > "$resume_prompt"
+case "$mode" in
+  review)
+    printf '%s\n' 'Stop inspecting. Do not use tools. Write the review report now from what you have read, ending with VERDICT: APPROVE or VERDICT: NEEDS_WORK on its own line.' > "$resume_prompt"
+    ;;
+  advise)
+    printf '%s\n' 'Stop inspecting. Do not use tools. Write the advice report now from what you have read.' > "$resume_prompt"
+    ;;
+  *)
+    printf '%s\n' 'Finish the remaining edits now. Do not start new exploration. Run the named test, then give the final message required by the task packet. Do not commit.' > "$resume_prompt"
+    ;;
+esac
 
 run_grok_call() {  # run_grok_call SECONDS PROMPT_FILE [extra grok args...]
   local secs="$1" pf="$2" provider_rc tee_rc
@@ -342,35 +376,43 @@ run_grok_call() {  # run_grok_call SECONDS PROMPT_FILE [extra grok args...]
 session_id=""
 before=""
 continues=0
+truncated=""
 set +e
 : > "${output_file}.stderr"
 [ "$stream_log_set" -eq 0 ] || : > "$stream_file"
 if [ "$continue_n" -gt 0 ]; then
   session_id="$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
   session_id="${session_id:0:8}-${session_id:8:4}-4${session_id:13:3}-a${session_id:17:3}-${session_id:20:12}"
-  before="$(mmo_tree_state "$repo_dir" "$output_file")"
+  [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "$output_file")"
 fi
 started=$SECONDS
-run_grok_call "$run_timeout" "$prompt_file" ${session_id:+--session-id "$session_id"}
+run_grok_call "$run_timeout" "$prompt_file" ${inspect_args[@]+"${inspect_args[@]}"} ${session_id:+--session-id "$session_id"}
+if [ "$mode" != implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+  truncated=turns
+fi
 while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
   left=$((run_timeout - (SECONDS - started)))
   [ "$left" -ge 30 ] || break
-  now="$(mmo_tree_state "$repo_dir" "$output_file")"
-  [ "$now" != "$before" ] || break
-  before="$now"
+  if [ "$mode" = implement ]; then
+    now="$(mmo_tree_state "$repo_dir" "$output_file")"
+    [ "$now" != "$before" ] || break
+    before="$now"
+  fi
   continues=$((continues + 1))
-  run_grok_call "$left" "$resume_prompt" --resume "$session_id"
+  run_grok_call "$left" "$resume_prompt" ${resume_args[@]+"${resume_args[@]}"} --resume "$session_id"
 done
-if [ "$mode" = implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
-  printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (--mode %s cap %s)\n' "$max_turns" "$mode" "$turns_cap" >&2
-  rc=76
+if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+  if [ "$mode" = implement ]; then
+    printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (--mode %s cap %s)\n' "$max_turns" "$mode" "$turns_cap" >&2
+    rc=76
+  else
+    printf 'run-grok: max turns reached (%s) in --mode %s; no verdict\n' "$max_turns" "$mode" >&2
+    rc=78
+  fi
 fi
 set -e
-if [ "$mode" != implement ]; then
-  if [ ! -s "$debug_file" ]; then
-    printf 'run-grok: installed grok CLI produced no allowlist debug evidence\n' >&2
-    [ "$rc" -ne 0 ] || rc=7
-  elif ! awk -v expected="$allowed_tools" '
+allowlist_enforced() {
+  awk -v expected="$allowed_tools" '
     function trim(value) {
       sub(/^[[:space:]]+/, "", value)
       sub(/[[:space:]]+$/, "", value)
@@ -418,10 +460,22 @@ if [ "$mode" != implement ]; then
         }
       }
     }
-  ' "$debug_file" 2>/dev/null; then
-    printf 'run-grok: tool allowlist not enforced by the installed grok CLI\n' >&2
-    [ "$rc" -ne 0 ] || rc=7
-  fi
+  ' "$1" 2>/dev/null
+}
+if [ "$mode" != implement ]; then
+  debug_files=("$debug_file")
+  [ "$continues" -eq 0 ] || debug_files+=("$resume_debug_file")
+  for df in "${debug_files[@]}"; do
+    if [ ! -s "$df" ]; then
+      printf 'run-grok: installed grok CLI produced no allowlist debug evidence\n' >&2
+      [ "$rc" -ne 0 ] || rc=7
+      break
+    elif ! allowlist_enforced "$df"; then
+      printf 'run-grok: tool allowlist not enforced by the installed grok CLI\n' >&2
+      [ "$rc" -ne 0 ] || rc=7
+      break
+    fi
+  done
 fi
 if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-grok: missing or empty final-message artifact: %s\n' "$output_file" >&2
@@ -439,6 +493,13 @@ if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_
   printf 'run-grok: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
 fi
+if [ "$truncated" = turns ] && [ "$rc" -eq 0 ]; then
+  printf 'run-grok: max turns reached (%s) in --mode %s; synthesized from truncated inspection\n' "$max_turns" "$mode" >&2
+  if [ "$mode" = review ] && [ "$(mmo_terminal_verdict "$output_file")" = APPROVE ]; then
+    printf '\nInspection truncated at the turn cap (%s turns): an approval from a partial inspection is not accepted.\nVERDICT: NEEDS_WORK\n' "$max_turns" >> "$output_file"
+    printf 'run-grok: inspection truncated at the turn cap (%s turns): an approval from a partial inspection is not accepted; overriding APPROVE to NEEDS_WORK\n' "$max_turns" >&2
+  fi
+fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
@@ -452,4 +513,5 @@ classify_file="$runtime_dir/provider-failure.txt"
 [ ! -s "${output_file}.stderr" ] || cp "${output_file}.stderr" "$classify_file"
 finish_kv=("model=$model" "effort=$effort" "mode=$mode" "log=$log_path")
 [ "$continues" -eq 0 ] || finish_kv+=("continues=$continues")
+[ -z "$truncated" ] || finish_kv+=("truncated=$truncated")
 mmo_finish run-grok "$rc" "$classify_file" "${finish_kv[@]}"
