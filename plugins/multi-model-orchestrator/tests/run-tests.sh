@@ -9,7 +9,7 @@ export TMPDIR="$WORK/tmp"
 # Every runner test writes state inside the disposable fixture, including HOME overrides.
 export MMO_OUTCOMES_FILE="$WORK/outcomes.tsv"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
-unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
+unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS MMO_GROK_SYNTH_RESERVE
 # API regressions supply their own dummy key; legacy pool fixtures must not opt in via the host.
 unset MMO_CLAUDE_API_KEY_FILE
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
@@ -360,8 +360,12 @@ done
 [ -n "$prompt" ] && cat "$prompt" > "$STUB_GROK_PROMPT"
 formatted_tools="${requested_tools//,/\", \"}"
 allowlist_applied="2026-08-27T07:16:41.995595Z DEBUG session.spawn{session_id=fixture client_type=Generic start_type=\"new\"}: xai_grok_agent::builder: tools allowlist applied agent=grok-build-plan allowed=[\"$formatted_tools\"]"
+call_n=1
+[ -z "${STUB_GROK_CALLS:-}" ] || call_n="$(wc -l < "$STUB_GROK_CALLS")"
+debug_mode="${STUB_GROK_DEBUG:-applied}"
+[ "$call_n" -le 1 ] || debug_mode="${STUB_GROK_RESUME_DEBUG:-$debug_mode}"
 if [ -n "$debug_file" ]; then
-  case "${STUB_GROK_DEBUG:-applied}" in
+  case "$debug_mode" in
     absent) ;;
     empty) : > "$debug_file" ;;
     applied) printf '%s\n' "$allowlist_applied" > "$debug_file" ;;
@@ -413,8 +417,8 @@ if [ -n "$debug_file" ]; then
   esac
 fi
 if [ "${STUB_GROK_RESULT:-ok}" = maxturns ]; then
-  if [ "$(wc -l < "$STUB_GROK_CALLS")" -le "${STUB_GROK_MAXTURNS_FIRST:-999}" ]; then
-    if [ -n "${STUB_GROK_TOUCH:-}" ] && { [ -z "${STUB_GROK_TOUCH_ONCE:-}" ] || [ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ]; }; then
+  if [ "$call_n" -le "${STUB_GROK_MAXTURNS_FIRST:-999}" ]; then
+    if [ -n "${STUB_GROK_TOUCH:-}" ] && { [ -z "${STUB_GROK_TOUCH_ONCE:-}" ] || [ "$call_n" -eq 1 ]; }; then
       printf 'x\n' >> "$STUB_GROK_TOUCH"
     fi
     [ -z "${STUB_GROK_PROGRESS:-}" ] || printf '%s\n' "$STUB_GROK_PROGRESS"
@@ -422,10 +426,16 @@ if [ "${STUB_GROK_RESULT:-ok}" = maxturns ]; then
     exit 1
   fi
 fi
-case "${STUB_GROK_RESULT:-ok}" in
+result_mode="${STUB_GROK_RESULT:-ok}"
+[ "$call_n" -le 1 ] || result_mode="${STUB_GROK_RESUME_RESULT:-$result_mode}"
+case "$result_mode" in
   error) exit 23 ;;
+  sleep_70pct)
+    sleep 7
+    printf 'grok findings after 7s\nAPPROVE\n'
+    ;;
   sleep_inspect)
-    if [ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ]; then
+    if [ "$call_n" -eq 1 ]; then
       printf 'Inspecting before deadline...\n'
       exec sleep 120
     fi
@@ -1486,7 +1496,7 @@ rm -f "$STUB_GROK_TOUCH"
 unset STUB_GROK_RESULT STUB_GROK_TOUCH
 pass '#614: per-mode caps, exit 76, finishing resume bounded by N and tree change'
 
-# #716: review/advise turn budget, default .stream, tools-off synthesis on cap or timeout reserve, exit 78.
+# #716: review/advise turn budget, default .stream, read-only allowlist synthesis on cap or timeout reserve, exit 78.
 mkdir -p "$WORK/716"
 : > "$STUB_GROK_CALLS"
 printf 'review budget check\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" \
@@ -1507,7 +1517,7 @@ contains "$WORK/grok.prompt" 'at most 30 agent turns' '#716: advise prompt state
 contains "$WORK/grok.prompt" 'write the report with turns to spare' '#716: advise prompt instructs writing report with turns to spare'
 [ -s "$WORK/716/adv-default.out.stream" ] || fail '#716: advise --out without --stream-log writes FILE.stream'
 
-# Review cap reached, resume succeeds -> exit 0, --out holds resumed message with verdict, truncated=turns, tools-off + same session id.
+# Review cap reached, resume succeeds -> exit 0, --out holds resumed message with verdict, truncated=turns, same allowlist + own --debug-file + same session id.
 : > "$STUB_GROK_CALLS"
 rc=0
 printf 'review cap resume ok\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \
@@ -1528,14 +1538,37 @@ rev_sid="$(sed -n 's/.*--session-id \([0-9a-f-]*\).*/\1/p' "$STUB_GROK_CALLS" | 
 contains "$WORK/grok.args" '--resume' '#716: resume call passes --resume'
 exact_line "$WORK/grok.args" "$rev_sid" '#716: resume call reuses first call session id'
 exact_line "$WORK/grok.args" '--tools' '#716: resume call passes --tools'
-exact_line "$WORK/grok.args" '' '#716: resume call passes empty tools allowlist (tools off)'
+exact_line "$WORK/grok.args" 'read_file,list_dir,grep' '#716: resume call keeps read_file,list_dir,grep allowlist'
 exact_line "$WORK/grok.args" '--no-plan' '#716: resume call passes --no-plan'
-absent "$WORK/grok.args" 'read_file,list_dir,grep' '#716: resume call drops read_file,list_dir,grep tools'
+exact_line "$WORK/grok.args" '--debug-file' '#716: resume call passes --debug-file'
+! grep -qx '' "$WORK/grok.args" || fail '#716: resume call must never pass an empty argument'
+inspect_dbg="$(sed -n '1s/.*--debug-file \([^ ]*\).*/\1/p' "$STUB_GROK_CALLS")"
+resume_dbg="$(sed -n '2s/.*--debug-file \([^ ]*\).*/\1/p' "$STUB_GROK_CALLS")"
+[ -n "$inspect_dbg" ] && [ -n "$resume_dbg" ] && [ "$inspect_dbg" != "$resume_dbg" ] \
+  || fail "#716: resume call must write its own --debug-file ($inspect_dbg vs $resume_dbg)"
 contains "$WORK/grok.prompt" 'Stop inspecting' '#716: resume prompt tells Grok to stop inspecting'
 contains "$WORK/grok.prompt" 'VERDICT: APPROVE or VERDICT: NEEDS_WORK' '#716: review resume prompt requires verdict line'
 rc=0
 gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/716/rev-cap-ok.out")" || rc=$?
 [ "$rc" -eq 0 ] && [ "$gout" = APPROVE ] || fail "#716: review-gate consumes truncated-turns review unchanged ($rc/$gout)"
+
+# Finding 1: a resume without allowlist evidence fails the leg with exit 7.
+: > "$STUB_GROK_CALLS"
+rc=0
+printf 'review resume no debug\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \
+  STUB_GROK_RESUME_DEBUG=absent \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --max-turns 5 \
+  --out "$WORK/716/rev-res-nodbg.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-res-nodbg.err" || rc=$?
+[ "$rc" -eq 7 ] || fail "#716: resume without allowlist debug file rc=$rc want 7 ($(cat "$WORK/716/rev-res-nodbg.err"))"
+contains "$WORK/716/rev-res-nodbg.err" 'no allowlist debug evidence' '#716: resume without debug file prints exit-7 reason'
+: > "$STUB_GROK_CALLS"
+rc=0
+printf 'review resume empty allowlist\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \
+  STUB_GROK_RESUME_DEBUG=empty_allowed \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --max-turns 5 \
+  --out "$WORK/716/rev-res-baddbg.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-res-baddbg.err" || rc=$?
+[ "$rc" -eq 7 ] || fail "#716: resume with unenforced allowlist rc=$rc want 7 ($(cat "$WORK/716/rev-res-baddbg.err"))"
+contains "$WORK/716/rev-res-baddbg.err" 'tool allowlist not enforced' '#716: resume with unenforced allowlist prints exit-7 reason'
 
 # Advise cap reached, resume succeeds -> exit 0, truncated=turns.
 : > "$STUB_GROK_CALLS"
@@ -1546,7 +1579,16 @@ printf 'advise cap resume ok\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_F
 [ "$rc" -eq 0 ] || fail "#716: advise cap reached + resume ok rc=$rc want 0"
 contains "$WORK/716/adv-cap-ok.err" 'truncated=turns' '#716: advise exit line marked truncated=turns'
 
-# Review cap reached, resume also fails -> exit 78 (never 76 or 1), reason on stderr, pool treats 78 as a result.
+# Finding 4: --continue-on-max-turns 0 in review/advise disables the synthesis resume (1 grok call, exit 78).
+: > "$STUB_GROK_CALLS"
+rc=0
+printf 'review continue 0\n' | STUB_GROK_RESULT=maxturns \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --max-turns 5 \
+  --continue-on-max-turns 0 --out "$WORK/716/rev-cont0.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-cont0.err" || rc=$?
+[ "$rc" -eq 78 ] || fail "#716: review --continue-on-max-turns 0 at cap rc=$rc want 78"
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail '#716: review --continue-on-max-turns 0 must make only 1 grok call'
+
+# Review cap reached, resume also fails on max turns -> exit 78 (never 76 or 1), reason on stderr, pool treats 78 as a result.
 : > "$STUB_GROK_CALLS"
 rc=0
 printf 'review cap resume fail\n' | STUB_GROK_RESULT=maxturns \
@@ -1559,6 +1601,27 @@ contains "$WORK/716/rev-cap-fail.err" 'run-grok: max turns reached (5) in --mode
   '#716: review cap failure prints reason on stderr'
 contains "$WORK/716/rev-cap-fail.err" 'exit=78' '#716: mmo_finish preserves exit=78'
 
+# Finding 3: resume failing with provider/validation error keeps its own exit code (429 -> 75, body without verdict -> 6 on stdout).
+: > "$STUB_GROK_CALLS"
+rc=0
+printf 'review cap then 429\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \
+  STUB_GROK_RESUME_RESULT=transient \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --max-turns 5 \
+  --out "$WORK/716/rev-cap-429.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-cap-429.err" || rc=$?
+[ "$rc" -eq 75 ] || fail "#716: review cap then 429 rc=$rc want 75 ($(cat "$WORK/716/rev-cap-429.err"))"
+contains "$WORK/716/rev-cap-429.err" 'failure=transient' '#716: review cap then 429 reports failure=transient'
+contains "$WORK/716/rev-cap-429.err" 'truncated=turns' '#716: review cap then 429 keeps truncated=turns'
+
+: > "$STUB_GROK_CALLS"
+rc=0
+cap6_out="$(printf 'review cap then no verdict\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \
+  STUB_GROK_RESUME_RESULT=progress \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --max-turns 5 \
+  --out "$WORK/716/rev-cap-6.out" --timeout 10 2> "$WORK/716/rev-cap-6.err")" || rc=$?
+[ "$rc" -eq 6 ] || fail "#716: review cap then body without verdict rc=$rc want 6 ($(cat "$WORK/716/rev-cap-6.err"))"
+[ "$cap6_out" = 'Let me inspect the files.' ] || fail "#716: review cap then exit 6 exposes body on stdout ($cap6_out)"
+contains "$WORK/716/rev-cap-6.err" 'truncated=turns' '#716: review cap then exit 6 keeps truncated=turns'
+
 # Pool treats exit 78 as a result, not as worker unavailable.
 printf 'T2\tgrok\tgrok-4.7\tmedium\nT2\tcodex\tgpt-6.1-sol\tmedium\n' > "$WORK/716/tiers.tsv"
 : > "$STUB_GROK_CALLS"
@@ -1570,11 +1633,28 @@ printf 'pool review cap fail\n' | MMO_POOL_TIERS="$WORK/716/tiers.tsv" STUB_GROK
 absent "$WORK/716/pool-cap.err" 'unavailable' '#716: pool.sh run does not treat exit 78 as worker unavailable'
 contains "$WORK/716/pool-cap.err" 'pool: exit=78 worker=grok' '#716: pool.sh run reports exit=78 from grok'
 
-# Review inspect sleeps past reserve -> runner asks for report before deadline and total wall time <= --timeout.
+# Finding 2: with no override, --timeout < 600 has reserve=0 so a leg needing 70% of --timeout 10 exits 0 in ONE call.
+: > "$STUB_GROK_CALLS"
+rc=0
+printf 'review 70pct timeout\n' | STUB_GROK_RESULT=sleep_70pct \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --out "$WORK/716/rev-70pct.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-70pct.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "#716: 70% of --timeout 10 without reserve override rc=$rc want 0 ($(cat "$WORK/716/rev-70pct.err"))"
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail '#716: 70% of --timeout 10 finishes in 1 grok call without reserve override'
+absent "$WORK/716/rev-70pct.err" 'truncated=' '#716: 70% of --timeout 10 is not truncated'
+
+rc=0
+printf 'reserve ge timeout\n' | MMO_GROK_SYNTH_RESERVE=10 \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+  --timeout 10 >/dev/null 2> "$WORK/716/rev-res-ge.err" || rc=$?
+[ "$rc" -eq 2 ] || fail "#716: MMO_GROK_SYNTH_RESERVE >= --timeout rc=$rc want 2"
+
+# Finding 1 + 2: with MMO_GROK_SYNTH_RESERVE override, inspect killed before writing its debug file + good resume with evidence -> exit 0.
 : > "$STUB_GROK_CALLS"
 t0=$SECONDS
 rc=0
-printf 'review sleep past reserve\n' | STUB_GROK_RESULT=sleep_inspect \
+printf 'review sleep past reserve\n' | MMO_GROK_SYNTH_RESERVE=2 STUB_GROK_RESULT=sleep_inspect \
+  STUB_GROK_DEBUG=absent STUB_GROK_RESUME_DEBUG=applied \
   "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
   --out "$WORK/716/rev-timeout-ok.out" --timeout 3 >/dev/null 2> "$WORK/716/rev-timeout-ok.err" || rc=$?
 elapsed=$((SECONDS - t0))
@@ -1585,11 +1665,11 @@ contains "$WORK/716/rev-timeout-ok.out" 'VERDICT: NEEDS_WORK' '#716: timeout-syn
 contains "$WORK/716/rev-timeout-ok.err" 'truncated=timeout' '#716: exit line marked truncated=timeout'
 contains "$WORK/716/rev-timeout-ok.err" 'inspect timeout (1s) reached in --mode review; synthesized from truncated inspection' \
   '#716: stderr explains truncated-timeout synthesis'
-exact_line "$WORK/grok.args" '' '#716: timeout synthesis resume disables tools'
+exact_line "$WORK/grok.args" 'read_file,list_dir,grep' '#716: timeout synthesis resume keeps read-only allowlist'
 rc=0
 gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/716/rev-timeout-ok.out")" || rc=$?
 [ "$rc" -eq 1 ] && [ "$gout" = NEEDS_WORK ] || fail "#716: review-gate consumes timeout-synthesized NEEDS_WORK ($rc/$gout)"
-pass '#716: Grok review/advise turn budget, default .stream, tools-off synthesis on cap or timeout reserve, exit 78'
+pass '#716: Grok review/advise turn budget, default .stream, read-only allowlist synthesis on cap or timeout reserve, exit 78'
 
 # #621: --out /dev/stdout success path must exit 0 with the verdict on its own line.
 rc=0
