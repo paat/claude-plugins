@@ -1,0 +1,19 @@
+{
+  "name": "proton-bridge",
+  "version": "0.1.0",
+  "description": "Proton Mail Bridge skills. First skill: reply drafts over IMAP that carry their reply context — reply-all recipients, a \"Re:\" subject and the original mail quoted under the text — stored in Drafts and read back, never sent. Documents what Bridge cannot link.",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "repository": "https://github.com/paat/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "proton-mail-bridge",
+    "proton-mail",
+    "imap",
+    "email",
+    "reply-draft",
+    "reply-all",
+    "quote"
+  ]
+}

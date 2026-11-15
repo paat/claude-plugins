@@ -269,6 +269,17 @@
       "source": "./plugins/work-item-triage",
       "category": "development",
       "homepage": "https://github.com/paat/claude-plugins"
+    },
+    {
+      "name": "proton-bridge",
+      "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted, stored in Drafts and read back, never sent",
+      "version": "0.1.0",
+      "author": {
+        "name": "Andre Paat"
+      },
+      "source": "./plugins/proton-bridge",
+      "category": "productivity",
+      "homepage": "https://github.com/paat/claude-plugins"
     }
   ]
 }
