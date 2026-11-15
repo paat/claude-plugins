@@ -14,10 +14,10 @@ notes when explaining or revisiting a recommendation; do not re-research unchang
 1. Extract hard constraints: allowed or denied providers, pinned model or effort, budget, latency,
    tool access, edit authority, and required reviewer independence. Apply them before scoring.
 2. Reject contradictions such as “Codex only” plus “do not use Codex.” Never substitute a denied
-   provider. If no valid route remains, return the exact blocker. When a constraint excludes a family,
-   a later allowance of a multi-family runner (agy serves Gemini and Claude) covers only its models
-   outside that family, unless the instruction names the family or model. Record which models it covers
-   before picking; if none remain, return the blocker.
+   provider. If no valid route remains, return the exact blocker. Allowing a multi-family runner
+   (agy serves Gemini and Claude) never lifts a family exclusion: it covers only that runner's
+   models outside the excluded family. Record which models it covers before picking; if none remain,
+   return the blocker.
 3. Classify task family, role, ambiguity, scope/coupling, risk, validation, modality, and duration.
    Use `references/task-fit.md` to choose a candidate and effort separately. Check that its runner
    actually exposes the required tools; model capability alone is insufficient.
