@@ -1181,6 +1181,7 @@ absent "$META_SKILL" 'second ''NEEDS_WORK' 'Meta skill does not use the off-by-o
 absent "$META_SKILL" 'escalat' 'Meta skill has no escalation-path wording'
 contains "$META_SKILL" 'OPERATOR ACTIONS REQUIRED' 'Meta skill queues refused privileged actions instead of blocking'
 contains "$META_SKILL" 'tree-independent item' 'Meta skill continues with tree-independent work after a queued host action'
+contains "$META_SKILL" 'permission layer refuses' 'Meta skill treats a host permission refusal as a dispatch that never started'
 [ "$(grep -cF 'tree-independent item' "$META_SKILL")" -eq 1 ] || fail 'Meta skill mentions tree-independent item exactly once'
 contains "$META_SKILL" 'Do not burn the session on preflight beyond the Fresh-start checks' 'Meta skill bounds preflight to the Fresh-start checks'
 contains "$META_SKILL" 'CLAUDE_PLUGIN_ROOT}/scripts/' 'Meta skill names the plugin scripts directory for runners'
@@ -3594,6 +3595,7 @@ rm -f "$PL/bin/opencode"
 pass 'pool.sh: tiers, headroom, allow/deny/prefer, advisory review skip, escalation, fall-through'
 
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'pool.sh pick --tier' 'route-model-task picks through the pool'
+contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'never lifts a family exclusion' 'route-model-task keeps a family exclusion when a multi-family runner is allowed'
 contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" 'pool-tiers.tsv' 'routing names the tier table'
 contains "$PLUGIN_ROOT/commands/orchestrate.md" 'pool.sh" run --tier' 'orchestrate dispatches through the pool'
 contains "$META_SKILL" 'pool.sh run --tier' 'meta loop dispatches implement legs through the pool'
