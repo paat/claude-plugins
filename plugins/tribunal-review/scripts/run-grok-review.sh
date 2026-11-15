@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Grok tribunal leg: deterministic read-only review with inspect → finalize resume.
 # Never reports success on progress-only output; recovers timeout/incomplete via
-# a tools-off resume of the same session (issue #331).
+# a read-only allowlist resume of the same session instructed not to use tools (issues #331, #721).
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
@@ -93,8 +93,9 @@ tribunal_review_prompt grok "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROM
   printf '\nCompletion contract: after gathering evidence, emit the review JSON matching the schema and stop. Do not end on a plan or progress announcement without the JSON verdict.\n'
 } >> "$PROMPT_FILE"
 
-# Finalize re-inlines the authoritative diff so a tools-off resume can still
-# produce a real review even if session recall of the inspect turn is thin.
+# Finalize re-inlines the authoritative diff so a finalize resume (under the
+# read-only allowlist, instructed not to use tools) can still produce a real
+# review even if session recall of the inspect turn is thin.
 # Never instruct the model to manufacture APPROVE merely because tools failed.
 {
   cat <<'EOF'
@@ -210,10 +211,17 @@ LAST_OUT="$INSPECT_OUT"
 LAST_ERR="$INSPECT_ERR"
 LAST_RC=0
 
-# Shared env: sandbox profile + tools allowlist (inspect) or tools off (finalize).
+READONLY_TOOLS="read_file,list_dir,grep"
+
+# Shared env: sandbox profile + read-only tools allowlist (inspect and finalize;
+# empty --tools removes the allowlist on Grok CLI, issue #721).
 # Propagate GROK_SANDBOX so the CLI flag and env agree; never env -u it away.
 run_grok() {
   local phase="$1" tools="$2" max_turns="$3" timeout_s="$4" out="$5" err="$6" prompt="$7"
+  if [ -z "${tools//[[:space:],]/}" ]; then
+    tribunal_error grok "refusing Grok invocation with empty --tools allowlist (phase=${phase:-unknown})"
+    exit 0
+  fi
   local -a session_args=() effort_args=()
   if [ "$phase" = inspect ]; then
     session_args=(--session-id "$SESSION_ID")
@@ -281,7 +289,7 @@ incomplete_error() {
 
 # --- Phase 1: inspect (read-only tools) ---
 rc=0
-run_grok inspect "read_file,list_dir,grep" "$INSPECT_MAX_TURNS" "$INSPECT_TIMEOUT" \
+run_grok inspect "$READONLY_TOOLS" "$INSPECT_MAX_TURNS" "$INSPECT_TIMEOUT" \
   "$INSPECT_OUT" "$INSPECT_ERR" "$PROMPT_FILE" || rc=$?
 LAST_OUT="$INSPECT_OUT"
 LAST_ERR="$INSPECT_ERR"
@@ -304,10 +312,10 @@ if [ "$GROK_RECOVERY" = reject ]; then
   exit 0
 fi
 
-# --- Phase 2: finalize (tools off, same session) ---
+# --- Phase 2: finalize (read-only allowlist, instructed not to use tools, same session) ---
 # Covers: progress-only exit 0, max-turns stop, timeout (124), interrupted inspect with partial envelope.
 frc=0
-run_grok finalize "" "$FINALIZE_MAX_TURNS" "$FINALIZE_TIMEOUT" \
+run_grok finalize "$READONLY_TOOLS" "$FINALIZE_MAX_TURNS" "$FINALIZE_TIMEOUT" \
   "$FINALIZE_OUT" "$FINALIZE_ERR" "$FINALIZE_PROMPT" || frc=$?
 LAST_OUT="$FINALIZE_OUT"
 LAST_ERR="$FINALIZE_ERR"
@@ -334,5 +342,5 @@ elif [ "$frc" -ne 0 ] && [ "$rc" -ne 0 ]; then
     execution "$LAST_RC" "$LAST_OUT" "$LAST_ERR"
 else
   incomplete_error incomplete "$LAST_RC" "$LAST_OUT" "$LAST_ERR" \
-    "inspect_rc=$rc finalize_rc=$frc; no structured verdict after tools-off resume"
+    "inspect_rc=$rc finalize_rc=$frc; no structured verdict after finalize resume"
 fi
