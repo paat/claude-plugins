@@ -308,7 +308,7 @@ if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && { [ "$GROK_RECOVERY" = reject ] || [ 
 fi
 
 if [ "$GROK_RECOVERY" = reject ]; then
-  tribunal_error grok "grok_recovery_rejected: tools-off finalize required but excluded from quorum (inspect_rc=$rc, phase=finalize required)"
+  tribunal_error grok "grok_recovery_rejected: finalize required but excluded from quorum (inspect_rc=$rc, phase=finalize required)"
   exit 0
 fi
 

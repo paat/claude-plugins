@@ -1876,10 +1876,10 @@ EOF
       and ((.findings|length)==0)
       and (has("error")|not)
     ' "$work/out-a.json" >/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} grok progress-only inspect resumes tools-off for verdict"; PASS=$((PASS+1))
+    echo -e "  ${GREEN}PASS${NC} grok progress-only inspect resumes under read-only allowlist for verdict"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} grok progress-only inspect resumes tools-off for verdict"; FAIL=$((FAIL+1))
-    FAILURES+=("grok progress-only inspect resumes tools-off for verdict")
+    echo -e "  ${RED}FAIL${NC} grok progress-only inspect resumes under read-only allowlist for verdict"; FAIL=$((FAIL+1))
+    FAILURES+=("grok progress-only inspect resumes under read-only allowlist for verdict")
     echo "    out: $(cat "$work/out-a.json" 2>/dev/null || true)" >&2
   fi
 
