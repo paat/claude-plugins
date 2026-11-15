@@ -80,7 +80,8 @@ does not attest that a file was read or that review conclusions are sound.
 
 Successful Grok legs additionally carry runner-owned `grok_execution`:
 `verdict_phase` (`inspect` or `finalize`), `inspect_exit_code`, `requested_effort`,
-and `verdict_effort` (`low` for finalize). Unknown values are explicit `null`,
+and `verdict_effort` (`low` for finalize, which resumes under the read-only tools
+allowlist and is instructed not to use tools). Unknown values are explicit `null`,
 including CLI-default effort and all fields on an empty diff. The provider schema
 forbids this field; normalization strips model-authored copies before the runner
 stamps it. Other providers cannot carry it. Arbiters must distinguish a permitted

@@ -1732,8 +1732,8 @@ install_grok_auth_fixture() {
   chmod 600 "$dest/auth.json"
 }
 
-# Grok leg (#331): progress-only / timeout must not report success; tools-off
-# resume of the same session must produce a schema verdict or a blocked error.
+# Grok leg (#331, #721): progress-only / timeout must not report success;
+# finalize resumes the same session under the read-only allowlist (instructed not to use tools).
 test_gemini_agy_leg() {
   local work fake state home
   work="$(mktemp -d)"
@@ -1876,14 +1876,14 @@ EOF
       and ((.findings|length)==0)
       and (has("error")|not)
     ' "$work/out-a.json" >/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} grok progress-only inspect resumes tools-off for verdict"; PASS=$((PASS+1))
+    echo -e "  ${GREEN}PASS${NC} grok progress-only inspect resumes under read-only allowlist for verdict"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} grok progress-only inspect resumes tools-off for verdict"; FAIL=$((FAIL+1))
-    FAILURES+=("grok progress-only inspect resumes tools-off for verdict")
+    echo -e "  ${RED}FAIL${NC} grok progress-only inspect resumes under read-only allowlist for verdict"; FAIL=$((FAIL+1))
+    FAILURES+=("grok progress-only inspect resumes under read-only allowlist for verdict")
     echo "    out: $(cat "$work/out-a.json" 2>/dev/null || true)" >&2
   fi
 
-  # Resume must use --resume; inspect allowlist vs finalize tools-off; pin session/max-turns
+  # Resume must use --resume; inspect and finalize both pass the read-only allowlist (#721); pin session/max-turns
   # Default sandbox none + bypassPermissions (issue #378).
   if [ -f "$state/args.log" ] \
     && grep -q -- '--session-id' "$state/args.log" \
@@ -1894,11 +1894,13 @@ EOF
     && grep -q -- '--sandbox' "$state/args.log" \
     && grep -qE '(^|[[:space:]])none([[:space:]]|$)' "$state/args.log" \
     && grep -qx $'inspect\tread_file,list_dir,grep' "$state/phases.log" \
-    && grep -qx $'finalize\t' "$state/phases.log"; then
-    echo -e "  ${GREEN}PASS${NC} grok inspect/finalize use session, max-turns, tools split"; PASS=$((PASS+1))
+    && grep -qx $'finalize\tread_file,list_dir,grep' "$state/phases.log" \
+    && ! grep -qx $'finalize\t' "$state/phases.log" \
+    && ! grep -qx '' "$state/args.log"; then
+    echo -e "  ${GREEN}PASS${NC} grok inspect/finalize use session, max-turns, read-only tools allowlist"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} grok inspect/finalize use session, max-turns, tools split"; FAIL=$((FAIL+1))
-    FAILURES+=("grok inspect/finalize use session, max-turns, tools split")
+    echo -e "  ${RED}FAIL${NC} grok inspect/finalize use session, max-turns, read-only tools allowlist"; FAIL=$((FAIL+1))
+    FAILURES+=("grok inspect/finalize use session, max-turns, read-only tools allowlist")
     echo "    phases: $(cat "$state/phases.log" 2>/dev/null | tr '\n' '|')" >&2
     echo "    args: $(tr '\n' ' ' < "$state/args.log" 2>/dev/null | head -c 400)" >&2
   fi
@@ -1977,10 +1979,20 @@ EOF
   fi
 
   # Scenario D: inspect times out (124) → finalize recovers verdict
-  rm -f "$state/args.log" "$state/calls"
-  cat > "$fake/grok" <<'EOF'
+  rm -f "$state/args.log" "$state/calls" "$state/phases.log"
+  cat > "$fake/grok" <<EOF
 #!/usr/bin/env bash
-if printf '%s\n' "$@" | grep -q -- '--resume'; then
+phase=inspect
+tools_val=""
+prev=""
+for a in "\$@"; do
+  if [ "\$prev" = "--tools" ]; then tools_val="\$a"; fi
+  if [ "\$a" = "--resume" ]; then phase=finalize; fi
+  prev="\$a"
+done
+printf '%s\t%s\n' "\$phase" "\$tools_val" >> "$state/phases.log"
+printf '%s\n' "\$@" >> "$state/args.log"
+if [ "\$phase" = finalize ]; then
   cat <<'JSON'
 {"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":8,"verdict":"APPROVE"}},"sessionId":"44444444-4444-4444-4444-444444444444","modelUsage":{"grok-fixture-model":{}}}
 JSON
@@ -2005,11 +2017,23 @@ EOF
       and .summary.verdict=="APPROVE"
       and (has("error")|not)
     ' "$work/out-d.json" >/dev/null; then
-    echo -e "  ${GREEN}PASS${NC} grok inspect timeout recovers via tools-off resume"; PASS=$((PASS+1))
+    echo -e "  ${GREEN}PASS${NC} grok inspect timeout recovers via finalize resume"; PASS=$((PASS+1))
   else
-    echo -e "  ${RED}FAIL${NC} grok inspect timeout recovers via tools-off resume"; FAIL=$((FAIL+1))
-    FAILURES+=("grok inspect timeout recovers via tools-off resume")
+    echo -e "  ${RED}FAIL${NC} grok inspect timeout recovers via finalize resume"; FAIL=$((FAIL+1))
+    FAILURES+=("grok inspect timeout recovers via finalize resume")
     echo "    out: $(cat "$work/out-d.json" 2>/dev/null || true)" >&2
+  fi
+
+  if [ -f "$state/phases.log" ] \
+    && grep -qx $'inspect\tread_file,list_dir,grep' "$state/phases.log" \
+    && grep -qx $'finalize\tread_file,list_dir,grep' "$state/phases.log" \
+    && ! grep -qx $'finalize\t' "$state/phases.log" \
+    && ! grep -qx '' "$state/args.log"; then
+    echo -e "  ${GREEN}PASS${NC} grok timeout finalize argv carries inspect allowlist and no empty --tools"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok timeout finalize argv carries inspect allowlist and no empty --tools"; FAIL=$((FAIL+1))
+    FAILURES+=("grok timeout finalize argv carries inspect allowlist and no empty --tools")
+    echo "    phases: $(cat "$state/phases.log" 2>/dev/null | tr '\n' '|')" >&2
   fi
 
   # Lib helper: camelCase + snake_case extract, payload complete check
@@ -2227,6 +2251,57 @@ EOF
     echo -e "  ${RED}FAIL${NC} grok invalid permission mode fails loud"; FAIL=$((FAIL+1))
     FAILURES+=("grok invalid permission mode fails loud")
     echo "    out: $(cat "$work/out-j2.json" 2>/dev/null || true)" >&2
+  fi
+
+  # Scenario K (issue #721): run_grok with an empty tools value refuses to invoke
+  # grok and yields a failed Grok leg.
+  cat > "$fake/grok" <<'EOF'
+#!/usr/bin/env bash
+: > "${GROK_RAN:?}"
+exit 0
+EOF
+  chmod +x "$fake/grok"
+
+  rm -f "$work/provider-ran-k" "$work/out-k1.json" "$work/out-k2.json"
+  if (
+    set -e
+    cd "$work"
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    eval "$(sed -n '/^run_grok() {/,/^}/p' "$PLUGIN_ROOT/scripts/run-grok-review.sh")"
+    ISOLATED_HOME="$work/k-home"
+    GROK_SANDBOX_PROFILE=none
+    GROK_PERMISSION_MODE=bypassPermissions
+    GROK_MODEL=grok-4.7
+    GROK_EFFORT=low
+    SCHEMA_JSON='{"type":"object"}'
+    SESSION_ID="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    WALK_ROOT="$work"
+    mkdir -p "$ISOLATED_HOME/.grok"
+    : > "$work/prompt-k.md"
+    (
+      PATH="$fake:$PATH" GROK_RAN="$work/provider-ran-k" \
+        run_grok inspect "" 6 30 "$work/k1.out" "$work/k1.err" "$work/prompt-k.md"
+    ) > "$work/out-k1.json"
+    (
+      PATH="$fake:$PATH" GROK_RAN="$work/provider-ran-k" \
+        run_grok finalize "" 6 30 "$work/k2.out" "$work/k2.err" "$work/prompt-k.md"
+    ) > "$work/out-k2.json"
+  ) && [ ! -e "$work/provider-ran-k" ] \
+    && jq -e '
+      .provider=="grok"
+      and (.error | test("empty --tools|allowlist"))
+      and (has("summary")|not)
+    ' "$work/out-k1.json" >/dev/null \
+    && jq -e '
+      .provider=="grok"
+      and (.error | test("empty --tools|allowlist"))
+      and (has("summary")|not)
+    ' "$work/out-k2.json" >/dev/null; then
+    echo -e "  ${GREEN}PASS${NC} grok run_grok refuses empty tools without invoking CLI"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} grok run_grok refuses empty tools without invoking CLI"; FAIL=$((FAIL+1))
+    FAILURES+=("grok run_grok refuses empty tools without invoking CLI")
+    echo "    out: $(cat "$work/out-k1.json" "$work/out-k2.json" 2>/dev/null || true)" >&2
   fi
 
   chmod -R u+w "$work" 2>/dev/null || true
@@ -5802,7 +5877,7 @@ if [ "$phase" = inspect ] || [ "$effort" != low ] || [ "${FIXTURE_PROGRESS_ONLY:
   [ "$phase" != inspect ] || [ "$max_turns" != 8 ] || exit 0
   exit 124
 fi
-[ -z "$tools_val" ] && [ "$sid" = 44444444-4444-4444-4444-444444444444 ] \
+[ "$tools_val" = "read_file,list_dir,grep" ] && [ "$sid" = 44444444-4444-4444-4444-444444444444 ] \
   && grep -q 'diff --git a/file.txt b/file.txt' "$prompt" || exit 1
 cat <<'JSON'
 {"structuredOutput":{"provider":"grok","model":"fixture","files_examined":["file.txt"],"findings":[{"severity":"medium","category":"logic","file":"file.txt","line":1,"title":"Changed value breaks the consumer","description":"The consumer requires the original value.","suggestion":"Preserve the required value.","confidence":0.9}],"summary":{"total_findings":1,"critical":0,"high":0,"medium":1,"low":0,"quality_score":7,"verdict":"NEEDS_WORK"}},"modelUsage":{"grok-fixture-model":{}}}
