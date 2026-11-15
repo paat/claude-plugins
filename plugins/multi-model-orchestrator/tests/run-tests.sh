@@ -121,6 +121,50 @@ case "${STUB_CODEX_RESULT:-ok}" in
     printf 'ERROR: unexpected status 529 Overloaded\n' >&2
     exit 1
     ;;
+  # #717: Codex CLI prints the usage-limit ERROR twice, then a token summary.
+  limit_trailer)
+    apos=$(printf '\342\200\231')
+    msg="ERROR: You${apos}ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 20th, 2026 10:18 AM."
+    printf '%s\n' "$msg" "$msg" >&2
+    printf 'tokens used\n94,032\n' >&2
+    exit 1
+    ;;
+  limit_last)
+    printf 'ERROR: You%sve hit your usage limit.\n' "$(printf '\342\200\231')" >&2
+    exit 1
+    ;;
+  limit_last_reset)
+    apos=$(printf '\342\200\231')
+    printf 'ERROR: You%sve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 20th, 2026 10:18 AM.\n' "$apos" >&2
+    exit 1
+    ;;
+  limit_trailer_plain)
+    printf 'ERROR: You%sve hit your usage limit.\n\n' "$(printf '\342\200\231')" >&2
+    printf 'tokens used\n\n10\n\n' >&2
+    exit 1
+    ;;
+  recovered_after_limit)
+    printf 'ERROR: You%sve hit your usage limit. try again at Nov 20th, 2026 10:18 AM.\n' "$(printf '\342\200\231')" >&2
+    printf "thread 'main' panicked at 'index out of bounds', src/main.rs:10:5\n" >&2
+    exit 1
+    ;;
+  auth_trailer)
+    printf 'ERROR: Reconnecting... 5/5\n' >&2
+    printf 'ERROR: unexpected status 401 Unauthorized: missing bearer\n' >&2
+    printf 'tokens used\n50\n' >&2
+    exit 1
+    ;;
+  reconnect_trailer)
+    printf 'ERROR: unexpected status 401 Unauthorized: missing bearer\n' >&2
+    printf 'ERROR: Reconnecting... 5/5\n' >&2
+    printf 'tokens used\n50\n' >&2
+    exit 1
+    ;;
+  limit_bad_trailer)
+    printf 'ERROR: You%sve hit your usage limit. try again at Nov 20th, 2026 10:18 AM.\n' "$(printf '\342\200\231')" >&2
+    printf 'tokens used\nnot-a-number\n' >&2
+    exit 1
+    ;;
   timeout) exit 124 ;;
   rate_in_output) printf 'docs mentioned 429 rate limit\nAPPROVE\n' > "$out" ;;
   empty) : > "$out" ;;
@@ -1927,6 +1971,41 @@ assert_provider_failure_class codex STUB_CODEX_RESULT timeout 124 '' \
   'Codex timeout stays 124'
 assert_provider_failure_class codex STUB_CODEX_RESULT rate_in_output 0 '' \
   'Codex success with 429 rate limit in output stays 0'
+
+# #717: a token-summary trailer does not hide the final ERROR:; any other trailer does.
+assert_codex_reset() {
+  local err_file="$1" label="$2" line
+  line="$(grep '^run-codex: ' "$err_file")"
+  case "$line" in
+    *" resets=try again at Nov 20th, 2026 10:18 AM") ;;
+    *) fail "$label: reset text missing or not verbatim: $line" ;;
+  esac
+}
+assert_provider_failure_class codex STUB_CODEX_RESULT limit_trailer 75 limit \
+  'Codex usage-limit ERROR then tokens-used trailer → 75'
+assert_codex_reset "$WORK/520-codex-limit_trailer.err" 'limit trailer'
+assert_provider_failure_class codex STUB_CODEX_RESULT limit_last 75 limit \
+  'Codex last-line usage limit without reset text stays 75'
+absent "$WORK/520-codex-limit_last.err" 'resets=' \
+  'Codex usage limit without reset text adds no resets= field'
+assert_provider_failure_class codex STUB_CODEX_RESULT limit_last_reset 75 limit \
+  'Codex last-line usage limit with reset text stays 75'
+assert_codex_reset "$WORK/520-codex-limit_last_reset.err" 'last-line limit'
+assert_provider_failure_class codex STUB_CODEX_RESULT limit_trailer_plain 75 limit \
+  'Codex usage limit, blank lines, and token trailer → 75'
+absent "$WORK/520-codex-limit_trailer_plain.err" 'resets=' \
+  'plain usage-limit trailer adds no resets= field'
+assert_provider_failure_class codex STUB_CODEX_RESULT recovered_after_limit 1 '' \
+  'Codex usage-limit ERROR followed by a later panic stays 1'
+assert_provider_failure_class codex STUB_CODEX_RESULT auth_trailer 77 auth \
+  'Codex 401 ERROR then token trailer → 77'
+absent "$WORK/520-codex-auth_trailer.err" 'resets=' \
+  'auth trailer does not carry a limit reset field'
+assert_provider_failure_class codex STUB_CODEX_RESULT reconnect_trailer 1 '' \
+  'Codex Reconnecting line then token trailer stays 1'
+assert_provider_failure_class codex STUB_CODEX_RESULT limit_bad_trailer 1 '' \
+  'Codex usage limit followed by tokens used and a non-number stays 1'
+pass '#717: Codex final ERROR classifies through a token summary; other trailers do not'
 
 # Claude stream-json: classify from api_error_status on non-zero provider exit.
 assert_provider_failure_class claude STUB_CLAUDE_RESULT transient 75 transient \
