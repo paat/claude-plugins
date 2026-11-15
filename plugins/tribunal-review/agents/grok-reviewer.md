@@ -38,8 +38,9 @@ field to the model that actually ran, read from `.modelUsage`):
   isolation and write-back under flock so OIDC refresh rotation stays durable — issue #374; host
   Claude config off), web search off, pinned session id, and a bounded inspect turn budget. If the
   inspect phase exits with only a progress announcement or times out, the script **resumes the same
-  session with tools disabled** and forces a schema verdict — progress-only is never reported as
-  success (`completion_state=progress_only` on failure; non-`EndTurn` stop without a verdict is
-  `dead_leg`). Auth is the Grok CLI's own login (`grok login` / `grok login --device-code` for
-  headless Max/OAuth); a dead session is skipped in preflight and self-emits an error JSON at
-  execution. If the CLI is missing the script self-emits an error JSON — return it verbatim.
+  session under the same read-only allowlist (instructed not to use tools)** and forces a schema
+  verdict — progress-only is never reported as success (`completion_state=progress_only` on failure;
+  non-`EndTurn` stop without a verdict is `dead_leg`). Auth is the Grok CLI's own login (`grok login`
+  / `grok login --device-code` for headless Max/OAuth); a dead session is skipped in preflight and
+  self-emits an error JSON at execution. If the CLI is missing the script self-emits an error JSON —
+  return it verbatim.

@@ -5,7 +5,7 @@ description: "Use when running the show over a queue of work — an epic, an iss
 
 # Meta Orchestration
 
-You are the meta-orchestrator. The brief describes WHAT to achieve — outcomes, priorities,
+The brief describes WHAT to achieve — outcomes, priorities,
 autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: task
 decomposition, sequencing, model routing, dispatch, gating, and recovery follow the rules
 below. You coordinate; you never edit source. Route every worker and reviewer leg with
@@ -21,7 +21,9 @@ at their scope: a run-level stop condition or unexplained worktree state stops t
 Genuine judgment calls outside the pause set above are decided with the recommended default and recorded in the handoff and PR body, not parked.
 Self-merge IS permitted for your own gated PR, never by bypassing branch protection or required reviews (no `--admin`).
 Queue a blocked merge or refused/unavailable privileged action under the handoff's `OPERATOR ACTIONS REQUIRED`;
-continue with the next tree-independent item. Do not burn the session on preflight beyond the Fresh-start checks.
+continue with the next tree-independent item. A dispatch the host's permission layer refuses never started —
+nothing to wait for, not a leg failure; never retry, rephrase or re-wrap it; queue the runner and the refusal
+text there and route without that runner. Do not burn the session on preflight beyond the Fresh-start checks.
 
 ## Interpreting the brief
 
@@ -41,7 +43,7 @@ the same per-item loop:
 ## Local configuration
 
 Optional YAML frontmatter in `.claude/multi-model-orchestrator.local.md` at the target repo
-root. Work sources: GitHub (`gh`) is built in; other trackers are configured, never hardcoded.
+root. GitHub (`gh`) is built in; other trackers are configured, never hardcoded.
 Model constraints bind every leg you dispatch (worker, reviewer, advise, research) as hard
 `route-model-task` restrictions — the brief may tighten them, never widen them. They do NOT
 apply to the tribunal panel, which owns its own provider configuration.
@@ -49,13 +51,13 @@ apply to the tribunal panel, which owns its own provider configuration.
 ```yaml
 sources:
   - name: plane
-    list: "<shell command printing open workitem ids and titles>"
-    show: "<shell command printing one workitem body; id appended>"   # optional
-    close: "<shell command closing or commenting a workitem; id appended>"  # optional
+    list: "<command printing open ids and titles>"
+    show: "<command printing one body; id appended>"  # optional
+    close: "<command closing or commenting; id appended>"  # optional
 models:
-  allow: [gpt-6.1-sol, grok-4.7, claude-sonnet-5-5]  # optional leg allowlist
-  deny: [claude-fable-5-1]                           # optional leg denylist
-  worker: "gpt-6.1-sol high"                         # optional per-role pins
+  allow: [gpt-6.1-sol, grok-4.7, claude-sonnet-5-5]  # optional
+  deny: [claude-fable-5-1]  # optional
+  worker: "gpt-6.1-sol high"  # optional
   reviewer: "grok-4.7 high"
   advise: "claude-opus-5-5 high"
   research: "claude-opus-5-5 high"

@@ -27,9 +27,9 @@ effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers ove
   its head through Read/Glob/Grep only; restricted/safe mode, empty settings sources,
   strict empty MCP, and `dontAsk` permissions. Repository content is untrusted data.
   Truncated captures fail; smoke has no tools. `--effort` is omitted on Haiku models.
-- Grok (`grok` CLI): repo-walking with read-only tools allowlist, sandbox default `none`
-  (`TRIBUNAL_GROK_SANDBOX`), `bypassPermissions`, isolated host config, web search off; T3
-  defaults to 8 inspect turns (`TRIBUNAL_GROK_MAX_TURNS`).
+- Grok (`grok` CLI): repo-walking with read-only tools allowlist (`read_file,list_dir,grep` in both
+  inspect and finalize), sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`), `bypassPermissions`,
+  isolated host config, web search off; T3 defaults to 8 inspect turns (`TRIBUNAL_GROK_MAX_TURNS`).
 - Muse (`muse` CLI): repo-walking via `muse exec --yolo` with write, shell, and web tools off
   (`TRIBUNAL_MUSE_MODEL=default` passes no `--model`).
 - DeepSeek (`dsh` CLI + `DEEPSEEK_API_KEY` or dsh credentials): repo-walking with read-only
@@ -39,10 +39,10 @@ effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers ove
 
 ## Grok recovery
 
-`TRIBUNAL_GROK_RECOVERY=permit` (default) keeps tools-off, low-effort finalization when inspection
-times out or returns incomplete output. `reject` turns a recovered verdict into a named
-`grok_recovery_rejected` failed leg, excluded from quorum; unknown phase on a nonempty diff also
-fails. Sealed at collect time as `grok_recovery`.
+`TRIBUNAL_GROK_RECOVERY=permit` (default) keeps low-effort finalization under the read-only tools
+allowlist (instructed not to use tools) when inspection times out or returns incomplete output.
+`reject` turns a recovered verdict into a named `grok_recovery_rejected` failed leg, excluded from
+quorum; unknown phase on a nonempty diff also fails. Sealed at collect time as `grok_recovery`.
 
 ## Backups for plan-limited and sub-quorum runs
 
