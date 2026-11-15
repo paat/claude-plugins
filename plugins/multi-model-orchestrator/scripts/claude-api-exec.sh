@@ -22,5 +22,10 @@ settings="$(jq -nc --arg path "$key_file" \
   '{apiKeyHelper: ("cat -- " + ($path | @sh)),
     env: {CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1"}}')"
 # Excluding settings also skips memory; explicitly reload project-root CLAUDE.md.
+# That reload ignores AGENTS.md, so an AGENTS.md-only repo appends it directly.
+agents_md=()
+if [ -f "$PWD/AGENTS.md" ] && [ ! -e "$PWD/CLAUDE.md" ] && [ ! -e "$PWD/.claude/CLAUDE.md" ]; then
+  agents_md=(--append-system-prompt-file "$PWD/AGENTS.md")
+fi
 exec "$@" --setting-sources '' --add-dir "$PWD" \
-  --settings "$settings" 3>&-
+  --settings "$settings" "${agents_md[@]}" 3>&-
