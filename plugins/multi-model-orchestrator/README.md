@@ -315,7 +315,7 @@ catalog.
 | `MMO_CODEX_MODEL` | `gpt-6-astra` | Codex worker/reviewer model |
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
-| `MMO_GROK_MAX_TURNS` | `30` (`60` for review, `150` for implement) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement`; env values above 100 are clamped outside implement. Review/advise resume once keeping the read-only allowlist on cap (`truncated=turns`), else exit 78 |
+| `MMO_GROK_MAX_TURNS` | `30` (`60` for review, `150` for implement) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement`; env values above 100 are clamped outside implement. Review/advise resume once keeping the read-only allowlist on cap (`truncated=turns`), else exit 78; a research leg also exits 78 at the turn cap (no resume). Review/advise legs with `--out FILE` and no `--stream-log` write `FILE.stream` |
 | `MMO_GROK_CONTINUE_ON_MAX_TURNS` | `1` | Implement only: finishing `--resume` passes (0-3) after a max-turns stop on a changed tree, within the one `--timeout`; a max-turns stop exits 76 |
 | `MMO_MUSE_MODEL` | `muse-spark-1.3` | Direct runner default. `default` passes no `--model`. Pool rows supply their own `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |

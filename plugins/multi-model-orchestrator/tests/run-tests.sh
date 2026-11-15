@@ -1541,7 +1541,15 @@ rc=0
 gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/716/rev-cap-ok.out")" || rc=$?
 [ "$rc" -eq 0 ] && [ "$gout" = APPROVE ] || fail "#716: review-gate consumes truncated-turns review unchanged ($rc/$gout)"
 
-# Finding 1: a resume without allowlist evidence fails the leg with exit 7.
+# Finding 1: missing or unenforced allowlist evidence on inspect or resume fails the leg with exit 7.
+: > "$STUB_GROK_CALLS"
+rc=0
+printf 'review inspect no debug\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \
+  STUB_GROK_DEBUG=absent STUB_GROK_RESUME_DEBUG=applied \
+  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD --max-turns 5 \
+  --out "$WORK/716/rev-ins-nodbg.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-ins-nodbg.err" || rc=$?
+[ "$rc" -eq 7 ] || fail "#716: inspect debug absent + good resume rc=$rc want 7 ($(cat "$WORK/716/rev-ins-nodbg.err"))"
+contains "$WORK/716/rev-ins-nodbg.err" 'no allowlist debug evidence' '#716: inspect debug absent + good resume prints exit-7 reason'
 : > "$STUB_GROK_CALLS"
 rc=0
 printf 'review resume no debug\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \

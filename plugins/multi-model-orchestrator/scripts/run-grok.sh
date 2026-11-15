@@ -386,7 +386,7 @@ if [ "$continue_n" -gt 0 ]; then
   [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "$output_file")"
 fi
 started=$SECONDS
-run_grok_call "$run_timeout" "$prompt_file" "${inspect_args[@]}" ${session_id:+--session-id "$session_id"}
+run_grok_call "$run_timeout" "$prompt_file" ${inspect_args[@]+"${inspect_args[@]}"} ${session_id:+--session-id "$session_id"}
 if [ "$mode" != implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
   truncated=turns
 fi
@@ -401,7 +401,7 @@ while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max tur
     [ "$left" -ge 1 ] || break
   fi
   continues=$((continues + 1))
-  run_grok_call "$left" "$resume_prompt" "${resume_args[@]}" --resume "$session_id"
+  run_grok_call "$left" "$resume_prompt" ${resume_args[@]+"${resume_args[@]}"} --resume "$session_id"
 done
 if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
   if [ "$mode" = implement ]; then
@@ -465,15 +465,19 @@ allowlist_enforced() {
   ' "$1" 2>/dev/null
 }
 if [ "$mode" != implement ]; then
-  last_debug="$debug_file"
-  [ "$continues" -eq 0 ] || last_debug="$resume_debug_file"
-  if [ ! -s "$last_debug" ]; then
-    printf 'run-grok: installed grok CLI produced no allowlist debug evidence\n' >&2
-    [ "$rc" -ne 0 ] || rc=7
-  elif ! allowlist_enforced "$last_debug" || { [ -s "$debug_file" ] && ! allowlist_enforced "$debug_file"; }; then
-    printf 'run-grok: tool allowlist not enforced by the installed grok CLI\n' >&2
-    [ "$rc" -ne 0 ] || rc=7
-  fi
+  debug_files=("$debug_file")
+  [ "$continues" -eq 0 ] || debug_files+=("$resume_debug_file")
+  for df in "${debug_files[@]}"; do
+    if [ ! -s "$df" ]; then
+      printf 'run-grok: installed grok CLI produced no allowlist debug evidence\n' >&2
+      [ "$rc" -ne 0 ] || rc=7
+      break
+    elif ! allowlist_enforced "$df"; then
+      printf 'run-grok: tool allowlist not enforced by the installed grok CLI\n' >&2
+      [ "$rc" -ne 0 ] || rc=7
+      break
+    fi
+  done
 fi
 if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-grok: missing or empty final-message artifact: %s\n' "$output_file" >&2
