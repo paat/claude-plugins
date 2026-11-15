@@ -16,6 +16,7 @@ Liveness is transcript/output mtime plus an exit marker. A process-list snapshot
 Runners reclassify from each CLI's own error line only (Codex final `ERROR:` line, ignoring a trailing `tokens used` summary, sans Reconnecting; Claude `api_error_status` / text `API Error:`; Grok stderr; Muse failed-run `reason` and stderr; agy result `error` and stderr) as:
 
 - **75 (EX_TEMPFAIL):** transient (429/529/503, overloaded, rate limit, temporarily unavailable) or, with `failure=limit` on the exit line, a plan limit (402, usage limit, quota, resource/balance/credits exhausted) — skip the wait and retry for a limit. Wait at least 60s, retry the same route once; if it fails 75 again, dispatch the route card's allowed `Fallback`; with no allowed fallback, park the item as blocked and continue with the next item.
+  A `failure=limit` line may carry `resets=` — Codex: the provider's text verbatim (local time, no zone); Muse: a UTC timestamp the orchestrator can append to its usage file.
   Exception — local Qwen (`run-qwen-local.sh`): its 75 means the one GPU slot is unavailable, so
   substitute the fallback immediately. Do not wait and do not retry the same route in this pass;
   waiting only re-contends for the same slot.

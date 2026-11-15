@@ -191,14 +191,15 @@ fires ~65k tokens before compaction (~467k); below a ~435k window it never fires
 
 The orchestrator reads plan limits (percent used and reset time per 5-hour, weekly and per-model
 window) at start, resume and every item boundary: the desktop app's `get_usage` tool for Claude, or
-`scripts/usage.sh`, which reads Codex session logs, agy's local `/usage` command (one window per
+`scripts/usage.sh`, which reads Codex session logs, Muse `run.usage` allowances from a run stream
+(`--muse-log`; `weekly` as `7d`, `window` as `5h`), agy's local `/usage` command (one window per
 quota pool: `5h_flash`/`7d_flash`, `5h_claude`/`7d_claude`, `7d_argon`), and Claude
 `rate_limit_event`s (a run-claude stream log, or one tiny `--probe-claude` call). `pool.sh` skips
 a provider or model whose window is at 90% or more and resets after the next leg would finish, and
 moves the rows a weekly window binds (a provider, or one agy pool's models) to the front of each
 tier when it is at most 60% used and resets within 24h (use it or lose it; an explicit `--prefer` still goes first); when no allowed route has headroom, or the host
-itself passes 95%, the run stops at the item boundary with the reset time in the handoff. Grok,
-Muse, and OpenCode expose no limit data (OpenCode Go limits surface as exit 75) and are left to the exit-75 fallback unless the operator appends a
+itself passes 95%, the run stops at the item boundary with the reset time in the handoff. Grok
+and OpenCode expose no limit data (OpenCode Go limits surface as exit 75) and are left to the exit-75 fallback unless the operator appends a
 line in `usage.sh`'s format (e.g. `grok 7d 40% resets 2026-10-16T09:00Z`) to the `--usage` file.
 
 When an item depends on out-of-repo facts, a research leg records tiered evidence in a tracked

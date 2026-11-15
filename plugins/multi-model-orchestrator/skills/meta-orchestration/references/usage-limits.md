@@ -18,7 +18,11 @@ exit 75. Not before every leg.
   reset passed since then reads 0%.
 - agy: `usage.sh` asks its local `/usage` command (free) and prints one window per quota pool:
   `5h_flash`/`7d_flash` (Gemini), `5h_claude`/`7d_claude` (Claude), `7d_argon` (Argon).
-- Grok, Muse, or any provider printing `unknown`: no constraint; exit 75 handling in
+- Muse: `usage.sh --muse-log <run-muse.sh stream>` (repeatable; newest `as_of_ms` wins) reads
+  `run.usage` `payload.allowance`. `weekly` prints as `7d`. The payload's `window` prints as `5h`
+  so `pool.sh` can bind it; that 5-hour length is assumed from the reset distance, not documented
+  by Muse. Muse's session store does not record `run.usage`.
+- Grok, or any provider printing `unknown`: no constraint; exit 75 handling in
   `leg-liveness.md` still applies. When the operator knows a window (the provider's account
   page), append it to the saved file in the same format, e.g. `grok 7d 40% resets
   2026-10-16T09:00Z`; `pool.sh` reads it like `usage.sh`'s own lines (`in`/`as-of` optional).
