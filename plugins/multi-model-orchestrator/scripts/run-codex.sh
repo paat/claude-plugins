@@ -237,20 +237,14 @@ if [ -s "${stream_file}.stderr" ]; then
     printf '%s\n' "$classify_line" > "$classify_file"
   fi
 fi
-# Same exits mmo_finish does not reclassify. A limit on those stays without resets=.
 finish_args=("model=$model" "effort=$effort" "mode=$mode" "log=$stream_file")
-case "$rc" in
-  0|2|3|4|5|6|7|55|76|124) ;;
-  *)
-    if [ "$(mmo_classify_provider_failure "$classify_file")" = limit ]; then
-      reset_line="$(cat "$classify_file")"
-      if [[ "$reset_line" == *"try again at "* ]]; then
-        reset_text="try again at ${reset_line#*try again at }"
-        reset_text="${reset_text%"${reset_text##*[![:space:]]}"}"
-        reset_text="${reset_text%.}"
-        [ -z "$reset_text" ] || finish_args+=("resets=$reset_text")
-      fi
-    fi
-    ;;
-esac
+if [ "$(mmo_classify_provider_failure "$classify_file")" = limit ]; then
+  reset_line="$(cat "$classify_file")"
+  if [[ "$reset_line" == *"try again at "* ]]; then
+    reset_text="try again at ${reset_line#*try again at }"
+    reset_text="${reset_text%"${reset_text##*[![:space:]]}"}"
+    reset_text="${reset_text%.}"
+    [ -z "$reset_text" ] || finish_args+=("resets=$reset_text")
+  fi
+fi
 mmo_finish run-codex "$rc" "$classify_file" "${finish_args[@]}"
