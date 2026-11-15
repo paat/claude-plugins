@@ -225,6 +225,18 @@ models:
 Model constraints bind worker/reviewer/advise/research legs; the tribunal panel keeps its own
 `TRIBUNAL_*` configuration.
 
+For an unattended Claude Code auto-mode run, pre-authorize leg dispatch. The classifier treats
+destinations it has not been told about as outside the trust boundary; describe trusted infrastructure in prose under
+`autoMode.environment` (keep `"$defaults"` in the array) and prose exceptions under `autoMode.allow`. It reads `autoMode` only from
+`~/.claude/settings.json`, managed settings, or `--settings`, not the project's `.claude/settings.json` or `.claude/settings.local.json`
+([auto-mode config](https://code.claude.com/docs/en/auto-mode-config.md), [permission modes](https://code.claude.com/docs/en/permission-modes.md), checked 2026-11-15).
+`claude auto-mode config` prints the effective rules; `/auto-mode-setup` drafts entries. Narrow `permissions.allow` Bash rules resolve before the classifier,
+but broad rules that grant arbitrary code execution (blanket `Bash(*)`, wildcarded interpreters) are suspended in auto mode, and every subcommand
+of a compound command must match, so a rule for the runner paths is not a reliable lever for the wrapped `…; echo $? > <marker>` dispatch.
+After 3 consecutive (or 20 total) classifier blocks, auto mode pauses and prompts. Example `autoMode.environment` entry:
+"The multi-model-orchestrator runners at ~/.claude/plugins/cache/<marketplace>/multi-model-orchestrator/<version>/scripts/ and the
+codex, grok, muse, agy, opencode, and qwen CLIs they call are trusted for sending repository diffs."
+
 ## Execution posture
 
 - The controller owns intent, restrictions, architecture judgment, task boundaries, and final

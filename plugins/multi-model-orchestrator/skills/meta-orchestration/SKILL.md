@@ -5,7 +5,7 @@ description: "Use when running the show over a queue of work — an epic, an iss
 
 # Meta Orchestration
 
-You are the meta-orchestrator. The brief describes WHAT to achieve — outcomes, priorities,
+The brief describes WHAT to achieve — outcomes, priorities,
 autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: task
 decomposition, sequencing, model routing, dispatch, gating, and recovery follow the rules
 below. You coordinate; you never edit source. Route every worker and reviewer leg with
@@ -31,8 +31,7 @@ the same per-item loop:
 - **Epic** — the brief names one epic issue: single epic branch, delivery strategy A.
 - **Issue list** — the brief names or queries issues: one cheap triage pass ordering by
   dependency, risk, and value; then delivery strategy B per item.
-- **Discovery** — the brief states a goal without tasks: the same out-of-repo research leg in
-  `references/research-leg.md` proposes the task list; file accepted tasks as tracker items so
+- **Discovery** — the brief states a goal without tasks: the research leg in `references/research-leg.md` proposes the task list; file accepted tasks as tracker items so
   state never lives only in context; continue per the brief's autonomy bounds.
 - **Scan** — the brief asks to check for new workitems: read the sources; when nothing is new,
   write nothing and stop. A no-op scan must cost near zero. Recurrence belongs to the caller
@@ -41,7 +40,7 @@ the same per-item loop:
 ## Local configuration
 
 Optional YAML frontmatter in `.claude/multi-model-orchestrator.local.md` at the target repo
-root. Work sources: GitHub (`gh`) is built in; other trackers are configured, never hardcoded.
+root. GitHub (`gh`) is built in; other trackers are configured, never hardcoded.
 Model constraints bind every leg you dispatch (worker, reviewer, advise, research) as hard
 `route-model-task` restrictions — the brief may tighten them, never widen them. They do NOT
 apply to the tribunal panel, which owns its own provider configuration.
@@ -49,20 +48,19 @@ apply to the tribunal panel, which owns its own provider configuration.
 ```yaml
 sources:
   - name: plane
-    list: "<shell command printing open workitem ids and titles>"
-    show: "<shell command printing one workitem body; id appended>"   # optional
-    close: "<shell command closing or commenting a workitem; id appended>"  # optional
+    list: "<command printing open ids and titles>"
+    show: "<command printing one body; id appended>"  # optional
+    close: "<command closing or commenting; id appended>"  # optional
 models:
-  allow: [gpt-6.1-sol, grok-4.7, claude-sonnet-5-5]  # optional leg allowlist
-  deny: [claude-fable-5-1]                           # optional leg denylist
-  worker: "gpt-6.1-sol high"                         # optional per-role pins
+  allow: [gpt-6.1-sol, grok-4.7, claude-sonnet-5-5]  # optional
+  deny: [claude-fable-5-1]  # optional
+  worker: "gpt-6.1-sol high"  # optional
   reviewer: "grok-4.7 high"
   advise: "claude-opus-5-5 high"
   research: "claude-opus-5-5 high"
 ```
 
-Treat sourced items like issues. Deliver via git branches and GitHub PRs; after merge, close or
-annotate the source via its `close` command.
+Treat sourced items like issues; after merge, run its `close` command.
 
 ## Delivery strategies
 
@@ -119,8 +117,7 @@ logs, diffs: a leg or subagent returns a verdict.
    preference, restrictions and usage from `pick`. Direct model/effort routes use the recorded
    eligible runner (`run-*.sh`, `run-qwen-local.sh`).
 4. Gate yourself: inspect the item-branch diff, run the named suites, verify the final-message
-   contract. If the leg's contract prevented committing, commit the gated result yourself —
-   recording output or a memo is bookkeeping, not source editing.
+   contract. If the leg's contract prevented committing, commit the gated result yourself.
 5. Adversarial review by a DIFFERENT provider than the worker, using the prompts AND the
    per-provider runner mode in `references/review-prompts.md`. Combine legs with
    `${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh` (exit 3 = advisory-only); never hand-grep.
@@ -131,12 +128,15 @@ logs, diffs: a leg or subagent returns a verdict.
    `READY TO MERGE — nothing further coming.` — a report is not a merge signal. Absent that
    line, ask the reviewer leg to confirm or state what is still coming.
 8. Critical findings are fixed in-run. Non-critical findings and in-scope discoveries are filed
-   as tracker items (queued or explicitly marked not-blocking). Record the outcome in the
+   as tracker items (queued or not-blocking). Record the outcome in the
    handoff before dispatching the next item.
 
 ## Reliability rules
 
 - Prior leg done per `references/leg-liveness.md` (mtime + exit marker; never `pgrep` — not a liveness check; failure exits 75/77).
+- A dispatch the host's permission layer refuses never started (no exit marker, no output): not a leg failure.
+  Never retry, rephrase, or re-wrap the command to get past the check. Queue the runner name and refusal text under `OPERATOR ACTIONS REQUIRED`
+  and continue with routes that do not need that runner. Claude Code auto mode is one example; Codex hosts have their own approval layer.
 - Exits 124 (timeout), 55 (partly edited) or 76 (max turns) may follow work: never discard any of them — check
   `git status`, rerun suites, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
