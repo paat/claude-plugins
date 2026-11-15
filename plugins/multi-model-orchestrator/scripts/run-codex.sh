@@ -213,11 +213,38 @@ fi
 
 : > "$classify_file"
 if [ -s "${stream_file}.stderr" ]; then
-  # Only classify when the last non-empty stderr line is itself ERROR: (not Reconnecting).
-  last_line="$(grep -E -v '^[[:space:]]*$' "${stream_file}.stderr" | tail -n 1 || true)"
-  if [[ "$last_line" == ERROR:\ * && "$last_line" != *Reconnecting* ]]; then
-    printf '%s\n' "$last_line" > "$classify_file"
+  # Classify only Codex's own final ERROR: line (never Reconnecting). Blank
+  # lines and the CLI token-summary trailer (`tokens used` then a number) may
+  # follow it. Anything else means that ERROR was not the CLI's final word.
+  classify_line="$(awk '
+    { lines[++n] = $0 }
+    END {
+      i = n
+      while (i >= 1 && lines[i] ~ /^[[:space:]]*$/) i--
+      if (i >= 1 && lines[i] ~ /^[0-9][0-9,]*$/) {
+        j = i - 1
+        while (j >= 1 && lines[j] ~ /^[[:space:]]*$/) j--
+        if (j >= 1 && lines[j] == "tokens used") {
+          i = j - 1
+          while (i >= 1 && lines[i] ~ /^[[:space:]]*$/) i--
+        }
+      }
+      if (i >= 1 && lines[i] ~ /^ERROR: / && lines[i] !~ /Reconnecting/)
+        print lines[i]
+    }
+  ' "${stream_file}.stderr" || true)"
+  if [ -n "$classify_line" ]; then
+    printf '%s\n' "$classify_line" > "$classify_file"
   fi
 fi
-mmo_finish run-codex "$rc" "$classify_file" \
-  "model=$model" "effort=$effort" "mode=$mode" "log=$stream_file"
+finish_args=("model=$model" "effort=$effort" "mode=$mode" "log=$stream_file")
+if [ "$(mmo_classify_provider_failure "$classify_file")" = limit ]; then
+  reset_line="$(cat "$classify_file")"
+  if [[ "$reset_line" == *"try again at "* ]]; then
+    reset_text="try again at ${reset_line#*try again at }"
+    reset_text="${reset_text%"${reset_text##*[![:space:]]}"}"
+    reset_text="${reset_text%.}"
+    [ -z "$reset_text" ] || finish_args+=("resets=$reset_text")
+  fi
+fi
+mmo_finish run-codex "$rc" "$classify_file" "${finish_args[@]}"
