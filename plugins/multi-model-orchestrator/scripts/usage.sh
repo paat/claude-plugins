@@ -4,20 +4,24 @@
 # Codex: newest rate_limits event by that event's own timestamp, among the 20 newest session
 # logs from the last 8 days (free). Claude: newest rate_limit_event in a run-claude.sh --stream-log (free) or,
 # with --probe-claude, one tiny claude -p call. agy: its local /usage command (free; one
-# window per quota pool). Grok, Muse, and OpenCode have no source. A provider with no data prints "<provider> unknown <why>".
+# window per quota pool). Muse: newest run.usage allowance in --muse-log FILE (repeatable; newest
+# as_of_ms wins). weekly prints as 7d; the payload's window prints as 5h. Grok and OpenCode have
+# no source. A provider with no data prints "<provider> unknown <why>".
 # Always exits 0 unless misused.
 # claude-api uses monthly plan API credit, not these windows; pool.sh gates it separately.
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: usage.sh [--claude-log FILE]... [--probe-claude]'
+  printf '%s\n' 'Usage: usage.sh [--claude-log FILE]... [--muse-log FILE]... [--probe-claude]'
 }
 
 claude_logs=()
+muse_logs=()
 probe_claude=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --claude-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; claude_logs+=("$2"); shift 2 ;;
+    --muse-log) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; muse_logs+=("$2"); shift 2 ;;
     --probe-claude) probe_claude=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; exit 2 ;;
@@ -208,5 +212,55 @@ else
 fi
 
 printf 'grok unknown (Grok CLI exposes no plan-limit data)\n'
-printf 'muse unknown (Muse CLI exposes no plan-limit data)\n'
+
+# Muse run streams (muse exec --json). The CLI session store does not record run.usage.
+# Newest numeric as_of_ms across --muse-log files wins. A run.usage allowance without a
+# numeric as_of_ms is ignored. weekly → 7d. The payload calls the
+# other bucket only "window"; it is printed as 5h so pool.sh can bind it.
+muse_rows() {
+  grep -hF '"run.usage"' "$@" 2>/dev/null | jq -R -n -r '
+    def mkrow(name; bucket):
+      if (bucket | type) != "object" then empty
+      elif (bucket.used_percent | type) != "number" then empty
+      elif (bucket.resets_at_ms | type) != "number" then empty
+      else [name, (bucket.used_percent | round), (bucket.resets_at_ms / 1000 | floor)]
+      end;
+    [inputs | fromjson?
+     | select(.payload_type == "run.usage")
+     | (.payload.allowance // null) as $a
+     | select($a != null)
+     | select(($a.as_of_ms | type) == "number")
+     | [mkrow("7d"; $a.weekly), mkrow("5h"; $a.window)] as $rows
+     | select($rows | length > 0)
+     | {as_of: ($a.as_of_ms / 1000 | floor | tostring),
+        rows: $rows}]
+    | last // empty
+    | if . == null then empty else (.as_of, (.rows[] | @tsv)) end' 2>/dev/null || true
+}
+muse_out=""
+muse_as_of=0
+muse_rank=-1
+for f in ${muse_logs[@]+"${muse_logs[@]}"}; do
+  [ -f "$f" ] || continue
+  parsed=$(muse_rows "$f")
+  [ -n "$parsed" ] || continue
+  event_ts="${parsed%%$'\n'*}"
+  rows="${parsed#"$event_ts"}"
+  rows="${rows#$'\n'}"
+  [ -n "$rows" ] || continue
+  case "$event_ts" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  if [ "$event_ts" -gt "$muse_rank" ]; then
+    muse_out="$rows"
+    muse_as_of="$event_ts"
+    muse_rank="$event_ts"
+  fi
+done
+if [ -n "$muse_out" ]; then
+  printf '%s\n' "$muse_out" | emit muse "$muse_as_of"
+else
+  printf 'muse unknown (no stream log with run.usage; pass --muse-log)\n'
+fi
+
 printf 'opencode unknown (OpenCode exposes no plan-limit data; Go limits surface as exit 75)\n'

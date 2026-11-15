@@ -2733,7 +2733,7 @@ rl() { printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits"
 out=$(CODEX_HOME="$U/codex" PATH="$U/bin:$PATH" bash "$USAGE_SH")
 case "$out" in *"codex 5h 0% (reset at"*) ;; *) fail "usage.sh zeroes a Codex window whose reset passed: $out" ;; esac
 case "$out" in *"codex 7d 92% resets "*" in 1d1h0m as-of "*|*"codex 7d 92% resets "*" in 1d0h59m as-of "*) ;; *) fail "usage.sh reports the newest Codex secondary window: $out" ;; esac
-case "$out" in *"claude unknown (pass --claude-log or --probe-claude"*"grok unknown"*"muse unknown"*"opencode unknown"*) ;; *) fail "usage.sh names providers it cannot read: $out" ;; esac
+case "$out" in *"claude unknown (pass --claude-log or --probe-claude"*"grok unknown"*"muse unknown (no stream log with run.usage; pass --muse-log)"*"opencode unknown"*) ;; *) fail "usage.sh names providers it cannot read: $out" ;; esac
 printf '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.014,"resetsAt":%s},"seven_day":{"utilization":0.86,"resetsAt":%s}}}}\n' "$future" "$future" > "$U/claude.jsonl"
 out=$(CODEX_HOME="$U/none" bash "$USAGE_SH" --claude-log "$U/claude.jsonl" --claude-log "$U/missing.jsonl")
 case "$out" in *"codex unknown"*"claude 5h 1% resets"*"claude 7d 86% resets"*) ;; *) fail "usage.sh reads Claude windows from a stream log: $out" ;; esac
@@ -2847,6 +2847,61 @@ case "$out" in *"80%"*|*mystery*|*"agy 5h "*|*"agy 7d "*) fail "usage.sh emits o
 printf '#!/usr/bin/env bash\nexit 1\n' > "$U/bin/agy"
 out=$(CODEX_HOME="$U/none" bash "$USAGE_SH")
 case "$out" in *"agy unknown (/usage returned no known quota buckets)"*) ;; *) fail "usage.sh reports a failed agy probe as unknown: $out" ;; esac
+
+# #718: Muse allowance comes from a run stream, not the CLI session store.
+# emit zeroes a window whose reset has passed, so the same parsed percent is asserted either way.
+expect_muse_line() { # output window used reset_epoch as_of_glob label
+  local line reset_stamp now_s
+  now_s=$(date +%s)
+  reset_stamp=$(jq -nr --argjson t "$4" '$t | strftime("%Y-%m-%dT%H:%MZ")')
+  line="$(printf '%s\n' "$1" | grep "^muse $2 " || true)"
+  if [ "$now_s" -ge "$4" ]; then
+    case "$line" in
+      "muse $2 0% (reset at ${reset_stamp} since as-of) as-of "$5) ;;
+      *) fail "$6: ${line:-missing}" ;;
+    esac
+  else
+    case "$line" in
+      "muse $2 $3% resets ${reset_stamp} in "*" as-of "$5) ;;
+      *) fail "$6: ${line:-missing}" ;;
+    esac
+  fi
+}
+muse_allowance='{"tier":"Muse Code Power Usage","weekly":{"resets_at_ms":1794787200000,"used_percent":99},"window":{"resets_at_ms":1794764145000,"used_percent":6},"as_of_ms":1794700800000,"source":"mint"}'
+muse_reason='API error 429 […]: Subscription quota exhausted. Your usage window resets at 2026-11-16T00:00:00Z. (rate_limit_error)'
+jq -cn --argjson allowance "$muse_allowance" --arg reason "$muse_reason" \
+  '{payload_type:"run.usage",payload:{allowance:$allowance}},{payload_type:"run.terminal.failed",payload:{terminal:"failed",reason:$reason,text:""}}' \
+  > "$U/muse-issue.jsonl"
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --muse-log "$U/muse-issue.jsonl" --muse-log "$U/missing-muse.jsonl")
+expect_muse_line "$out" 7d 99 1794787200 '2026-11-15T00:00Z' 'usage.sh Muse weekly line from the issue allowance'
+expect_muse_line "$out" 5h 6 1794764145 '2026-11-15T00:00Z' 'usage.sh Muse window line from the issue allowance'
+jq -cn --argjson as_of 1794600000000 '{payload_type:"run.usage",payload:{allowance:{weekly:{resets_at_ms:1794787200000,used_percent:11},window:{resets_at_ms:1794764145000,used_percent:1},as_of_ms:$as_of}}}' > "$U/muse-old.jsonl"
+jq -cn --argjson as_of 1794730000000 '{payload_type:"run.usage",payload:{allowance:{weekly:{resets_at_ms:1794787200000,used_percent:42},window:{resets_at_ms:1794764145000,used_percent:3},as_of_ms:$as_of}}}' > "$U/muse-new.jsonl"
+touch -d "@$(( $(date +%s) - 86400 ))" "$U/muse-new.jsonl"
+touch "$U/muse-old.jsonl"
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --muse-log "$U/muse-old.jsonl" --muse-log "$U/muse-new.jsonl")
+expect_muse_asof=$(jq -nr '1794730000 | strftime("%Y-%m-%dT%H:%MZ")')
+expect_muse_line "$out" 7d 42 1794787200 "$expect_muse_asof" "usage.sh keeps the Muse allowance with the newest as_of_ms (want 42% as-of ${expect_muse_asof})"
+case "$out" in *"muse 7d 11%"*) fail "usage.sh let an older Muse as_of_ms win: $out" ;; esac
+jq -cn '{payload_type:"run.usage",payload:{allowance:{weekly:{used_percent:"n/a",resets_at_ms:1794787200000},window:{used_percent:6,resets_at_ms:1794764145000},as_of_ms:1794700800000}}}' > "$U/muse-partial.jsonl"
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --muse-log "$U/muse-partial.jsonl")
+case "$out" in *"muse 7d"*) fail "usage.sh should drop a Muse weekly bucket with a non-numeric used value: $out" ;; esac
+expect_muse_line "$out" 5h 6 1794764145 '*' 'usage.sh keeps a valid Muse window beside a dropped weekly bucket'
+jq -cn '{payload_type:"run.usage",payload:{allowance:{weekly:{used_percent:99,resets_at_ms:1794787200000},as_of_ms:1794700800000}}}' > "$U/muse-nowindow.jsonl"
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --muse-log "$U/muse-nowindow.jsonl")
+case "$out" in *"muse 5h"*) fail "usage.sh should omit a missing Muse window bucket: $out" ;; esac
+expect_muse_line "$out" 7d 99 1794787200 '2026-11-15T00:00Z' 'usage.sh keeps a valid Muse weekly bucket when window is missing'
+printf '%s\n' '{"payload_type":"run.usage","payload":{"allowance":{"weekly":{"used_percent":"x","resets_at_ms":"soon"},"window":{"used_percent":null,"resets_at_ms":1},"as_of_ms":"yesterday"}}}' > "$U/muse-bad.jsonl"
+set +e
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --muse-log "$U/muse-bad.jsonl")
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "usage.sh exits 0 on a malformed Muse allowance (got $rc): $out"
+case "$out" in *"muse unknown (no stream log with run.usage; pass --muse-log)"*) ;; *) fail "a Muse allowance with no numeric bucket is unknown: $out" ;; esac
+case "$out" in *"muse 7d"*|*"muse 5h "*) fail "a malformed Muse allowance emitted a window: $out" ;; esac
+jq -cn '{payload_type:"run.usage",payload:{allowance:{weekly:{used_percent:17,resets_at_ms:1794787200000}}}}' > "$U/muse-noasof.jsonl"
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --muse-log "$U/muse-noasof.jsonl")
+case "$out" in *"muse unknown (no stream log with run.usage; pass --muse-log)"*) ;; *) fail "a Muse allowance without numeric as_of_ms is unknown: $out" ;; esac
 
 contains "$META_SKILL" 'references/usage-limits.md' 'Meta skill routes with usage headroom'
 contains "$META_REFS/usage-limits.md" 'get_usage' 'Usage limits prefer the desktop get_usage tool'
@@ -3031,6 +3086,9 @@ if [ "${STUB_MUSE_SERVED:-}" = none ]; then
 else
   jq -cn --arg m "${STUB_MUSE_SERVED:-muse-spark-1.3}" '{payload_type:"run.model.configured",payload:{model_id:$m}}'
 fi
+if [ -n "${STUB_MUSE_USAGE:-}" ]; then
+  jq -cn --argjson allowance "$STUB_MUSE_USAGE" '{payload_type:"run.usage",payload:{allowance:$allowance}}'
+fi
 if [ -n "${STUB_MUSE_FAIL:-}" ]; then
   jq -cn --arg r "$STUB_MUSE_FAIL" '{payload_type:"run.terminal.failed",payload:{terminal:"failed",reason:$r,text:""}}'
   printf 'run ended with Failed: %s\n' "$STUB_MUSE_FAIL" >&2
@@ -3096,6 +3154,33 @@ rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_RESPONSE='looks fine' bash "$MUS
 [ "$rc" -eq 6 ] || fail "a muse review without a verdict exits 6 (got $rc)"
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='429 Too Many Requests' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 75 ] || fail "a muse rate limit exits 75 (got $rc)"
+line="$(grep '^run-muse: ' "$MU/err" || true)"
+case "$line" in *'resets='*) fail "a muse 429 without a reset timestamp adds no resets= field: ${line:-missing}" ;; esac
+muse_reason='API error 429 […]: Subscription quota exhausted. Your usage window resets at 2026-11-16T00:00:00Z. (rate_limit_error)'
+muse_allowance='{"tier":"Muse Code Power Usage","weekly":{"resets_at_ms":1794787200000,"used_percent":99},"window":{"resets_at_ms":1794764145000,"used_percent":6},"as_of_ms":1794700800000,"source":"mint"}'
+rc=0
+printf 'x\n' | "${muse_env[@]}" STUB_MUSE_SERVED=muse-wonder-full-1.0 STUB_MUSE_FAIL="$muse_reason" STUB_MUSE_USAGE="$muse_allowance" \
+  bash "$MUSE_RUN" --mode implement --model muse-wonder-full-1.0 --effort high --repo "$MR" --timeout 30 --out "$MU/limit.out" >/dev/null 2>"$MU/limit.err" || rc=$?
+[ "$rc" -eq 75 ] || fail "muse quota exhaustion exits 75 (got $rc): $(cat "$MU/limit.err")"
+line="$(grep '^run-muse: ' "$MU/limit.err" || true)"
+case "$line" in
+  *"exit=75 failure=limit"*"resets=2026-11-16T00:00Z"*) ;;
+  *) fail "muse limit exit line carries resets=2026-11-16T00:00Z: ${line:-missing}" ;;
+esac
+contains "$MU/limit.out.stream" '"run.usage"' 'the quota fixture stream keeps the run.usage event'
+out=$(CODEX_HOME="$U/none" PATH="$U/bin:/usr/bin:/bin" bash "$USAGE_SH" --muse-log "$MU/limit.out.stream")
+expect_muse_line "$out" 7d 99 1794787200 '*' "the runner stream's allowance is Muse weekly 99%"
+expect_muse_line "$out" 5h 6 1794764145 '*' "the runner stream's allowance is Muse window 6%"
+rc=0
+printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='Subscription quota exhausted' \
+  bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/limit-plain.err" || rc=$?
+[ "$rc" -eq 75 ] || fail "muse quota without a reset time exits 75 (got $rc)"
+line="$(grep '^run-muse: ' "$MU/limit-plain.err" || true)"
+case "$line" in
+  *"failure=limit"*) ;;
+  *) fail "muse quota without a reset time is still a limit: ${line:-missing}" ;;
+esac
+case "$line" in *'resets='*) fail "muse quota without a reset time adds no resets= field: $line" ;; esac
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='missing meta credentials: run `muse login` or set META_API_KEY' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 77 ] || fail "missing muse credentials exit 77 (got $rc)"
 for bad in '--mode review --base --output=x' '--mode implement --effort ultra' '--mode implement --model gpt-6-sol' '--mode implement --max-steps 0' '--mode bogus'; do
@@ -3340,6 +3425,19 @@ for compat in gpt-5.6-luna gpt-6-sol claude-sonnet-5 gpt-6.1-terra gpt-5.6-terra
   [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = "$compat" ] || fail "shipped table keeps an allowlisted prior-generation model routable: $compat ($out)"
 done
 cp "$MU/bin/muse" "$PL/bin/muse"
+muse_tight_reset=$(( $(date +%s) + 3 * 86400 ))
+jq -cn --argjson reset_ms "$((muse_tight_reset * 1000))" --argjson as_of_ms "$(( $(date +%s) * 1000 ))" \
+  '{payload_type:"run.usage",payload:{allowance:{weekly:{resets_at_ms:$reset_ms,used_percent:99},window:{resets_at_ms:$reset_ms,used_percent:6},as_of_ms:$as_of_ms}}}' \
+  > "$U/muse-tight.jsonl"
+muse_usage=$(CODEX_HOME="$U/none" PATH="$U/bin:/usr/bin:/bin" bash "$USAGE_SH" --muse-log "$U/muse-tight.jsonl")
+printf '%s\n' "$muse_usage" > "$PL/muse-usage.txt"
+case "$muse_usage" in *"muse 7d 99% resets"*) ;; *) fail "usage.sh emits a tight Muse weekly window for pool: $muse_usage" ;; esac
+rc=0
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --usage "$PL/muse-usage.txt" 2>"$PL/err")" || rc=$?
+[ "$rc" -eq 75 ] || fail "pool pick skips Muse when its weekly window is at 99% (got $rc): $out"
+contains "$PL/err" 'skip T2 muse/muse-spark-1.3: plan window >= 90%' 'pick names the tight Muse weekly window'
+contains "$PL/err" 'skip T3 muse/muse-wonder-full-1.0: plan window >= 90%' 'a tight Muse window binds every Muse model'
+case "$out" in *muse*) fail "a tight Muse window still listed a Muse row: $out" ;; esac
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --prefer gpt-6-sol --usage /dev/null 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = gpt-6-sol ] || fail "exact preference distinguishes models within one provider: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --mode review --usage /dev/null 2>/dev/null)" || true

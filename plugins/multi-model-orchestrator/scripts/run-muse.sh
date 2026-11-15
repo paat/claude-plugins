@@ -214,5 +214,13 @@ fi
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
   if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
-mmo_finish run-muse "$rc" "$classify_file" \
-  "model=${served:-$model}" "effort=$effort" "mode=$mode" "log=$stream_file"
+finish_args=("model=${served:-$model}" "effort=$effort" "mode=$mode" "log=$stream_file")
+# Key on the limit class only. A reset in the failed terminal reason becomes a UTC minute
+# the orchestrator can append to its usage file; no reset means no extra field.
+if [ "$(mmo_classify_provider_failure "$classify_file")" = limit ]; then
+  muse_reason="$(printf '%s' "$terminal" | jq -r '.reason // empty' 2>/dev/null || true)"
+  if [[ "$muse_reason" =~ resets[[:space:]]+at[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2})(:[0-9]{2}(\.[0-9]+)?)?Z ]]; then
+    finish_args+=("resets=${BASH_REMATCH[1]}Z")
+  fi
+fi
+mmo_finish run-muse "$rc" "$classify_file" "${finish_args[@]}"
