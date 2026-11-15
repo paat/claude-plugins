@@ -170,5 +170,27 @@ t "draft with Cc but no To exits 1" rc 1 fd "$WD/d-cconly.eml"
 t "draft with Cc but no To writes no draft" no_out
 t "three body sources exit 2" rc 2 fd "$WD/d-html.eml" --body-file "$WD/body.txt"
 
+# --- cases from review round 2 ---
+mk "$WD/d-owncite.eml" "To: new@example.com\n${DH}Content-Type: text/html; charset=\"utf-8\"\n\n<p>I write.</p><blockquote type=\"cite\"><p>MYOWNCITE</p></blockquote><p>TAILTEXT</p>\n"
+mk "$WD/d-ownquote.eml" "To: new@example.com\n${DH}Content-Type: text/plain; charset=\"utf-8\"\n\nI answer below.\n\nCheck this:\n\n> my own quoted line\n"
+fd "$WD/d-owncite.eml" >/dev/null 2>&1
+t "the user's own cite blockquote is kept" has html 'MYOWNCITE'
+t "the user's text after their own blockquote is kept" has html 'TAILTEXT'
+fd "$WD/d-ownquote.eml" >/dev/null 2>&1
+t "plain draft: the user's own '>' block without a '... wrote:' line is kept" has plain 'my own quoted line'
+t "plain draft: the line above the user's own '>' block is kept" has plain 'Check this:'
+qp() {
+  python3 - "$RD" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('rd', sys.argv[1]); rd = importlib.util.module_from_spec(spec); spec.loader.exec_module(rd)
+att = 'On 14.11.2026 at 23:46, Sender <sender@example.com> wrote:'
+ok = rd.quote_present('Hello, I answer. ' + att + ' Hello, can you help?', att, ('Hello,\ncan you help?',))
+missing = rd.quote_present('Hello, I answer.', att, ('Hello,\ncan you help?',))                    # no quote at all
+body_only = rd.quote_present('Hello, can you help? I answer. ' + att, att, ('Hello, can you help?',))   # parent text only BEFORE the line
+sys.exit(0 if (ok, missing, body_only) == (True, False, False) else 1)
+PY
+}
+t "read-back check: the parent's text must follow the '... wrote:' line" qp
+
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

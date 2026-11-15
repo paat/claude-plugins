@@ -273,7 +273,7 @@
     {
       "name": "proton-bridge",
       "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted, stored in Drafts and read back, never sent",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "author": {
         "name": "Andre Paat"
       },

@@ -35,7 +35,8 @@ ATTRIBUTION = {
 }
 ATTRIBUTION_NO_DATE = {'en': '{who} wrote:', 'et': '{who} kirjutas:'}
 UNKNOWN_SENDER = {'en': 'the sender', 'et': 'saatja'}
-QUOTE_START = re.compile(r'(?i)<div[^>]*class="[^"]*(protonmail_quote|gmail_quote)|<blockquote[^>]*type="cite"')
+QUOTE_START = re.compile(r'(?i)<div[^>]*class="[^"]*(protonmail_quote|gmail_quote)')   # a client's own reply quote
+ATTRIBUTION_LINE = re.compile(r'(wrote|kirjutas)\b.*:\s*$')
 RE_PREFIX = re.compile(r'^\s*(re|vs|aw|sv|antw)\s*:', re.I)
 
 
@@ -123,7 +124,8 @@ def text_to_html(text):
 
 def html_to_text(h):
     h = re.sub(r'(?is)<(head|title|style|script)\b.*?</\1>', '', h)
-    h = re.sub(r'(?i)<br\s*/?>|</(p|div|tr|li|h[1-6]|blockquote)>', '\n', h)
+    h = re.sub(r'(?i)</p>', '\n\n', h)
+    h = re.sub(r'(?i)<br\s*/?>|</(div|tr|li|h[1-6]|blockquote)>', '\n', h)
     h = re.sub(r'(?i)</t[dh]>', '\t', h)
     return re.sub(r'\n{3,}', '\n\n', html.unescape(re.sub(r'<[^>]+>', '', h))).strip()
 
@@ -135,16 +137,29 @@ def strip_quote(h):
 
 
 def strip_text_quote(t):
-    """Plain-text draft: drop a trailing block of '>' lines and the '... wrote:' line above it."""
+    """Plain-text draft: drop a trailing block of '>' lines together with the '... wrote:' line above it.
+
+    Without such a line the block is the user's own text and stays.
+    """
     lines = t.rstrip().split('\n')
     i = len(lines)
     while i > 0 and (lines[i - 1].startswith('>') or not lines[i - 1].strip()):
         i -= 1
-    if not any(l.startswith('>') for l in lines[i:]):
+    if i == 0 or not any(l.startswith('>') for l in lines[i:]) or not ATTRIBUTION_LINE.search(lines[i - 1]):
         return t
-    if i > 0 and lines[i - 1].rstrip().endswith(':'):
-        i -= 1
-    return '\n'.join(lines[:i]).rstrip()
+    return '\n'.join(lines[:i - 1]).rstrip()
+
+
+def quote_present(stored, att, parent_texts):
+    """True when the parent's first line stands AFTER the '... wrote:' line of the stored draft."""
+    def norm(t):
+        return ' '.join(t.split())
+    stored, att = norm(stored), norm(att)
+    if att not in stored:
+        return False
+    tail = stored.split(att, 1)[1]
+    probes = [norm(next((l for l in t.split('\n') if l.strip()), ''))[:60] for t in parent_texts]
+    return any(pr and pr in tail for pr in probes)
 
 
 def attribution(parent, lang):
@@ -199,7 +214,7 @@ def build(parent, body_html, body_text, me, to, cc, subject, lang):
         m['References'] = ' '.join(x for x in (str(parent.get('References', '')).strip(), pid) if x)
     m.set_content(full_text)
     m.add_alternative(full_html, subtype='html')
-    return m, quoted_text, html_to_text(quoted_html)
+    return m, quoted_text, html_to_text(quoted_html), att
 
 
 def main():
@@ -270,7 +285,7 @@ def main():
     if not to:
         sys.exit('no recipient: the parent mail has neither From nor Reply-To')
 
-    msg, quoted_text, quoted_html_text = build(parent, body_html, body_text, me, to, cc, subject, a.lang)
+    msg, quoted_text, quoted_html_text, att = build(parent, body_html, body_text, me, to, cc, subject, a.lang)
     out = {'subject': subject, 'to': [x[1] for x in to], 'cc': [x[1] for x in cc], 'recipients_from': rcpt_from,
            'quoted_chars': len(quoted_text), 'message_id': str(msg['Message-ID']), 'sent': False}
     if not quoted_text:
@@ -297,13 +312,8 @@ def main():
     back = fetch_uid(m, a.drafts_box, uid)
     bh = part_text(back, 'html')
     stored = html_to_text(bh) if bh else re.sub(r'(?m)^> ?', '', part_text(back, 'plain') or '')
-    stored = ' '.join(stored.split())
-
-    def probe(t):   # the first line of the parent's text, as it should appear in the stored draft
-        return ' '.join(next((l for l in t.split('\n') if l.strip()), '').split())[:60]
-
     out.update(stored=True, drafts_box=a.drafts_box, uid=uid,
-               quote_in_stored_draft=any(pr and pr in stored for pr in (probe(quoted_html_text), probe(quoted_text))),
+               quote_in_stored_draft=quote_present(stored, att, (quoted_html_text, quoted_text)),
                reply_headers_kept=bool(back.get('In-Reply-To')))
     if a.from_draft_uid:
         out['old_draft_uid_left_in_place'] = a.from_draft_uid
