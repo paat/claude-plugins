@@ -97,19 +97,6 @@ if [ "$mode" != implement ] && [ "$continue_set" -eq 1 ] && [ "$continue_n" -ne 
   printf 'run-grok: --continue-on-max-turns applies only to --mode implement\n' >&2
   exit 2
 fi
-reserve=0
-if [ -n "${MMO_GROK_SYNTH_RESERVE:-}" ]; then
-  [[ "$MMO_GROK_SYNTH_RESERVE" =~ ^[0-9]+$ ]] && [ "$MMO_GROK_SYNTH_RESERVE" -lt "$run_timeout" ] || {
-    printf 'run-grok: MMO_GROK_SYNTH_RESERVE must be an integer from 0 to %s (less than --timeout %s)\n' "$((run_timeout - 1))" "$run_timeout" >&2
-    exit 2
-  }
-  if [ "$continue_n" -gt 0 ] && { [ "$mode" = review ] || [ "$mode" = advise ]; }; then
-    reserve="$MMO_GROK_SYNTH_RESERVE"
-  fi
-elif [ "$continue_n" -gt 0 ] && { [ "$mode" = review ] || [ "$mode" = advise ]; } && [ "$run_timeout" -ge 600 ]; then
-  reserve=180
-fi
-inspect_timeout=$((run_timeout - reserve))
 command -v git >/dev/null 2>&1 || { printf 'run-grok: git not found\n' >&2; exit 127; }
 command -v grok >/dev/null 2>&1 || { printf 'run-grok: grok CLI not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
@@ -399,15 +386,11 @@ if [ "$continue_n" -gt 0 ]; then
   [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "$output_file")"
 fi
 started=$SECONDS
-run_grok_call "$inspect_timeout" "$prompt_file" "${inspect_args[@]}" ${session_id:+--session-id "$session_id"}
-if [ "$mode" != implement ] && [ "$rc" -ne 0 ]; then
-  if grep -qi 'max turns reached' "$call_err"; then
-    truncated=turns
-  elif [ "$rc" -eq 124 ] && [ "$reserve" -gt 0 ]; then
-    truncated=timeout
-  fi
+run_grok_call "$run_timeout" "$prompt_file" "${inspect_args[@]}" ${session_id:+--session-id "$session_id"}
+if [ "$mode" != implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+  truncated=turns
 fi
-while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && { grep -qi 'max turns reached' "$call_err" || [ "$truncated" = timeout ]; }; do
+while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
   left=$((run_timeout - (SECONDS - started)))
   if [ "$mode" = implement ]; then
     [ "$left" -ge 30 ] || break
@@ -508,12 +491,8 @@ if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_
   printf 'run-grok: review completed without APPROVE or NEEDS_WORK\n' >&2
   rc=6
 fi
-if [ -n "$truncated" ] && [ "$rc" -eq 0 ]; then
-  if [ "$truncated" = turns ]; then
-    printf 'run-grok: max turns reached (%s) in --mode %s; synthesized from truncated inspection\n' "$max_turns" "$mode" >&2
-  else
-    printf 'run-grok: inspect timeout (%ss) reached in --mode %s; synthesized from truncated inspection\n' "$inspect_timeout" "$mode" >&2
-  fi
+if [ "$truncated" = turns ] && [ "$rc" -eq 0 ]; then
+  printf 'run-grok: max turns reached (%s) in --mode %s; synthesized from truncated inspection\n' "$max_turns" "$mode" >&2
 fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers
 # can inspect useful review text; --out already holds the body either way.

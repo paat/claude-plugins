@@ -9,7 +9,7 @@ export TMPDIR="$WORK/tmp"
 # Every runner test writes state inside the disposable fixture, including HOME overrides.
 export MMO_OUTCOMES_FILE="$WORK/outcomes.tsv"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
-unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS MMO_GROK_SYNTH_RESERVE
+unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
 # API regressions supply their own dummy key; legacy pool fixtures must not opt in via the host.
 unset MMO_CLAUDE_API_KEY_FILE
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
@@ -430,17 +430,6 @@ result_mode="${STUB_GROK_RESULT:-ok}"
 [ "$call_n" -le 1 ] || result_mode="${STUB_GROK_RESUME_RESULT:-$result_mode}"
 case "$result_mode" in
   error) exit 23 ;;
-  sleep_70pct)
-    sleep 7
-    printf 'grok findings after 7s\nAPPROVE\n'
-    ;;
-  sleep_inspect)
-    if [ "$call_n" -eq 1 ]; then
-      printf 'Inspecting before deadline...\n'
-      exec sleep 120
-    fi
-    printf 'synthesized before deadline\nVERDICT: NEEDS_WORK\n'
-    ;;
   transient) printf '429 Too Many Requests\n' >&2; exit 1 ;;
   transient503) printf '503 overloaded\n' >&2; exit 1 ;;
   auth)
@@ -1496,7 +1485,7 @@ rm -f "$STUB_GROK_TOUCH"
 unset STUB_GROK_RESULT STUB_GROK_TOUCH
 pass '#614: per-mode caps, exit 76, finishing resume bounded by N and tree change'
 
-# #716: review/advise turn budget, default .stream, read-only allowlist synthesis on cap or timeout reserve, exit 78.
+# #716: review/advise turn budget, default .stream, read-only allowlist synthesis on cap, exit 78.
 mkdir -p "$WORK/716"
 : > "$STUB_GROK_CALLS"
 printf 'review budget check\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" \
@@ -1633,43 +1622,16 @@ printf 'pool review cap fail\n' | MMO_POOL_TIERS="$WORK/716/tiers.tsv" STUB_GROK
 absent "$WORK/716/pool-cap.err" 'unavailable' '#716: pool.sh run does not treat exit 78 as worker unavailable'
 contains "$WORK/716/pool-cap.err" 'pool: exit=78 worker=grok' '#716: pool.sh run reports exit=78 from grok'
 
-# Finding 2: with no override, --timeout < 600 has reserve=0 so a leg needing 70% of --timeout 10 exits 0 in ONE call.
+# Review leg whose inspect call times out makes one grok call and exits 124 with no truncated= field.
 : > "$STUB_GROK_CALLS"
 rc=0
-printf 'review 70pct timeout\n' | STUB_GROK_RESULT=sleep_70pct \
+printf 'review inspect timeout\n' | STUB_GROK_RESULT=timeout \
   "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
-  --out "$WORK/716/rev-70pct.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-70pct.err" || rc=$?
-[ "$rc" -eq 0 ] || fail "#716: 70% of --timeout 10 without reserve override rc=$rc want 0 ($(cat "$WORK/716/rev-70pct.err"))"
-[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail '#716: 70% of --timeout 10 finishes in 1 grok call without reserve override'
-absent "$WORK/716/rev-70pct.err" 'truncated=' '#716: 70% of --timeout 10 is not truncated'
-
-rc=0
-printf 'reserve ge timeout\n' | MMO_GROK_SYNTH_RESERVE=10 \
-  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
-  --timeout 10 >/dev/null 2> "$WORK/716/rev-res-ge.err" || rc=$?
-[ "$rc" -eq 2 ] || fail "#716: MMO_GROK_SYNTH_RESERVE >= --timeout rc=$rc want 2"
-
-# Finding 1 + 2: with MMO_GROK_SYNTH_RESERVE override, inspect killed before writing its debug file + good resume with evidence -> exit 0.
-: > "$STUB_GROK_CALLS"
-t0=$SECONDS
-rc=0
-printf 'review sleep past reserve\n' | MMO_GROK_SYNTH_RESERVE=2 STUB_GROK_RESULT=sleep_inspect \
-  STUB_GROK_DEBUG=absent STUB_GROK_RESUME_DEBUG=applied \
-  "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
-  --out "$WORK/716/rev-timeout-ok.out" --timeout 3 >/dev/null 2> "$WORK/716/rev-timeout-ok.err" || rc=$?
-elapsed=$((SECONDS - t0))
-[ "$rc" -eq 0 ] || fail "#716: review sleep past reserve rc=$rc want 0 ($(cat "$WORK/716/rev-timeout-ok.err"))"
-[ "$elapsed" -le 3 ] || fail "#716: review sleep past reserve elapsed=${elapsed}s exceeded --timeout 3"
-[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 2 ] || fail '#716: review sleep past reserve ran inspect then synthesis resume'
-contains "$WORK/716/rev-timeout-ok.out" 'VERDICT: NEEDS_WORK' '#716: timeout-synthesized --out holds verdict'
-contains "$WORK/716/rev-timeout-ok.err" 'truncated=timeout' '#716: exit line marked truncated=timeout'
-contains "$WORK/716/rev-timeout-ok.err" 'inspect timeout (1s) reached in --mode review; synthesized from truncated inspection' \
-  '#716: stderr explains truncated-timeout synthesis'
-exact_line "$WORK/grok.args" 'read_file,list_dir,grep' '#716: timeout synthesis resume keeps read-only allowlist'
-rc=0
-gout="$(bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg grok="$WORK/716/rev-timeout-ok.out")" || rc=$?
-[ "$rc" -eq 1 ] && [ "$gout" = NEEDS_WORK ] || fail "#716: review-gate consumes timeout-synthesized NEEDS_WORK ($rc/$gout)"
-pass '#716: Grok review/advise turn budget, default .stream, read-only allowlist synthesis on cap or timeout reserve, exit 78'
+  --out "$WORK/716/rev-timeout.out" --timeout 10 >/dev/null 2> "$WORK/716/rev-timeout.err" || rc=$?
+[ "$rc" -eq 124 ] || fail "#716: review inspect timeout rc=$rc want 124 ($(cat "$WORK/716/rev-timeout.err"))"
+[ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail '#716: review inspect timeout makes 1 grok call'
+absent "$WORK/716/rev-timeout.err" 'truncated=' '#716: review inspect timeout has no truncated= field'
+pass '#716: Grok review/advise turn budget, default .stream, read-only allowlist synthesis on cap, exit 78'
 
 # #621: --out /dev/stdout success path must exit 0 with the verdict on its own line.
 rc=0
