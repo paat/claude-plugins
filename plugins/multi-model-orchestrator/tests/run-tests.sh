@@ -2900,10 +2900,8 @@ set -e
 case "$out" in *"muse unknown (no stream log with run.usage; pass --muse-log)"*) ;; *) fail "a Muse allowance with no numeric bucket is unknown: $out" ;; esac
 case "$out" in *"muse 7d"*|*"muse 5h "*) fail "a malformed Muse allowance emitted a window: $out" ;; esac
 jq -cn '{payload_type:"run.usage",payload:{allowance:{weekly:{used_percent:17,resets_at_ms:1794787200000}}}}' > "$U/muse-noasof.jsonl"
-asof_epoch=$(date -r "$U/muse-noasof.jsonl" +%s)
 out=$(CODEX_HOME="$U/none" PATH="$U/bin:$PATH" bash "$USAGE_SH" --muse-log "$U/muse-noasof.jsonl")
-expect_noasof=$(jq -nr --argjson t "$asof_epoch" '$t | strftime("%Y-%m-%dT%H:%MZ")')
-expect_muse_line "$out" 7d 17 1794787200 "$expect_noasof" "usage.sh falls back to file mtime when Muse as_of_ms is missing (want as-of ${expect_noasof})"
+case "$out" in *"muse unknown (no stream log with run.usage; pass --muse-log)"*) ;; *) fail "a Muse allowance without numeric as_of_ms is unknown: $out" ;; esac
 
 contains "$META_SKILL" 'references/usage-limits.md' 'Meta skill routes with usage headroom'
 contains "$META_REFS/usage-limits.md" 'get_usage' 'Usage limits prefer the desktop get_usage tool'

@@ -214,8 +214,8 @@ fi
 printf 'grok unknown (Grok CLI exposes no plan-limit data)\n'
 
 # Muse run streams (muse exec --json). The CLI session store does not record run.usage.
-# Newest as_of_ms across --muse-log files wins; a reading with no numeric as_of_ms falls back
-# to file mtime and never outranks one that has as_of_ms. weekly → 7d. The payload calls the
+# Newest numeric as_of_ms across --muse-log files wins. A run.usage allowance without a
+# numeric as_of_ms is ignored. weekly → 7d. The payload calls the
 # other bucket only "window"; it is printed as 5h so pool.sh can bind it.
 muse_rows() {
   grep -hF '"run.usage"' "$@" 2>/dev/null | jq -R -n -r '
@@ -229,10 +229,10 @@ muse_rows() {
      | select(.payload_type == "run.usage")
      | (.payload.allowance // null) as $a
      | select($a != null)
+     | select(($a.as_of_ms | type) == "number")
      | [mkrow("7d"; $a.weekly), mkrow("5h"; $a.window)] as $rows
      | select($rows | length > 0)
-     | {as_of:
-         (if ($a.as_of_ms | type) == "number" then ($a.as_of_ms / 1000 | floor | tostring) else "" end),
+     | {as_of: ($a.as_of_ms / 1000 | floor | tostring),
         rows: $rows}]
     | last // empty
     | if . == null then empty else (.as_of, (.rows[] | @tsv)) end' 2>/dev/null || true
@@ -240,7 +240,6 @@ muse_rows() {
 muse_out=""
 muse_as_of=0
 muse_rank=-1
-muse_mtime_rank=-1
 for f in ${muse_logs[@]+"${muse_logs[@]}"}; do
   [ -f "$f" ] || continue
   parsed=$(muse_rows "$f")
@@ -250,21 +249,12 @@ for f in ${muse_logs[@]+"${muse_logs[@]}"}; do
   rows="${rows#$'\n'}"
   [ -n "$rows" ] || continue
   case "$event_ts" in
-    ''|*[!0-9]*) event_ts="" ;;
+    ''|*[!0-9]*) continue ;;
   esac
-  if [ -n "$event_ts" ]; then
-    if [ "$event_ts" -gt "$muse_rank" ]; then
-      muse_out="$rows"
-      muse_as_of="$event_ts"
-      muse_rank="$event_ts"
-    fi
-  elif [ "$muse_rank" -lt 0 ]; then
-    mt=$(file_epoch "$f")
-    if [ "$mt" -gt "$muse_mtime_rank" ]; then
-      muse_out="$rows"
-      muse_as_of="$mt"
-      muse_mtime_rank="$mt"
-    fi
+  if [ "$event_ts" -gt "$muse_rank" ]; then
+    muse_out="$rows"
+    muse_as_of="$event_ts"
+    muse_rank="$event_ts"
   fi
 done
 if [ -n "$muse_out" ]; then
