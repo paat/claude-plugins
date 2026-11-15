@@ -1,6 +1,6 @@
 ---
 name: bootstrap
-description: "Idempotent project scaffold for saas-startup-team (docs/, .startup/, gitignore, CLAUDE.md snippets)."
+description: "Idempotent project scaffold for saas-startup-team (docs/, .startup/, gitignore, AGENTS.md snippets)."
 ---
 
 # Bootstrap
@@ -66,28 +66,18 @@ freshly scaffolded project — the exact case `/bootstrap` is built for — ofte
 lives *inside* the repo; without these entries a later broad `git add` sweeps the entire
 store into history, recoverable only by `git filter-repo` + force-push.
 
-## Step 4: Update CLAUDE.md — Project Knowledge
+## Step 4: Update AGENTS.md — Project Knowledge
 
-If CLAUDE.md does not already contain a `## Project Knowledge` section, append the template
+If AGENTS.md (create it if missing; never create CLAUDE.md) does not already contain a `## Project Knowledge` section, append the template
 at `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-project-knowledge.md`, then adapt it to what
 actually exists in `docs/`: scan the `docs/` subdirectories, keep a bullet only for each
 non-empty subdirectory, and add file-level pointers for key individual files (e.g.
 `docs/business/brief.md`, or `docs/business/hinnastrateegia.md` for pricing).
 
-## Step 5: Update CLAUDE.md — Workflow Guidance
+## Step 5: Update AGENTS.md — Workflow Guidance
 
-If CLAUDE.md does not already contain a `## Workflow Guidance` section, append the template
+If AGENTS.md does not already contain a `## Workflow Guidance` section, append the template
 at `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-workflow-guidance.md`.
-
-## Step 5b: Engineering principles (CLAUDE.md + AGENTS.md)
-
-Ensure KISS / YAGNI / DRY are project guidance for every host that loads root
-instruction files. Shared helper (idempotent; requires all three principle labels
-or refreshes a managed block; resolves AGENTS.md symlinks safely):
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ensure-engineering-principles.sh" --root .
-```
 
 ## Step 6: Project Brief
 
@@ -151,7 +141,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-scaffold.sh"
    of silently entering history:
 
 ```bash
-git add docs/ .startup/.gitkeep .gitignore CLAUDE.md check.sh .github/workflows/ci.yml
+git add docs/ .startup/.gitkeep .gitignore AGENTS.md check.sh .github/workflows/ci.yml
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/check-staged-size.sh" || exit 1
 git commit -m "chore: bootstrap project structure for saas-startup-team plugin"
 ```

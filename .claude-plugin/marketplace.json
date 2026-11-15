@@ -40,20 +40,9 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
-      "name": "agent-sync",
-      "description": "Generate AGENTS.md from Claude Code project configuration files",
-      "version": "0.5.7",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/agent-sync",
-      "category": "development",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": {
         "name": "Andre Paat"
       },

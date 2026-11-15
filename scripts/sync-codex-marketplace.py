@@ -22,10 +22,6 @@ DEFAULT_AUTH_POLICY = "ON_INSTALL"
 DEFAULT_MARKETPLACE_DISPLAY_NAME = "Paat Plugins"
 
 CODEX_DESCRIPTION_OVERRIDES = {
-    "agent-sync": (
-        "Mirror AGENTS.md to CLAUDE.md for Codex-first projects. In Codex, AGENTS.md is the "
-        "source of truth; Claude Code keeps its existing Claude-to-AGENTS generation behavior."
-    ),
     "saas-startup-team": (
         "Codex-native SaaS startup orchestration using file-based founder handoffs, business "
         "research, implementation, growth, UX, and review loops for Estonian SaaS projects."

@@ -28,8 +28,7 @@ Intake → Conditional discovery → Triggered specialists → Deliver → Repor
 3. Capture goal from `$ARGUMENTS`, existing `docs/business/brief.md`, or
    `scripts/market-scout.sh` when no concrete need exists. Ask the human only
    when no demand evidence exists.
-4. Idempotent scaffold when missing: `/bootstrap`, ensure git root, ensure
-   engineering principles via `scripts/ensure-engineering-principles.sh --root .`.
+4. Idempotent scaffold when missing: `/bootstrap`, ensure git root.
 5. Legacy context (read-only): `scripts/legacy-import.sh` — brief, workflows,
    signoffs, research paths. Never rehydrate a delivery state machine from import.
 
