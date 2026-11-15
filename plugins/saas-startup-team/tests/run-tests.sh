@@ -422,24 +422,6 @@ test_templates() {
     "$tmpl_dir/claude-md-workflow-guidance.md" "Lean direct-feature planning"
   assert_file_contains "D10q6a: project guidance stops after file-only issue asks" \
     "$tmpl_dir/claude-md-workflow-guidance.md" "Do not auto-start delivery when filing issues"
-  assert_file_exists "D10q6b: engineering principles template exists" \
-    "$tmpl_dir/claude-md-engineering-principles.md"
-  assert_file_contains "D10q6c: principles name KISS" \
-    "$tmpl_dir/claude-md-engineering-principles.md" "**KISS**"
-  assert_file_contains "D10q6d: principles name YAGNI" \
-    "$tmpl_dir/claude-md-engineering-principles.md" "**YAGNI**"
-  assert_file_contains "D10q6e: principles name DRY" \
-    "$tmpl_dir/claude-md-engineering-principles.md" "**DRY**"
-  assert_file_contains "D10q6f: bootstrap installs engineering principles" \
-    "$PLUGIN_ROOT/skills/bootstrap/SKILL.md" "Engineering principles"
-  assert_file_contains "D10q6g: bootstrap calls shared helper" \
-    "$PLUGIN_ROOT/skills/bootstrap/SKILL.md" "scripts/ensure-engineering-principles.sh"
-  assert_file_contains "D10q6h: lifecycle ensures engineering principles" \
-    "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "ensure-engineering-principles.sh"
-  assert_file_exists "D10q6i: ensure-engineering-principles script exists" \
-    "$PLUGIN_ROOT/scripts/ensure-engineering-principles.sh"
-  assert_file_contains "D10q6j: SessionStart hook ensures principles" \
-    "$PLUGIN_ROOT/hooks/hooks.json" "ensure-engineering-principles.sh"
   assert_file_contains "D10q7: Claude tech gate points at brief acceptance" \
     "$PLUGIN_ROOT/skills/tech-founder/SKILL.md" "brief-acceptance-gate.md"
   assert_file_contains "D10q8: maintenance tech gate points at brief acceptance" \
@@ -1687,7 +1669,6 @@ test_check_staged_size() {
   assert_file_contains "G9a: bootstrap runs the guard before commit" "$bootstrap" "check-staged-size.sh"
   assert_file_contains "G9b: improve uses supervisor commit guard" "$PLUGIN_ROOT/references/delivery-playbook.md" "supervisor-commit.sh"
   assert_file_contains "G9c: tweak uses trapped commit guard" "$PLUGIN_ROOT/references/delivery-playbook.md" "tweak-run.sh"
-  assert_file_contains "G9d: lifecycle ensures engineering principles" "$PLUGIN_ROOT/skills/lifecycle/SKILL.md" "ensure-engineering-principles.sh"
 
   # G10: measures the STAGED blob, not the working tree — stage a big blob, then truncate the
   # working-tree copy. The commit would still carry the big blob, so the guard must still reject.

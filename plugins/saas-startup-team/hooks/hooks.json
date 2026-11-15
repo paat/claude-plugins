@@ -33,17 +33,6 @@
           }
         ]
       }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/scripts/ensure-engineering-principles.sh\" ]; then if [ -n \"${CLAUDE_PROJECT_DIR:-}\" ]; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/scripts/ensure-engineering-principles.sh\" --root \"${CLAUDE_PROJECT_DIR:-}\"; fi; exec bash \"${CLAUDE_PLUGIN_ROOT:-}/scripts/ensure-engineering-principles.sh\" --root \"${PWD:-}\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/scripts/ensure-engineering-principles.sh\" ]; then if [ -n \"${CLAUDE_PROJECT_DIR:-}\" ]; then exec bash \"${CODEX_PLUGIN_ROOT:-}/scripts/ensure-engineering-principles.sh\" --root \"${CLAUDE_PROJECT_DIR:-}\"; fi; exec bash \"${CODEX_PLUGIN_ROOT:-}/scripts/ensure-engineering-principles.sh\" --root \"${PWD:-}\"; fi; if [ -f \"${PWD:-}/scripts/ensure-engineering-principles.sh\" ]; then if [ -n \"${CLAUDE_PROJECT_DIR:-}\" ]; then exec bash \"${PWD:-}/scripts/ensure-engineering-principles.sh\" --root \"${CLAUDE_PROJECT_DIR:-}\"; fi; exec bash \"${PWD:-}/scripts/ensure-engineering-principles.sh\" --root \"${PWD:-}\"; fi; echo \"[saas-startup-team] hook target not found: scripts/ensure-engineering-principles.sh\" >&2; exit 0'",
-            "description": "Ensure KISS/YAGNI/DRY engineering principles in CLAUDE.md and AGENTS.md"
-          }
-        ]
-      }
     ]
   }
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 # memory-gc.sh — conservative garbage collection over project memory (issue #196).
 #
-# Scans CLAUDE.md '## Learnings' + docs/learnings/*.md and classifies bullets:
+# Scans AGENTS.md '## Learnings' + docs/learnings/*.md and classifies bullets:
 #   - Expired one-off grants — the ONLY deletion class. Grant line shape:
 #       - Grant: <what> — scope: <scope>, expires: YYYY-MM-DD
 #     Past-due grants move to docs/learnings/retired.md with a retirement date.
@@ -58,7 +58,7 @@ fi
 
 # Collect in-scope memory files.
 files=()
-[ -f "$ROOT/CLAUDE.md" ] && files+=("$ROOT/CLAUDE.md")
+[ -f "$ROOT/AGENTS.md" ] && files+=("$ROOT/AGENTS.md")
 if [ -d "$ROOT/docs/learnings" ]; then
   for f in "$ROOT"/docs/learnings/*.md; do
     [ -e "$f" ] || continue
@@ -115,7 +115,7 @@ scan_file() {  # $1=path  $2=isclaude(1/0) — emits KIND\tNR\ttext on stdout
 }
 
 for f in "${files[@]}"; do
-  isclaude=0; [ "$f" = "$ROOT/CLAUDE.md" ] && isclaude=1
+  isclaude=0; [ "$f" = "$ROOT/AGENTS.md" ] && isclaude=1
   rel="${f#"$ROOT"/}"
   while IFS=$'\t' read -r kind lno text; do
     [ -n "$kind" ] || continue

@@ -454,6 +454,18 @@ for format in text stream; do
   check "$format key value is absent from CLI environments and CLI/ancestor argv" \
     bash -c '[ -s "$1/process.argv" ] && ! grep -a -F -q -f "$2" "$1/cli.argv" "$1/process.argv" "$1/proc.environ" "$1/cli.environ" "$1/effective.environ" "$1/bash.environ"' _ "$artifacts" "$work/key"
 done
+# An AGENTS.md-only repo gets AGENTS.md appended; a CLAUDE.md repo does not.
+printf 'agents rule\n' > "$work/repo/AGENTS.md"
+prepare agents-md-only
+run_api
+check "API leg appends root AGENTS.md when the repo has no CLAUDE.md" \
+  bash -c 'grep -qx -- --append-system-prompt-file "$1/cli.argv" && grep -qxF "$2/AGENTS.md" "$1/cli.argv"' _ "$artifacts" "$work/repo"
+printf 'claude rule\n' > "$work/repo/CLAUDE.md"
+prepare agents-and-claude-md
+run_api
+check "API leg does not append AGENTS.md when CLAUDE.md exists" \
+  bash -c '! grep -qx -- --append-system-prompt-file "$1/cli.argv"' _ "$artifacts"
+rm -f "$work/repo/AGENTS.md" "$work/repo/CLAUDE.md"
 for format in text stream; do
   prepare "echo-env-$format"
   common+=(STUB_RESULT=echo_env)

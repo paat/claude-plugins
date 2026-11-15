@@ -2,7 +2,7 @@
 
 Claude Code and Codex plugin marketplace for autonomous SaaS delivery loops.
 
-This repository is organized around one north star (stated in `CLAUDE.md`): help AI
+This repository is organized around one north star (stated in `AGENTS.md`): help AI
 systems discover real market needs, convert those signals into production-quality SaaS
 improvements, and deliver one-shot implementations with no human code review. Customer
 feedback and owner validation of the live product are the only human signals, and every

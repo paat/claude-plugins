@@ -10,7 +10,7 @@ test_memory_gc() {
 
   # MG1: expired grant → retired; unexpired grant + ambiguous stale entry → untouched, flagged.
   wd=$(make_workdir)
-  cat > "$wd/CLAUDE.md" <<'EOF'
+  cat > "$wd/AGENTS.md" <<'EOF'
 # Project Learnings
 
 ## Learnings
@@ -25,13 +25,13 @@ EOF
   assert_file_contains "MG1d: report flags stale entry" "$report" "Flagged: stale"
   assert_file_exists "MG1e: retired.md created" "$wd/docs/learnings/retired.md"
   assert_file_contains "MG1f: expired grant moved to retired.md" "$wd/docs/learnings/retired.md" "deploy prod access"
-  assert_file_not_contains "MG1g: expired grant deleted from source" "$wd/CLAUDE.md" "deploy prod access"
-  assert_file_contains "MG1h: unexpired grant untouched" "$wd/CLAUDE.md" "keep this one"
-  assert_file_contains "MG1i: stale entry not deleted (flag-only)" "$wd/CLAUDE.md" "incident on 2000-05-05"
+  assert_file_not_contains "MG1g: expired grant deleted from source" "$wd/AGENTS.md" "deploy prod access"
+  assert_file_contains "MG1h: unexpired grant untouched" "$wd/AGENTS.md" "keep this one"
+  assert_file_contains "MG1i: stale entry not deleted (flag-only)" "$wd/AGENTS.md" "incident on 2000-05-05"
 
   # MG2: two bullets sharing a Label in one file → contradiction/near-duplicate flag.
   wd=$(make_workdir)
-  cat > "$wd/CLAUDE.md" <<'EOF'
+  cat > "$wd/AGENTS.md" <<'EOF'
 # Project Learnings
 
 ## Learnings
@@ -43,7 +43,7 @@ EOF
 
   # MG3: clean memory → no report file, exit 0, near-zero.
   wd=$(make_workdir)
-  printf '# P\n\n## Learnings\n- Clean rule: do the thing — because reasons.\n' > "$wd/CLAUDE.md"
+  printf '# P\n\n## Learnings\n- Clean rule: do the thing — because reasons.\n' > "$wd/AGENTS.md"
   local ec=0
   report=$(SAAS_GC_TODAY=2026-07-09 bash "$gc" --root "$wd") || ec=$?
   assert_exit_code "MG3: clean memory exit 0" "$ec" 0
@@ -52,7 +52,7 @@ EOF
 
   # MG4: --weekly cursor — a second run inside 7 days is a no-op.
   wd=$(make_workdir)
-  cat > "$wd/CLAUDE.md" <<'EOF'
+  cat > "$wd/AGENTS.md" <<'EOF'
 # Project Learnings
 
 ## Learnings
@@ -67,9 +67,9 @@ EOF
   out=$(SAAS_GC_TODAY=2026-07-20 bash "$gc" --root "$wd" --weekly)
   assert_output_not_contains "MG4c: run after 7d not skipped" "$out" "skipping"
 
-  # MG5: CLAUDE.md scope — grants outside '## Learnings' are ignored.
+  # MG5: AGENTS.md scope — grants outside '## Learnings' are ignored.
   wd=$(make_workdir)
-  cat > "$wd/CLAUDE.md" <<'EOF'
+  cat > "$wd/AGENTS.md" <<'EOF'
 # Project Learnings
 
 ## Setup
@@ -81,7 +81,7 @@ EOF
   ec=0
   report=$(SAAS_GC_TODAY=2026-07-09 bash "$gc" --root "$wd") || ec=$?
   assert_file_not_exists "MG5: no report — out-of-scope grant ignored" "$wd/.startup/memory-gc/2026-07-09.md"
-  assert_file_contains "MG5b: out-of-scope grant left in place" "$wd/CLAUDE.md" "unrelated"
+  assert_file_contains "MG5b: out-of-scope grant left in place" "$wd/AGENTS.md" "unrelated"
 
   # MG6: grant convention documented on memory-gc itself (#390 removed learnings-style).
   assert_file_contains "MG6: grant format documented" \
@@ -98,20 +98,20 @@ EOF
   # MG9: retirement is gated on the '- Grant:' shape — a durable rule merely mentioning an
   # 'expires:' date is flagged, never deleted (data-loss guard).
   wd=$(make_workdir)
-  cat > "$wd/CLAUDE.md" <<'EOF'
+  cat > "$wd/AGENTS.md" <<'EOF'
 # Project Learnings
 
 ## Learnings
 - Token policy: rotate creds before they expires: 2020-01-01 — durable.
 EOF
   report=$(SAAS_GC_TODAY=2026-07-09 bash "$gc" --root "$wd")
-  assert_file_contains "MG9: non-grant expiry entry preserved" "$wd/CLAUDE.md" "Token policy"
+  assert_file_contains "MG9: non-grant expiry entry preserved" "$wd/AGENTS.md" "Token policy"
   assert_file_not_exists "MG9b: no retired.md for non-grant" "$wd/docs/learnings/retired.md"
   assert_file_not_contains "MG9c: report has no retired section" "$report" "Retired: expired grants"
 
   # MG10: flagged line numbers point at the post-GC file (adjusted for deleted grants above).
   wd=$(make_workdir)
-  cat > "$wd/CLAUDE.md" <<'EOF'
+  cat > "$wd/AGENTS.md" <<'EOF'
 # Project Learnings
 
 ## Learnings
@@ -119,7 +119,7 @@ EOF
 - Old note: incident on 2000-01-01 — context.
 EOF
   report=$(SAAS_GC_TODAY=2026-07-09 bash "$gc" --root "$wd")
-  assert_file_contains "MG10: stale line re-numbered post-deletion" "$report" "CLAUDE.md:4 — - Old note"
+  assert_file_contains "MG10: stale line re-numbered post-deletion" "$report" "AGENTS.md:4 — - Old note"
 
   # MG11: a flag without its value exits 2 (not a set -u crash).
   ec=0; SAAS_GC_TODAY=2026-07-09 bash "$gc" --root >/dev/null 2>&1 || ec=$?

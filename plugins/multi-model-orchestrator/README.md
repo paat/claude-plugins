@@ -74,7 +74,7 @@ enable API spending. Set `MMO_CLAUDE_API_KEY_FILE` to a linked Console organizat
 unavailable or credits are exhausted. API legs clear inherited Claude/OAuth variables and use an
 empty, private per-leg `CLAUDE_CONFIG_DIR`, removed on exit or stop, to isolate the host OAuth login.
 `apiKeyHelper` sends the file key in both `x-api-key` and `Authorization` (as documented) without
-exporting it to CLI or tool environments. They explicitly load root `CLAUDE.md` and `.claude/` rules;
+exporting it to CLI or tool environments. They explicitly load root `CLAUDE.md` (or root `AGENTS.md` when the repo has no CLAUDE file) and `.claude/` rules;
 with settings sources disabled, only unconditional rules load, while rules with `paths:` frontmatter
 require project settings. They do not load nested or ancestor `CLAUDE.md`, `CLAUDE.local.md`,
 `~/.claude/CLAUDE.md`,
