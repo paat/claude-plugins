@@ -10,7 +10,8 @@ It never sends. The draft lands in the Drafts mailbox for a human to read, edit 
 
 Connection comes from the environment (optionally loaded with --env-file KEY=VALUE lines), names built from
 --env-prefix (default MAIL): <P>_IMAP_HOST, <P>_IMAP_PORT, <P>_USER, <P>_PASSWORD.
-Prints one JSON object describing what was created. Exit code 0 only when the draft was read back with the quote in it.
+Prints one JSON object describing what was created. Exit code 0 only when the stored draft was read back with the
+parent's text in it (with --dry-run: when the file was written). An exported variable wins over the same name in --env-file.
 """
 import argparse
 import datetime
@@ -32,6 +33,9 @@ ATTRIBUTION = {
     'en': 'On {date} at {time}, {who} wrote:',
     'et': '{date} kell {time} kirjutas {who}:',
 }
+ATTRIBUTION_NO_DATE = {'en': '{who} wrote:', 'et': '{who} kirjutas:'}
+UNKNOWN_SENDER = {'en': 'the sender', 'et': 'saatja'}
+QUOTE_START = re.compile(r'(?i)<div[^>]*class="[^"]*(protonmail_quote|gmail_quote)|<blockquote[^>]*type="cite"')
 RE_PREFIX = re.compile(r'^\s*(re|vs|aw|sv|antw)\s*:', re.I)
 
 
@@ -68,7 +72,7 @@ def connect(a):
 
 
 def q(box):
-    return '"' + box.replace('"', '\\"') + '"'
+    return '"' + box.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
 def fetch_uid(m, box, uid):
@@ -118,7 +122,7 @@ def text_to_html(text):
 
 
 def html_to_text(h):
-    h = re.sub(r'(?is)<(style|script)\b.*?</\1>', '', h)
+    h = re.sub(r'(?is)<(head|title|style|script)\b.*?</\1>', '', h)
     h = re.sub(r'(?i)<br\s*/?>|</(p|div|tr|li|h[1-6]|blockquote)>', '\n', h)
     h = re.sub(r'(?i)</t[dh]>', '\t', h)
     return re.sub(r'\n{3,}', '\n\n', html.unescape(re.sub(r'<[^>]+>', '', h))).strip()
@@ -126,19 +130,31 @@ def html_to_text(h):
 
 def strip_quote(h):
     """Drop an existing quote block, so re-making a draft does not quote twice."""
-    i = h.find(f'<div class="{QUOTE_CLASS}"')
-    return h[:i].rstrip() if i >= 0 else h
+    mq = QUOTE_START.search(h)
+    return h[:mq.start()].rstrip() if mq else h
+
+
+def strip_text_quote(t):
+    """Plain-text draft: drop a trailing block of '>' lines and the '... wrote:' line above it."""
+    lines = t.rstrip().split('\n')
+    i = len(lines)
+    while i > 0 and (lines[i - 1].startswith('>') or not lines[i - 1].strip()):
+        i -= 1
+    if not any(l.startswith('>') for l in lines[i:]):
+        return t
+    if i > 0 and lines[i - 1].rstrip().endswith(':'):
+        i -= 1
+    return '\n'.join(lines[:i]).rstrip()
 
 
 def attribution(parent, lang):
     name, addr = getaddresses([str(parent.get('From', ''))])[0]
-    who = f'{name} <{addr}>' if name else addr
+    who = (f'{name} <{addr}>' if name else addr) or UNKNOWN_SENDER[lang]
     try:
         dt = parsedate_to_datetime(str(parent['Date'])).astimezone()
-        date, tm = dt.strftime('%d.%m.%Y'), dt.strftime('%H:%M')
     except (TypeError, ValueError):
-        date, tm = str(parent.get('Date', '')), ''
-    return ATTRIBUTION[lang].format(date=date, time=tm, who=who)
+        return ATTRIBUTION_NO_DATE[lang].format(who=who)
+    return ATTRIBUTION[lang].format(date=dt.strftime('%d.%m.%Y'), time=dt.strftime('%H:%M'), who=who)
 
 
 def addrs(msg, *names):
@@ -162,10 +178,10 @@ def reply_recipients(parent, mine, reply_all):
 
 def build(parent, body_html, body_text, me, to, cc, subject, lang):
     att = attribution(parent, lang)
-    p_html = part_text(parent, 'html')
-    p_text = part_text(parent, 'plain')
-    quoted_html = html_inner(p_html) if p_html else text_to_html(p_text or '')
-    quoted_text = (p_text or html_to_text(p_html or '')).strip()
+    p_html = part_text(parent, 'html') or ''
+    p_text = (part_text(parent, 'plain') or '').strip()
+    quoted_html = html_inner(p_html) if p_html.strip() else text_to_html(p_text)
+    quoted_text = p_text or html_to_text(p_html)
     full_html = (f'{body_html}<br><div class="{QUOTE_CLASS}">{html.escape(att)}<br>'
                  f'<blockquote class="{QUOTE_CLASS}" type="cite">{quoted_html}</blockquote><br></div>')
     full_text = body_text.rstrip() + '\n\n' + att + '\n\n' + '\n'.join('> ' + l for l in quoted_text.split('\n')) + '\n'
@@ -183,7 +199,7 @@ def build(parent, body_html, body_text, me, to, cc, subject, lang):
         m['References'] = ' '.join(x for x in (str(parent.get('References', '')).strip(), pid) if x)
     m.set_content(full_text)
     m.add_alternative(full_html, subtype='html')
-    return m, len(quoted_text)
+    return m, quoted_text, html_to_text(quoted_html)
 
 
 def main():
@@ -196,25 +212,26 @@ def main():
     g = ap.add_argument_group('body of the reply')
     g.add_argument('--body-file', help='.html/.htm is used as HTML, anything else as plain text')
     g.add_argument('--from-draft-uid', help='take body, recipients and subject from this existing draft')
+    g.add_argument('--from-draft-eml', help='the same, from a local .eml file (offline)')
     g = ap.add_argument_group('options')
     g.add_argument('--no-reply-all', action='store_true')
     g.add_argument('--me', action='append', default=[], help='another address of yours to keep out of Cc (repeatable)')
     g.add_argument('--lang', choices=sorted(ATTRIBUTION), default='en', help='language of the "… wrote:" line')
     g.add_argument('--drafts-box', default='Drafts')
-    g.add_argument('--env-file')
+    g.add_argument('--env-file', help='KEY=VALUE lines; a variable that is already exported wins')
     g.add_argument('--env-prefix', default='MAIL')
     g.add_argument('--tls', choices=('starttls', 'ssl'), default='starttls')
     g.add_argument('--insecure', action='store_true', help='do not verify the server certificate (local bridge)')
     g.add_argument('--dry-run', metavar='OUT.eml', help='write the draft to a file; nothing is stored on the server')
     a = ap.parse_args()
-    if bool(a.body_file) == bool(a.from_draft_uid):
-        ap.error('give exactly one of --body-file and --from-draft-uid')
+    if sum(map(bool, (a.body_file, a.from_draft_uid, a.from_draft_eml))) != 1:
+        ap.error('give exactly one of --body-file, --from-draft-uid and --from-draft-eml')
     if sum(map(bool, (a.parent_uid, a.parent_message_id, a.parent_eml))) != 1:
         ap.error('give exactly one of --parent-uid, --parent-message-id and --parent-eml')
     if a.env_file:
         load_env_file(a.env_file)
 
-    offline = bool(a.parent_eml and a.dry_run and a.body_file)
+    offline = bool(a.parent_eml and a.dry_run and not a.from_draft_uid)
     m, me = (None, os.environ.get(a.env_prefix + '_USER', 'me@example.invalid')) if offline else connect(a)
 
     if a.parent_eml:
@@ -229,27 +246,34 @@ def main():
     if not RE_PREFIX.match(subject):
         subject = 'Re: ' + subject
 
-    if a.from_draft_uid:
-        old = fetch_uid(m, a.drafts_box, a.from_draft_uid)
+    rcpt_from = 'parent'
+    if a.from_draft_uid or a.from_draft_eml:
+        old = (email.message_from_bytes(open(a.from_draft_eml, 'rb').read(), policy=email.policy.default)
+               if a.from_draft_eml else fetch_uid(m, a.drafts_box, a.from_draft_uid))
         oh, ot = part_text(old, 'html'), part_text(old, 'plain')
-        body_html = strip_quote(html_inner(oh)) if oh else text_to_html(ot or '')
+        body_html = strip_quote(html_inner(oh)) if oh and oh.strip() else text_to_html(strip_text_quote(ot or ''))
         body_text = html_to_text(body_html)
-        to = addrs(old, 'To') or to          # the human may have changed them: the draft wins
-        cc = addrs(old, 'Cc') if old.get('To') else cc
+        d_to, d_cc = addrs(old, 'To'), addrs(old, 'Cc')
+        if d_to:        # the human may have changed them: the draft wins
+            to, cc, rcpt_from = d_to, d_cc, 'draft'
+        elif d_cc:
+            sys.exit('the draft has Cc but no To: add a To recipient to the draft first')
         subject = str(old.get('Subject', subject)).strip() or subject
     else:
-        raw = open(a.body_file, encoding='utf-8').read()
+        raw = open(a.body_file, encoding='utf-8-sig').read()
         if a.body_file.lower().endswith(('.html', '.htm')):
             body_html, body_text = html_inner(raw), html_to_text(raw)
         else:
             body_html, body_text = text_to_html(raw), raw.strip()
     if not body_text.strip():
         sys.exit('the reply body is empty')
+    if not to:
+        sys.exit('no recipient: the parent mail has neither From nor Reply-To')
 
-    msg, quoted_chars = build(parent, body_html, body_text, me, to, cc, subject, a.lang)
-    out = {'subject': subject, 'to': [x[1] for x in to], 'cc': [x[1] for x in cc], 'quoted_chars': quoted_chars,
-           'message_id': str(msg['Message-ID']), 'sent': False}
-    if quoted_chars == 0:
+    msg, quoted_text, quoted_html_text = build(parent, body_html, body_text, me, to, cc, subject, a.lang)
+    out = {'subject': subject, 'to': [x[1] for x in to], 'cc': [x[1] for x in cc], 'recipients_from': rcpt_from,
+           'quoted_chars': len(quoted_text), 'message_id': str(msg['Message-ID']), 'sent': False}
+    if not quoted_text:
         sys.exit('the parent mail has no readable text to quote')
 
     if a.dry_run:
@@ -264,13 +288,22 @@ def main():
     mu = re.search(rb'APPENDUID \d+ (\d+)', resp[0] or b'')
     m.select(q(a.drafts_box), readonly=True)
     uid = mu.group(1).decode() if mu else None
-    if not uid:   # server without UIDPLUS: newest message in Drafts
-        typ, d = m.uid('search', None, 'ALL')
-        uid = d[0].split()[-1].decode()
+    if not uid:   # server without UIDPLUS: find the draft by our own Message-ID
+        typ, d = m.uid('search', None, 'HEADER', 'Message-ID', str(msg['Message-ID']).strip('<>'))
+        ids = d[0].split() if typ == 'OK' and d and d[0] else []
+        if len(ids) != 1:
+            sys.exit(f'the draft was stored in {a.drafts_box} but could not be found again to verify it')
+        uid = ids[0].decode()
     back = fetch_uid(m, a.drafts_box, uid)
-    bh = part_text(back, 'html') or ''
+    bh = part_text(back, 'html')
+    stored = html_to_text(bh) if bh else re.sub(r'(?m)^> ?', '', part_text(back, 'plain') or '')
+    stored = ' '.join(stored.split())
+
+    def probe(t):   # the first line of the parent's text, as it should appear in the stored draft
+        return ' '.join(next((l for l in t.split('\n') if l.strip()), '').split())[:60]
+
     out.update(stored=True, drafts_box=a.drafts_box, uid=uid,
-               quote_in_stored_draft=QUOTE_CLASS in bh or '> ' in (part_text(back, 'plain') or ''),
+               quote_in_stored_draft=any(pr and pr in stored for pr in (probe(quoted_html_text), probe(quoted_text))),
                reply_headers_kept=bool(back.get('In-Reply-To')))
     if a.from_draft_uid:
         out['old_draft_uid_left_in_place'] = a.from_draft_uid

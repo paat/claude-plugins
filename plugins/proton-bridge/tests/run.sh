@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # proton-bridge reply-draft tests: offline only. Every case builds the draft from a local
-# parent (--parent-eml) into a file (--dry-run); nothing touches a network.
+# parent (--parent-eml) into a file (--dry-run); nothing touches a network. The IMAP paths
+# (--parent-uid, --parent-message-id, --from-draft-uid, the read-back) need a real server.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -119,6 +120,55 @@ t "parent with an empty text exits 1" rc 1 draft "$WD/empty-parent.eml" ""
 t "parent with an empty text writes no draft" no_out
 t "parent with only a binary part exits 1" rc 1 draft "$WD/binary-parent.eml" ""
 t "parent with only a binary part writes no draft" no_out
+
+# --- cases from the independent review of the first version ---
+mk() { printf '%b' "$2" > "$1"; }
+HDR='To: me@example.org\nSubject: S\nMessage-ID: <p2@example.com>\nMIME-Version: 1.0\n'
+mk "$WD/ws-plain.eml" "From: sender@example.com\nDate: Sat, 14 Nov 2026 21:46:57 +0000\n${HDR}Content-Type: multipart/alternative; boundary=\"B\"\n\n--B\nContent-Type: text/plain; charset=\"utf-8\"\n\n \n\n--B\nContent-Type: text/html; charset=\"utf-8\"\n\n<p>Real text here</p>\n--B--\n"
+mk "$WD/no-from.eml" "Date: Sat, 14 Nov 2026 21:46:57 +0000\n${HDR}Content-Type: text/plain; charset=\"utf-8\"\n\nOrphan text\n"
+mk "$WD/html-only.eml" "From: sender@example.com\nDate: Sat, 14 Nov 2026 21:46:57 +0000\n${HDR}Content-Type: text/html; charset=\"utf-8\"\n\n<html><head><title>TITLESECRET</title></head><body><p>Visible line</p></body></html>\n"
+mk "$WD/plain-only.eml" "From: Sender Example <sender@example.com>\n${HDR}Content-Type: text/plain; charset=\"utf-8\"\n\nPlain parent line\n"
+mk "$WD/bom.txt" '\xef\xbb\xbfBody after a BOM.\n'
+
+draft "$WD/ws-plain.eml" "" >/dev/null 2>&1
+t "whitespace-only plain part falls back to the HTML text" has plain '> Real text here'
+t "parent without From and Reply-To exits 1" rc 1 draft "$WD/no-from.eml" ""
+t "parent without From and Reply-To writes no draft" no_out
+draft "$WD/html-only.eml" "" >/dev/null 2>&1
+t "html-only parent is quoted in the plain part" has plain '> Visible line'
+t "the parent's <title> stays out of the plain quote" hasnt plain 'TITLESECRET'
+draft "$WD/plain-only.eml" "" >/dev/null 2>&1
+t "plain-only parent is quoted in the HTML part" has html '<blockquote class="protonmail_quote" type="cite"><p>Plain parent line</p>'
+t "a parent without Date gets a line without a date" has html 'Sender Example &lt;sender@example.com&gt; wrote:'
+t "a parent without Date leaves no empty date" hasnt html 'On  at'
+draft "" "$WD/bom.txt" >/dev/null 2>&1
+nobom() { ! show plain | head -c 3 | grep -q "$(printf '\xef\xbb\xbf')"; }
+t "a UTF-8 BOM in the body file is dropped" nobom
+
+fd() { rm -f "$OUT"; python3 "$RD" --parent-eml "$WD/parent.eml" --from-draft-eml "$1" --dry-run "$OUT" "${@:2}"; }
+count() { [ "$(show "$1" | grep -oF -- "$2" | wc -l)" -eq "$3" ]; }
+DH='From: me@example.org\nSubject: Re: edited subject\nMIME-Version: 1.0\n'
+mk "$WD/d-html.eml" "To: new@example.com\n${DH}Content-Type: text/html; charset=\"utf-8\"\n\n<p>My edited text</p><div class=\"protonmail_quote\">x wrote:<blockquote class=\"protonmail_quote\" type=\"cite\">OLDQUOTE</blockquote></div>\n"
+mk "$WD/d-plain.eml" "To: new@example.com\n${DH}Content-Type: text/plain; charset=\"utf-8\"\n\nMy plain text\n\nOn some day x wrote:\n\n> OLDLINE one\n> OLDLINE two\n"
+mk "$WD/d-norcpt.eml" "${DH}Content-Type: text/plain; charset=\"utf-8\"\n\nBody without recipients\n"
+mk "$WD/d-cconly.eml" "Cc: boss@example.com\n${DH}Content-Type: text/plain; charset=\"utf-8\"\n\nBody with Cc only\n"
+
+fd "$WD/d-html.eml" >/dev/null 2>&1
+t "re-made draft keeps the user's text" has html '<p>My edited text</p>'
+t "re-made draft drops the old quote" hasnt html 'OLDQUOTE'
+t "re-made draft quotes the parent once" count html '<blockquote' 1
+t "re-made draft keeps the draft's To" is To "new@example.com"
+t "re-made draft does not bring back removed Cc" is Cc ""
+t "re-made draft keeps the draft's subject" is Subject "Re: edited subject"
+fd "$WD/d-plain.eml" >/dev/null 2>&1
+t "plain draft: the user's text is kept" has plain 'My plain text'
+t "plain draft: the old quote is dropped" hasnt plain 'OLDLINE'
+t "plain draft: the old '... wrote:' line is dropped" hasnt plain 'On some day x wrote:'
+fd "$WD/d-norcpt.eml" >/dev/null 2>&1
+t "draft without recipients gets the parent's reply recipients" is To "Sender Example <sender@example.com>"
+t "draft with Cc but no To exits 1" rc 1 fd "$WD/d-cconly.eml"
+t "draft with Cc but no To writes no draft" no_out
+t "three body sources exit 2" rc 2 fd "$WD/d-html.eml" --body-file "$WD/body.txt"
 
 echo "pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

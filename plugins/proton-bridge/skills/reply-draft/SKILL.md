@@ -41,8 +41,7 @@ Measured 2026-11-15 on Bridge 3.27.1 and read in the public source (github.com/P
 - Bridge stores only the HTML part of a draft.
 - Only Bridge's SMTP path links a reply (`internal/services/smtp/smtp.go`, `getParentID`: parent looked up from
   `References` / `In-Reply-To`, then `ReplyAction`). So when the user explicitly tells you to SEND a reply, send it
-  over SMTP with both headers set from the parent. From the source, not tested: adding the draft's
-  `<X-Pm-Internal-Id@protonmail.internalid>` to `References` makes Bridge delete that draft after the send.
+  over SMTP with both headers set from the parent.
 
 ## Rules
 
