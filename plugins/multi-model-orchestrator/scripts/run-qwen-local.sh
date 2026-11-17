@@ -152,6 +152,17 @@ runtime_dir="$(mktemp -d)"
 cleanup() { [ "${keep_runtime:-0}" = 1 ] || rm -rf "$runtime_dir"; }
 trap 'mmo_outcome_exit "$?"; cleanup' EXIT
 
+# --out holds the FINAL MESSAGE, as in the sibling runners; the wrapper's raw
+# stream goes to a temp file. meta-orchestration reads --out to resume a leg.
+stream_file="$runtime_dir/stream.json"
+[ -n "$output_file" ] || output_file="$runtime_dir/body.txt"
+out_dev=""
+case "$output_file" in
+  /dev/*) out_dev="$output_file"; output_file="$runtime_dir/body.txt" ;;
+  /*) ;;
+  *) output_file="$PWD/$output_file" ;;
+esac
+
 # Review preflight before the slot: an invalid ref, an empty diff, or an oversized
 # one is a usage problem, not slot unavailability, and must not lock the GPU.
 # Codes match the sibling runners: 2 usage, 3 nothing to review, 4 over the cap.
@@ -163,28 +174,7 @@ if [ "$mode" = review ]; then
     printf 'run-qwen-local: cannot diff %s in %s\n' "$base_ref" "$repo_dir" >&2
     exit 2
   }
-  # Fold in untracked files, as the sibling review legs do: a brand-new file is
-  # part of the change under review. --no-index exits 1 when files differ
-  # (expected); 2+ is a real failure and must not be swallowed.
-  while IFS= read -r -d '' untracked; do
-    set +e
-    git -C "$repo_dir" diff --no-ext-diff --no-index --binary -- /dev/null "$untracked" \
-      >> "$review_patch" 2>/dev/null
-    untracked_rc=$?
-    set -e
-    if [ "$untracked_rc" -gt 1 ]; then
-      printf 'run-qwen-local: failed to include untracked file in review diff: %s\n' "$untracked" >&2
-      exit "$untracked_rc"
-    fi
-  done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
-  [ -s "$review_patch" ] || { printf 'run-qwen-local: no diff to review\n' >&2; exit 3; }
-  max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-  [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-qwen-local: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-  diff_bytes="$(wc -c < "$review_patch" | tr -d ' ')"
-  [ "$diff_bytes" -le "$max_bytes" ] || {
-    printf 'run-qwen-local: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
-    exit 4
-  }
+  mmo_review_diff_close run-qwen-local "$repo_dir" "$review_patch" "$(realpath -m "$output_file")"
 fi
 
 # 2. Take the slot first, so our own dispatches never race each other into the
@@ -249,12 +239,6 @@ case "$slots_code" in
   # not evidence of a busy GPU. The lock still covers our own dispatches.
 esac
 
-# --out holds the FINAL MESSAGE, as in the sibling runners; the wrapper's raw
-# stream goes to a temp file. meta-orchestration reads --out to resume a leg.
-stream_file="$runtime_dir/stream.json"
-[ -n "$output_file" ] || output_file="$runtime_dir/body.txt"
-case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
-
 wrapper_args=(--dir "$repo_dir" --timeout "$run_timeout" --max-wall-time "$qwen_wall_time" --out "$stream_file")
 [ "$model" = default ] || wrapper_args+=(--model "$model")
 if [ "$mode" = review ]; then
@@ -270,7 +254,8 @@ fi
 
 rc=0
 # The wrapper owns a nested timeout; keep it outside the runner's signal group.
-mmo_run direct "" "" setsid "$wrapper" "${wrapper_args[@]}" <<< "$prompt_text" > "$output_file" 2>"$runtime_dir/err.txt" || rc=$?
+# 9>&-: the slot lock stays with this runner; a process the worker leaves behind must not hold it.
+mmo_run direct "" "" setsid "$wrapper" "${wrapper_args[@]}" <<< "$prompt_text" > "$output_file" 2>"$runtime_dir/err.txt" 9>&- || rc=$?
 cat "$runtime_dir/err.txt" >&2
 
 # Preserve the wrapper's budget, timeout, and unavailable-engine contracts.
@@ -303,7 +288,7 @@ if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_
 fi
 # Body on success and on a verdict-format failure, as the siblings do.
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
-  cat "$output_file"
+  if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
 if [ "$rc" -ne 0 ] && [ "$rc" -ne 6 ]; then
   keep_runtime=1

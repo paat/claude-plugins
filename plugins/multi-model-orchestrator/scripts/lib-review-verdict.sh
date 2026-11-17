@@ -2,7 +2,7 @@
 # Shared helpers for the runners and pool.sh:
 # - review terminal-verdict check
 # - provider failure classification (plan limit or transient → 75, auth → 77)
-# - repository write detection
+# - repository write detection and the review diff
 # - leg secret isolation (untracked .env* refusal, scrubbed environment)
 #
 # Verdict check: case-insensitive. A line must be either a bare APPROVE/APPROVED or
@@ -56,17 +56,19 @@ mmo_separate_glued_verdict() {
 # Prints "limit" (plan window or balance used up), "transient", "auth", or nothing.
 # Callers must not pass model stdout bodies.
 mmo_classify_provider_failure() {
-  local f="${1:-}"
+  local f="${1:-}" text
   [ -n "$f" ] && [ -s "$f" ] || return 0
-  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|hit your .*limit\b|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|credit balance (is )?too low|billing_error' "$f"; then
+  # Some runners pass a whole stderr: a stack-frame position (file.js:503:12) is not a status.
+  text="$(sed -E 's/:[0-9]+:[0-9]+//g' "$f")"
+  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|hit your .*limit\b|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|credit balance (is )?too low|billing_error' <<< "$text"; then
     printf 'limit\n'
     return 0
   fi
-  if grep -Eiq '\b(429|529|503)\b|overloaded|rate[[:space:]_-]?limit|temporarily[[:space:]]+unavailable' "$f"; then
+  if grep -Eiq '\b(429|529|503)\b|overloaded|rate[[:space:]_-]?limit|temporarily[[:space:]]+unavailable' <<< "$text"; then
     printf 'transient\n'
     return 0
   fi
-  if grep -Eiq '\b401\b|unauthorized|not[[:space:]]+signed[[:space:]]+in|not[[:space:]]+logged[[:space:]]+in|login[[:space:]]+required|missing[[:space:]]+([[:alnum:]_-]+[[:space:]]+)?credentials|(expired|invalid)[[:space:]]+(api[[:space:]]*key|token)|(api[[:space:]]*key|token).*(expired|invalid)' "$f"; then
+  if grep -Eiq '\b401\b|unauthorized|not[[:space:]]+signed[[:space:]]+in|not[[:space:]]+logged[[:space:]]+in|login[[:space:]]+required|missing[[:space:]]+([[:alnum:]_-]+[[:space:]]+)?credentials|(expired|invalid)[[:space:]]+(api[[:space:]]*key|token)|(api[[:space:]]*key|token).*(expired|invalid)' <<< "$text"; then
     printf 'auth\n'
     return 0
   fi
@@ -104,27 +106,74 @@ mmo_finish() {
   exit "$rc"
 }
 
+# Pathspec for REPO without each leg output path under it and the runner files written
+# beside it (.stream, .stderr, .stream.stderr, .exit). Sets the array mmo_spec.
+mmo_out_spec() {  # mmo_out_spec REPO [OUT]...
+  local repo="$1" out suffix
+  shift
+  mmo_spec=(.)
+  for out in "$@"; do
+    case "$out" in
+      "$repo"/*)
+        for suffix in '' .stream .stderr .stream.stderr .exit; do
+          mmo_spec+=(":(exclude,literal)${out#"$repo"/}$suffix")
+        done
+        ;;
+    esac
+  done
+}
+
 # Fingerprint HEAD, index, working tree, and untracked file contents, so a caller can
-# tell whether a leg wrote to the repository. The optional absolute OUT path (a leg's
-# --out) and the runner files written beside it (.stream, .stderr, .stream.stderr, .exit)
-# do not count. Prints one cksum line; never fails.
-mmo_tree_state() {  # mmo_tree_state REPO [OUT]
-  local repo="$1" spec=(.) rel suffix
-  case "${2:-}" in
-    "$repo"/*)
-      rel="${2#"$repo"/}"
-      for suffix in '' .stream .stderr .stream.stderr .exit; do
-        spec+=(":(exclude,literal)$rel$suffix")
-      done
-      ;;
-  esac
+# tell whether a leg wrote to the repository. The absolute OUT paths (a leg's --out and
+# --stream-log) do not count, as in mmo_out_spec. Prints one cksum line; never fails.
+mmo_tree_state() {  # mmo_tree_state REPO [OUT]...
+  local repo="$1"
+  local -a mmo_spec
+  mmo_out_spec "$@"
   {
     git -C "$repo" rev-parse --verify -q HEAD || true
-    git -C "$repo" status --porcelain=v1 --untracked-files=all -- "${spec[@]}" || true
-    git -C "$repo" diff --no-ext-diff --binary --cached -- "${spec[@]}" || true
-    git -C "$repo" diff --no-ext-diff --binary -- "${spec[@]}" || true
-    git -C "$repo" ls-files -z --others --exclude-standard -- "${spec[@]}" | (cd "$repo" && xargs -0 -r cksum) || true
+    git -C "$repo" status --porcelain=v1 --untracked-files=all -- "${mmo_spec[@]}" || true
+    git -C "$repo" diff --no-ext-diff --binary --cached -- "${mmo_spec[@]}" || true
+    git -C "$repo" diff --no-ext-diff --binary -- "${mmo_spec[@]}" || true
+    git -C "$repo" ls-files -z --others --exclude-standard -- "${mmo_spec[@]}" | (cd "$repo" && xargs -0 -r cksum) || true
   } 2>/dev/null | cksum
+}
+
+# Write the review diff of REPO against BASE to DIFF, then close it (below).
+# Exits 2 on an invalid ref.
+mmo_review_diff() {  # mmo_review_diff RUNNER REPO BASE DIFF [OUT]...
+  git -C "$2" rev-parse --verify "$3^{commit}" >/dev/null || {
+    printf '%s: invalid base ref: %s\n' "$1" "$3" >&2
+    exit 2
+  }
+  git -C "$2" diff --no-ext-diff --binary "$3" -- > "$4"
+  mmo_review_diff_close "$1" "$2" "$4" "${@:5}"
+}
+
+# Append untracked files to DIFF (a new file is part of the change), without the leg
+# outputs mmo_out_spec leaves out: an earlier attempt's report is not under review.
+# Exits 3 with nothing to review and 4 over MMO_REVIEW_DIFF_MAX_BYTES.
+mmo_review_diff_close() {  # mmo_review_diff_close RUNNER REPO DIFF [OUT]...
+  local name="$1" repo="$2" diff="$3" untracked rc max_bytes diff_bytes
+  local -a mmo_spec
+  mmo_out_spec "$repo" "${@:4}"
+  while IFS= read -r -d '' untracked; do
+    # --no-index exits 1 when files differ (expected); 2+ is a real failure.
+    rc=0
+    git -C "$repo" diff --no-ext-diff --no-index --binary -- /dev/null "$untracked" >> "$diff" 2>/dev/null || rc=$?
+    if [ "$rc" -gt 1 ]; then
+      printf '%s: failed to include untracked file in review diff: %s\n' "$name" "$untracked" >&2
+      exit "$rc"
+    fi
+  done < <(git -C "$repo" ls-files -z --others --exclude-standard -- "${mmo_spec[@]}")
+  [ -s "$diff" ] || { printf '%s: no diff to review\n' "$name" >&2; exit 3; }
+  max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
+  [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf '%s: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' "$name" >&2; exit 2; }
+  diff_bytes="$(wc -c < "$diff" | tr -d ' ')"
+  [ "$diff_bytes" -le "$max_bytes" ] || {
+    printf '%s: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$name" "$diff_bytes" "$max_bytes" >&2
+    exit 4
+  }
 }
 
 # A leg's tools are not bound by the host's deny rules, so a leg working in REPO could read an

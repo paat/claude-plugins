@@ -68,7 +68,12 @@ prompt_file="$runtime_dir/prompt.txt"
 diff_file="$runtime_dir/review.diff"
 classify_file="$runtime_dir/provider-failure.txt"
 [ -n "$output_file" ] || output_file="$runtime_dir/body.txt"
-case "$output_file" in /*) ;; *) output_file="$PWD/$output_file" ;; esac
+out_dev=""
+case "$output_file" in
+  /dev/*) out_dev="$output_file"; output_file="$runtime_dir/body.txt" ;;
+  /*) ;;
+  *) output_file="$PWD/$output_file" ;;
+esac
 # Keep the transcript beside --out, as run-codex does, or in its own temp file.
 if [ "$output_file" = "$runtime_dir/body.txt" ]; then
   stream_file="$(mktemp)"
@@ -80,30 +85,7 @@ cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-agy: empty prompt\n' >&2; exit 2; }
 
 if [ "$mode" = review ]; then
-  git -C "$repo_dir" rev-parse --verify "$base_ref^{commit}" >/dev/null || {
-    printf 'run-agy: invalid base ref: %s\n' "$base_ref" >&2
-    exit 2
-  }
-  git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
-  while IFS= read -r -d '' untracked; do
-    # --no-index exits 1 when files differ (expected); 2+ is a real failure.
-    set +e
-    git -C "$repo_dir" diff --no-ext-diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null
-    untracked_rc=$?
-    set -e
-    if [ "$untracked_rc" -gt 1 ]; then
-      printf 'run-agy: failed to include untracked file in review diff: %s\n' "$untracked" >&2
-      exit "$untracked_rc"
-    fi
-  done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
-  [ -s "$diff_file" ] || { printf 'run-agy: no diff to review\n' >&2; exit 3; }
-  max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-  [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-agy: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-  diff_bytes="$(wc -c < "$diff_file" | tr -d ' ')"
-  [ "$diff_bytes" -le "$max_bytes" ] || {
-    printf 'run-agy: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
-    exit 4
-  }
+  mmo_review_diff run-agy "$repo_dir" "$base_ref" "$diff_file" "$(realpath -m "$output_file")"
   {
     printf '%s\n' 'You are an independent, read-only reviewer. Do not create or modify any file.'
     printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
@@ -174,7 +156,7 @@ if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_
   rc=6
 fi
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
-  cat "$output_file"
+  if [ -n "$out_dev" ]; then cat "$output_file" > "$out_dev"; else cat "$output_file"; fi
 fi
 mmo_finish run-agy "$rc" "$classify_file" \
   "model=$model" "effort=$effort" "mode=$mode" "log=$stream_file"

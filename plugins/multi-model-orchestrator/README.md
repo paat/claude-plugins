@@ -22,11 +22,11 @@ denied provider, model, or unsupported effort.
 
 ## Current model catalog
 
-Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility and is never routed by default; older generations are excluded.
+Prior Claude generations (Opus 5, Sonnet 5, Fable 5.1, Fable 5, Haiku 4.5) are kept for compatibility and are never routed by default.
 
 | Provider | Models | Typical role |
 |---|---|---|
-| Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-1`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` | Fast triage through highest-capability long-running work |
+| Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-2`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5-1`, `claude-fable-5` | Fast triage through highest-capability long-running work |
 | Codex | `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra`; prior-generation `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
@@ -34,8 +34,8 @@ Only the previous Claude generation (Opus 5, Fable 5) is kept for compatibility 
 | Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-hydrogen`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits; Argon for complex coding; Hydrogen as a T3 trial behind Argon; Sonnet/Opus as small same-model overflow when the Claude plan window is spent; all advisory in review mode |
 | OpenCode Go (`opencode`) | `glm-5.3-flash` (T1 `low`), `glm-5.3` (T2 `high`, T3 `max`), `kimi-k3.1-pro` (T3 `high`) | Implementation on a Go plan; each model has its own monthly allowance; advisory in review; v2 CLI only |
 
-Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.1,
-Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
+Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.2,
+Fable 5.1, Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
 `medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, Argon, and Hydrogen support `low`, `medium`, and `high`; Muse catalog models support
 `minimal` through `max`. OpenCode effort is the model variant, which differs per model
@@ -101,7 +101,7 @@ within its tier), `--usage <usage.sh output>` (default: a fresh `usage.sh` run),
 Forward the same preference/restrictions/usage snapshot from `pick` to `run`. A task-specific
 effort differing from the table uses an eligible candidate's direct runner with explicit
 `--model`/`--effort`; preserve restrictions/headroom on fallback. Unusually hard or days-long
-work can pin Fable 5.1 outside the pool after the same restriction and usage checks.
+work can pin Fable 5.2 outside the pool after the same restriction and usage checks.
 
 These are starting hypotheses, not a universal leaderboard. Local completion, latency,
 scope-control, and test data should override them. Higher effort is not a repair for unclear
@@ -185,7 +185,8 @@ runs on Codex, which also re-runs `SessionStart` hooks after compaction.
 
 A `PostToolUse` hook (`hooks/context-watch.sh`, needs `jq`) reads the last usage record from the
 session transcript and, once context crosses `MMO_CONTEXT_WARN_TOKENS` (default 400000), tells a
-meta-orchestrator to bring its handoff current and keep the item lean before compaction.
+meta-orchestrator to bring its handoff current and keep the item lean before compaction. It speaks
+only in a session that invoked the workflow (slash command, Skill tool, or the Codex workflow skill).
 It warns once per crossing and re-arms after compaction. With the recommended 500k Claude window it
 fires ~65k tokens before compaction (~467k); below a ~435k window it never fires.
 
@@ -254,7 +255,8 @@ codex, grok, muse, agy, opencode, and qwen CLIs they call are trusted for sendin
   `--agent plan` (edit tool denied) from an empty directory, is advisory, and exits 7 on writes. The Codex CLI has no per-tool allowlist and
   keeps shell access, so Codex research runs from a scratch working root instead of the repository,
   bounded by that root and its prompt contract. This bounds blast radius rather than enforcing
-  read-only.
+  read-only, so a Codex or Claude advise, review, or research leg that changed the repository
+  exits 7: inspect `git status` before trusting its report.
 - The host's `.env` deny rules do not bind a leg, so runners keep secrets out of provider context
   instead. Every leg except Claude, Codex, and Grok research refuses a checkout holding untracked `.env*` files outside
   ignored directories (exit 2); run from a `git worktree add` checkout, which has none. Every CLI starts under

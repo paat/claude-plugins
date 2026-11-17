@@ -108,12 +108,13 @@ binds() {  # binds window model
   case "$1" in *_*) [[ "$2" == *"${1#*_}"* ]] ;; esac
 }
 
-# Prints the earliest reset among the windows that bind this worker; fails when none does.
+# Prints the latest reset among the tight windows that bind this worker (it is usable only
+# after all of them reset); fails when none does.
 tight_reset() {  # tight_reset provider model
   local t_provider t_window t_epoch found=""
   while read -r t_provider t_window t_epoch; do
     [ "$t_provider" = "$1" ] && binds "$t_window" "$2" || continue
-    [ -n "$found" ] && [ "$found" -le "$t_epoch" ] || found="$t_epoch"
+    [ -n "$found" ] && [ "$found" -ge "$t_epoch" ] || found="$t_epoch"
   done <<< "$tight"
   [ -n "$found" ] && printf '%s' "$found"
 }

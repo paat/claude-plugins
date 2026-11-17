@@ -11,7 +11,8 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Claude Code | `claude-sonnet-5` | Prior-generation Sonnet compatibility route | `low`–`max` |
 | Claude Code | `claude-opus-5-5` | Current Opus: complex agentic coding, hard review, large refactors, vision-heavy work | `low`–`max` |
 | Claude Code | `claude-opus-5` | Prior-generation Opus compatibility route | `low`–`max` |
-| Claude Code | `claude-fable-5-1` | Current Fable: highest-capability, long-running or unusually hard coding and knowledge work | `low`–`max` |
+| Claude Code | `claude-fable-5-2` | Current Fable: highest-capability, long-running or unusually hard coding and knowledge work | `low`–`max` |
+| Claude Code | `claude-fable-5-1` | Prior-generation Fable compatibility route | `low`–`max` |
 | Claude Code | `claude-fable-5` | Prior-generation Fable compatibility route | `low`–`max` |
 | Codex | `gpt-6-luna` | Fast mechanical edits, extraction, classification, narrow checks | `low`–`max` |
 | Codex | `gpt-6.1-sol` | Current Sol: balanced everyday implementation and bounded investigation | `low`–`max` |
@@ -60,7 +61,7 @@ restriction, availability and usage checks.
 | Security, payments, destructive migration, subtle concurrency | T4 | review: T4 `--mode review --deny <worker provider>` |
 | Technical adversarial review | the item's tier, at least T2 | `--mode review --deny <worker provider>` |
 | Mechanical verification after a model-authored change | T1 | run the deterministic check directly when no judgment is needed |
-| Days-long or unusually hard work where marginal capability matters | outside the pool | pin Fable 5.1 `high` or `xhigh` |
+| Days-long or unusually hard work where marginal capability matters | outside the pool | pin Fable 5.2 `high` or `xhigh` |
 
 Pass the item's tier to its close-out tribunal as `TRIBUNAL_RISK=<T>`; it sets reviewer effort.
 
@@ -88,7 +89,7 @@ silently; select a supported level or return an incompatibility.
 ## Restrictions and fallbacks
 
 - `Codex only`: choose Luna, Sol, or Astra by task complexity; Astra Ultra is not the default.
-- `Claude only`: choose Haiku 5.5, Sonnet 5.5, Opus 5.5, or Fable 5.1; use `n/a` for Haiku.
+- `Claude only`: choose Haiku 5.5, Sonnet 5.5, Opus 5.5, or Fable 5.2; use `n/a` for Haiku.
 - `Grok only`: use Grok 4.7 by default (or Grok 4.6 or Grok 4.5 when explicitly pinned) and scale
   only across that model's supported efforts.
 - `Muse only`: use `muse-spark-1.3` for ordinary bounded work and pin `muse-wonder-full-1.0` for complex coding; `default` passes no `--model`. Scale across `minimal`–`max`.

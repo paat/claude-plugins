@@ -11,7 +11,7 @@ usage() {
   printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--api] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
 }
 
-claude_model_catalog='claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5'
+claude_model_catalog='claude-fable-5-2|claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5'
 
 valid_model() {
   case "$1" in
@@ -156,35 +156,12 @@ if [ "$api" -eq 1 ]; then
 fi
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
+leg_paths=("$(realpath -m "$output_file")")
+[ "$stream_log_set" -eq 0 ] || leg_paths+=("$(realpath -m "$stream_file")")
 
 case "$mode" in
   review)
-    git -C "$repo_dir" rev-parse --verify "$base_ref^{commit}" >/dev/null || {
-      printf 'run-claude: invalid base ref: %s\n' "$base_ref" >&2
-      exit 2
-    }
-    git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
-    while IFS= read -r -d '' untracked; do
-      # --no-index exits 1 when files differ (expected). Keep 2>/dev/null so the
-      # exit-1 path does not leak incidental git stderr into the runner; exit 2+
-      # is a real failure and must not be swallowed.
-      set +e
-      git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null
-      untracked_rc=$?
-      set -e
-      if [ "$untracked_rc" -gt 1 ]; then
-        printf 'run-claude: failed to include untracked file in review diff: %s\n' "$untracked" >&2
-        exit "$untracked_rc"
-      fi
-    done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
-    [ -s "$diff_file" ] || { printf 'run-claude: no diff to review\n' >&2; exit 3; }
-    max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-    [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-claude: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-    diff_bytes="$(wc -c < "$diff_file" | tr -d ' ')"
-    [ "$diff_bytes" -le "$max_bytes" ] || {
-      printf 'run-claude: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
-      exit 4
-    }
+    mmo_review_diff run-claude "$repo_dir" "$base_ref" "$diff_file" "${leg_paths[@]}"
     {
       printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files.'
       printf '%s\n' 'Review only the supplied task and diff. Return at most 10 actionable findings.'
@@ -271,6 +248,7 @@ run_cli() {
   fi
 }
 
+[ "$mode" = implement ] || tree_before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 provider_rc=0
 set +e
 if [ "$stream_log_set" -eq 1 ]; then
@@ -339,6 +317,10 @@ if [ "$stream_log_set" -eq 1 ]; then
   ' "$stream_file" 2>/dev/null || true)"
 fi
 
+if [ "$mode" != implement ] && [ "$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")" != "$tree_before" ]; then
+  printf 'run-claude: the %s leg changed %s; inspect git status before trusting it\n' "$mode" "$repo_dir" >&2
+  rc=7
+fi
 if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-claude: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5

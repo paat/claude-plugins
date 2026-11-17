@@ -93,30 +93,7 @@ cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-opencode: empty prompt\n' >&2; exit 2; }
 
 if [ "$mode" = review ]; then
-  git -C "$repo_dir" rev-parse --verify "$base_ref^{commit}" >/dev/null || {
-    printf 'run-opencode: invalid base ref: %s\n' "$base_ref" >&2
-    exit 2
-  }
-  git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
-  while IFS= read -r -d '' untracked; do
-    # --no-index exits 1 when files differ (expected); 2+ is a real failure.
-    set +e
-    git -C "$repo_dir" diff --no-ext-diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null
-    untracked_rc=$?
-    set -e
-    if [ "$untracked_rc" -gt 1 ]; then
-      printf 'run-opencode: failed to include untracked file in review diff: %s\n' "$untracked" >&2
-      exit "$untracked_rc"
-    fi
-  done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
-  [ -s "$diff_file" ] || { printf 'run-opencode: no diff to review\n' >&2; exit 3; }
-  max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-  [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-opencode: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-  diff_bytes="$(wc -c < "$diff_file" | tr -d ' ')"
-  [ "$diff_bytes" -le "$max_bytes" ] || {
-    printf 'run-opencode: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
-    exit 4
-  }
+  mmo_review_diff run-opencode "$repo_dir" "$base_ref" "$diff_file" "$(realpath -m "$output_file")"
   {
     printf '%s\n' 'You are an independent, read-only reviewer. Do not create or modify any file.'
     printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'

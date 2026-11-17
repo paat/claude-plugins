@@ -238,32 +238,7 @@ cat > "$request_file"
 
 case "$mode" in
   review)
-    git -C "$repo_dir" rev-parse --verify "$base_ref^{commit}" >/dev/null || {
-      printf 'run-grok: invalid base ref: %s\n' "$base_ref" >&2
-      exit 2
-    }
-    git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
-    while IFS= read -r -d '' untracked; do
-      # --no-index exits 1 when files differ (expected). Keep 2>/dev/null so the
-      # exit-1 path does not leak incidental git stderr into the runner; exit 2+
-      # is a real failure and must not be swallowed.
-      set +e
-      git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null
-      untracked_rc=$?
-      set -e
-      if [ "$untracked_rc" -gt 1 ]; then
-        printf 'run-grok: failed to include untracked file in review diff: %s\n' "$untracked" >&2
-        exit "$untracked_rc"
-      fi
-    done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
-    [ -s "$diff_file" ] || { printf 'run-grok: no diff to review\n' >&2; exit 3; }
-    max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-    [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-    diff_bytes="$(wc -c < "$diff_file" | tr -d ' ')"
-    [ "$diff_bytes" -le "$max_bytes" ] || {
-      printf 'run-grok: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
-      exit 4
-    }
+    mmo_review_diff run-grok "$repo_dir" "$base_ref" "$diff_file" "$output_file"
     {
       printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files.'
       printf 'You have at most %s agent turns: read the diff first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
