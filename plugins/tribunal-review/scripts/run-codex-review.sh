@@ -47,7 +47,8 @@ model_args=(
   --ephemeral
   -c 'mcp_servers={}' -c 'shell_environment_policy.inherit="core"'
 )
-[ -z "$CODEX_EFFORT" ] || model_args+=(-c "model_reasoning_effort=\"$CODEX_EFFORT\"")
+effort_args=()
+[ -z "$CODEX_EFFORT" ] || effort_args=(-c "model_reasoning_effort=\"$CODEX_EFFORT\"")
 NATIVE_NOTE=""
 if [ "$MODE" = smoke ]; then
   tribunal_smoke_prompt codex > "$PROMPT_FILE"
@@ -60,11 +61,17 @@ else
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
   if [ "${TRIBUNAL_NATIVE_REVIEW:-on}" != off ]; then
     # A clone pinned to the reviewed head keeps uncommitted changes out of the native diff.
-    NATIVE_ROOT="$(tribunal_walk_root "$TMPDIR/native-walk" "$(printf '%s' "$DIFF_STAT" | jq -r '.head_oid')")" \
+    NATIVE_ROOT="$WALK_ROOT"
+    [ "$WALK_ROOT" != "$REPO_ROOT" ] \
+      || NATIVE_ROOT="$(tribunal_walk_root "$TMPDIR/native-walk" "$(printf '%s' "$DIFF_STAT" | jq -r '.head_oid')")" \
       || NATIVE_ROOT="$WALK_ROOT"
+    # The reviewer runs on review_model, not -m. Efforts above high would spend the native budget.
+    native_effort_args=(${effort_args[@]+"${effort_args[@]}"})
+    case "$CODEX_EFFORT" in xhigh|max|ultra) native_effort_args=(-c 'model_reasoning_effort="high"') ;; esac
     native_rc=0
-    (cd "$NATIVE_ROOT" && env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$TRIBUNAL_NATIVE_TIMEOUT" codex exec review \
-      "${model_args[@]}" -m "$CODEX_MODEL" --base "$(printf '%s' "$DIFF_STAT" | jq -r '.base_oid')" \
+    (cd "$NATIVE_ROOT" && env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$tribunal_native_seconds" codex exec review \
+      "${model_args[@]}" ${native_effort_args[@]+"${native_effort_args[@]}"} -m "$CODEX_MODEL" -c "review_model=\"$CODEX_MODEL\"" \
+      --base "$(printf '%s' "$DIFF_STAT" | jq -r '.base_oid')" \
       --output-last-message "$TMPDIR/native.txt" < /dev/null > /dev/null 2> "$TMPDIR/native.err") || native_rc=$?
     NATIVE_NOTE="$(tribunal_native_leads 'codex exec review' "$TMPDIR/native.txt" "$native_rc" "$CONTEXT_FILE" "$TMPDIR/native.err")"
   fi
@@ -76,7 +83,7 @@ RUN_TIMEOUT="$(tribunal_verdict_timeout)"
 [ "$MODE" = smoke ] && RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
 LAST_FILE="$TMPDIR/last-message.json"
 SCHEMA_FILE="$(tribunal_review_schema)"
-env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" --color never -m "$CODEX_MODEL" \
+env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" ${effort_args[@]+"${effort_args[@]}"} --color never -m "$CODEX_MODEL" \
   --output-schema "$SCHEMA_FILE" \
   --output-last-message "$LAST_FILE" -C "$WALK_ROOT" - \
   < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
