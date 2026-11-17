@@ -192,8 +192,6 @@ fi
 
 command -v git >/dev/null 2>&1 || { printf 'pool: git not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
-out_abs=""
-[ -z "$output_file" ] || out_abs="$(realpath -m "$output_file")"
 prompt_file="$(mktemp)"
 runner_stderr=""
 trap 'rm -f "$prompt_file" "$runner_stderr"' EXIT
@@ -216,7 +214,7 @@ for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++));
     *) runner="run-$r_provider.sh" ;;
   esac
   printf 'pool: %s -> %s/%s/%s\n' "$r_tier" "$r_provider" "$r_model" "$r_effort" >&2
-  before="$(mmo_tree_state "$repo_dir" "$out_abs")"
+  before="$(mmo_tree_state "$repo_dir" "$output_file")"
   rc=0
   if [ "$r_provider" = claude ]; then
     [ -n "$runner_stderr" ] || runner_stderr="$(mktemp)"
@@ -227,7 +225,7 @@ for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++));
   fi
   case "$rc" in
     75|77|127)
-      if [ "$(mmo_tree_state "$repo_dir" "$out_abs")" != "$before" ]; then
+      if [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$before" ]; then
         printf 'pool: %s exited %s after changing the repository; not handing the task to another worker\n' "$r_provider" "$rc" >&2
         rc=55
         fell_through=0

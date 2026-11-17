@@ -2713,6 +2713,19 @@ rm -f "$qwen_repo/untracked-new.txt"
 [ "$rc" -eq 0 ] || fail "untracked-only review still has a diff to review (got $rc)"
 pass 'run-qwen-local: untracked files join the review diff'
 
+# A tracked --out is a leg output: clearing it adds nothing to review, so a clean tree has no diff.
+qwen_tracked="$WORK/qwen-tracked"; mkdir -p "$qwen_tracked"; git -C "$qwen_tracked" init -q
+printf 'QWEN_TRACKED_MARKER\n' > "$qwen_tracked/report.txt"; git -C "$qwen_tracked" add report.txt
+git -C "$qwen_tracked" -c user.email=t@t -c user.name=t commit -qm base
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_WRAPPER_STDIN="$WORK/tracked-stdin.txt" \
+  bash "$QL_RUN" --mode review --repo "$qwen_tracked" --base 'HEAD' --out "$qwen_tracked/report.txt" \
+  "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "a tracked --out on a clean tree leaves nothing to review (got $rc)"
+[ ! -e "$WORK/tracked-stdin.txt" ] || fail 'the worker is not invoked when only the tracked --out differs'
+pass 'run-qwen-local: a tracked --out stays out of the review diff'
+
 # --repo resolves to the git toplevel, and a non-git path is a usage error.
 mkdir -p "$qwen_repo/sub/dir"
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
@@ -3279,6 +3292,11 @@ for r in claude codex; do
   [ -s "$WORK/ext-report.txt" ] || fail "$r writes the report through the --out symlink"
   rm -f "$LR"/link.out* "$WORK/ext-report.txt"
 done
+# Grok resolves --out before writing: the symlink as given is still a leg output, not a change.
+ln -s "$WORK/ext-grok.txt" "$LR2/link.out"
+rc=0; printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$LR2" --base HEAD --out "$LR2/link.out" --timeout 10 >/dev/null 2>"$WORK/grok-link.err" || rc=$?
+[ "$rc" -eq 3 ] || fail "grok review of a clean tree with a symlinked --out exits 3 (got $rc): $(cat "$WORK/grok-link.err")"
+rm -f "$LR2"/link.out* "$WORK/ext-grok.txt"
 # A tracked --out is a leg output too: it stays out of the tracked part of the review diff.
 LR3="$WORK/leg-repo-tracked"; mkdir -p "$LR3"; git -C "$LR3" init -q
 printf 'one\n' > "$LR3/f.txt"; printf 'TRACKED_MARKER\n' > "$LR3/leg.out"

@@ -171,7 +171,8 @@ if [ "$mode" = review ]; then
   # Same invocation as the sibling review legs: a repo-configured external differ
   # must not decide what the reviewer sees. Untracked files are folded in below.
   review_patch="$runtime_dir/review.patch"
-  git -C "$repo_dir" --no-pager diff --no-ext-diff --binary "$base_ref" > "$review_patch" 2>/dev/null || {
+  mmo_out_spec "$repo_dir" "$output_file"
+  git -C "$repo_dir" --no-pager diff --no-ext-diff --binary "$base_ref" -- "${mmo_spec[@]}" > "$review_patch" 2>/dev/null || {
     printf 'run-qwen-local: cannot diff %s in %s\n' "$base_ref" "$repo_dir" >&2
     exit 2
   }

@@ -115,7 +115,7 @@ mmo_out_spec() {  # mmo_out_spec REPO [OUT]...
   for out in "$@"; do
     [ -n "$out" ] || continue
     # As given and resolved: --out may be a symlink inside REPO, or reached through one.
-    for form in "$out" "$(realpath -m -- "$out" 2>/dev/null || true)"; do
+    for form in "$(realpath -ms -- "$out" 2>/dev/null || true)" "$(realpath -m -- "$out" 2>/dev/null || true)"; do
       case "$form" in
         "$repo"/*)
           for suffix in '' .stream .stderr .stream.stderr .exit; do
