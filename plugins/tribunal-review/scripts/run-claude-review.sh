@@ -47,16 +47,27 @@ RISK_EFFORT="$(tribunal_risk_effort claude 2>&1)" || { tribunal_error claude "$R
 CLAUDE_EFFORT="${TRIBUNAL_CLAUDE_EFFORT:-$RISK_EFFORT}"
 effort_args=()
 case "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" in *haiku*) ;; *) [ -z "$CLAUDE_EFFORT" ] || effort_args=(--effort "$CLAUDE_EFFORT") ;; esac
+claude_args=(--model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" ${effort_args[@]+"${effort_args[@]}"} --output-format json
+  --safe-mode --restricted --setting-sources "" --permission-mode dontAsk --no-chrome
+  "${tool_args[@]}" --strict-mcp-config --mcp-config '{"mcpServers":{}}' --no-session-persistence)
+NATIVE_NOTE=""
+if [ "$MODE" = review ] && [ "${TRIBUNAL_NATIVE_REVIEW:-on}" != off ]; then
+  # The skill reviews the captured diff file, so the leg keeps its Read/Glob/Grep-only tools.
+  case "$CLAUDE_EFFORT" in low|medium|high) NATIVE_LEVEL="$CLAUDE_EFFORT" ;; xhigh|max) NATIVE_LEVEL=high ;; *) NATIVE_LEVEL=medium ;; esac
+  native_rc=0
+  (cd "$SCRATCH" && timeout -k 10 240 claude -p "/code-review $NATIVE_LEVEL $DIFF_FILE" "${claude_args[@]}" \
+    < /dev/null > "$TMPDIR/native.json" 2> "$TMPDIR/native.err") || native_rc=$?
+  jq -r 'select(.is_error != true) | .result // empty' "$TMPDIR/native.json" > "$TMPDIR/native.txt" 2>/dev/null || native_rc=1
+  NATIVE_NOTE="$(tribunal_native_leads '/code-review' "$TMPDIR/native.txt" "$native_rc" "$CONTEXT_FILE")"
+  tribunal_review_prompt claude "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
+fi
 rc=0
-RUN_TIMEOUT=600
+RUN_TIMEOUT=$((600 - SECONDS))  # one 600 s leg budget covers the native pass and the verdict pass
 [ "$MODE" = smoke ] && RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
 SCHEMA_JSON="$(jq -c . "$(tribunal_review_schema)")"
-(cd "$SCRATCH" && timeout -k 10 "$RUN_TIMEOUT" claude -p \
-    --model "${TRIBUNAL_CLAUDE_MODEL:-sonnet}" ${effort_args[@]+"${effort_args[@]}"} --output-format json \
-    --json-schema "$SCHEMA_JSON" --safe-mode --restricted --setting-sources "" \
-    --permission-mode dontAsk --disable-slash-commands --no-chrome \
-    "${tool_args[@]}" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
-    --no-session-persistence < "$PROMPT_FILE" > "$TMPDIR/out.json" 2> "$TMPDIR/err.txt") || rc=$?
+(cd "$SCRATCH" && timeout -k 10 "$RUN_TIMEOUT" claude -p "${claude_args[@]}" \
+    --json-schema "$SCHEMA_JSON" --disable-slash-commands \
+    < "$PROMPT_FILE" > "$TMPDIR/out.json" 2> "$TMPDIR/err.txt") || rc=$?
 if [ "$rc" -eq 0 ] && ! jq -e '.is_error == true' "$TMPDIR/out.json" >/dev/null 2>&1; then
   tribunal_extract_claude_result < "$TMPDIR/out.json" > "$TMPDIR/response.txt"
   if [ "$MODE" = smoke ]; then
@@ -66,7 +77,8 @@ if [ "$rc" -eq 0 ] && ! jq -e '.is_error == true' "$TMPDIR/out.json" >/dev/null 
     tribunal_extract_json_object < "$TMPDIR/response.txt" \
       | tribunal_emit_review claude "" "$TMPDIR/out.json" "$TMPDIR/err.txt" "$rc" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
-      | tribunal_stamp_diff_stat "$DIFF_STAT"
+      | tribunal_stamp_diff_stat "$DIFF_STAT" \
+      | tribunal_stamp_note "$NATIVE_NOTE"
   fi
 else
   tribunal_error_with_diagnostics claude "Claude execution failed or timed out" execution \

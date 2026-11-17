@@ -1461,12 +1461,141 @@ EOF
       TRIBUNAL_BASE_REF=HEAD~1 bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" \
       > "$work/out.json"
   ) && jq -e '.provider=="claude" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null \
-    && [ "$(wc -l < "$work/tmpdirs")" -eq 2 ] \
+    && [ "$(wc -l < "$work/tmpdirs")" -eq 3 ] \
     && [ "$(cut -f2 "$work/tmpdirs" | sort -u | wc -l)" -eq 1 ] \
     && used_tmpdir="$(cut -f2 "$work/tmpdirs" | head -1)" \
     && [ "$used_tmpdir" != "$parent_tmp" ] \
     && [ ! -e "$used_tmpdir" ] \
     && [ -z "$(find "$parent_tmp" -mindepth 1 -print -quit)" ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+# Fixture repo with one changed file; prints nothing. Run inside a subshell.
+native_review_repo() {
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Test User"
+  printf 'one\n' > file.txt
+  git add file.txt
+  git commit -q -m base
+  printf 'two\n' > file.txt
+  git commit -q -am change
+}
+
+test_codex_native_review() {
+  local mode="$1" label="$2" work fake expected_note base_oid ok=0
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<EOF
+#!/usr/bin/env bash
+if [ "\${2:-}" = review ]; then
+  printf '%s\n' "\$@" > "$work/native.args"
+  [ "\${NATIVE_FIXTURE:-ok}" = fail ] && exit 7
+  while [ \$# -gt 0 ]; do
+    [ "\$1" = --output-last-message ] && printf '%s\n' '- [P2] Fixture lead — file.txt:1-1' > "\$2"
+    shift
+  done
+  exit 0
+fi
+printf 'call\n' >> "$work/verdict.calls"
+cat > "$work/verdict.prompt"
+printf '%s\n' '{"provider":"codex","model":"fake","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10.0,"verdict":"APPROVE"}}'
+EOF
+  chmod +x "$fake/codex"
+  (
+    set -e
+    cd "$work"
+    native_review_repo
+    export PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1
+    unset TRIBUNAL_CODEX_MODEL TRIBUNAL_CODEX_EFFORT TRIBUNAL_RISK
+    case "$mode" in
+      fail) export NATIVE_FIXTURE=fail ;;
+      off) export TRIBUNAL_NATIVE_REVIEW=off ;;
+    esac
+    bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+  ) || ok=1
+  base_oid="$(git -C "$work" rev-parse HEAD~1 2>/dev/null)"
+  [ "$(wc -l < "$work/verdict.calls" 2>/dev/null)" = 1 ] || ok=1
+  jq -e '.provider=="codex" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null 2>&1 || ok=1
+  case "$mode" in
+    ok)
+      expected_note='native review (codex exec review) fed the verdict pass'
+      grep -q 'Native review report (from codex exec review)' "$work/verdict.prompt" || ok=1
+      grep -q 'Fixture lead — file.txt:1-1' "$work/verdict.prompt" || ok=1
+      awk -v base="$base_oid" '
+        previous == "--base" && $0 == base { base_seen = 1 }
+        $0 == "--dangerously-bypass-approvals-and-sandbox" { bypass_seen = 1 }
+        $0 == "--ignore-user-config" { isolated_seen = 1 }
+        $0 == "--output-schema" { schema_seen = 1 }
+        { previous = $0 }
+        END { exit !(base_seen && bypass_seen && isolated_seen && !schema_seen) }
+      ' "$work/native.args" || ok=1
+      ;;
+    fail)
+      expected_note='native review (codex exec review) unavailable (exit 7); verdict pass ran without it'
+      ! grep -q 'Native review report' "$work/verdict.prompt" || ok=1
+      ;;
+    off)
+      expected_note=''
+      [ ! -e "$work/native.args" ] || ok=1
+      ! grep -q 'Native review report' "$work/verdict.prompt" || ok=1
+      ;;
+  esac
+  jq -e --arg note "$expected_note" '(.summary.note // "") == $note' "$work/out.json" >/dev/null 2>&1 || ok=1
+  if [ "$ok" -eq 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_claude_native_review() {
+  local label="Claude /code-review reads the captured diff with read-only tools and feeds the verdict pass"
+  local work fake ok=0
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/claude" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = auth ] && [ "\${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+case "\${2:-}" in
+  /code-review*)
+    printf '%s\n' "\$@" > "$work/native.args"
+    printf '%s\n' '{"result":"file.txt:1 — Fixture lead"}'
+    exit 0 ;;
+esac
+printf '%s\n' "\$@" > "$work/verdict.args"
+cat > "$work/verdict.prompt"
+printf '%s\n' '{"result":"{\"provider\":\"claude\",\"model\":\"fixture\",\"files_examined\":[\"file.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10.0,\"verdict\":\"APPROVE\"}}"}'
+EOF
+  chmod +x "$fake/claude"
+  (
+    set -e
+    cd "$work"
+    native_review_repo
+    unset TRIBUNAL_CLAUDE_MODEL TRIBUNAL_CLAUDE_EFFORT
+    PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_RISK=T4 \
+      bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/out.json"
+  ) || ok=1
+  jq -e '.provider=="claude" and .summary.verdict=="APPROVE"
+      and .summary.note=="native review (/code-review) fed the verdict pass"' "$work/out.json" >/dev/null 2>&1 || ok=1
+  grep -q 'Native review report (from /code-review)' "$work/verdict.prompt" 2>/dev/null || ok=1
+  grep -q 'file.txt:1 — Fixture lead' "$work/verdict.prompt" 2>/dev/null || ok=1
+  awk '
+    NR == 2 && $0 ~ /^\/code-review high \/.*\/input\/review\.diff$/ { target_seen = 1 }
+    previous == "--tools" && $0 == "Read,Glob,Grep" { tools_seen = 1 }
+    $0 == "--safe-mode" { safe_seen = 1 }
+    $0 == "--disable-slash-commands" || $0 == "--json-schema" { verdict_only_seen = 1 }
+    { previous = $0 }
+    END { exit !(target_seen && tools_seen && safe_seen && !verdict_only_seen) }
+  ' "$work/native.args" 2>/dev/null || ok=1
+  grep -qx -- '--disable-slash-commands' "$work/verdict.args" 2>/dev/null || ok=1
+  if [ "$ok" -eq 0 ]; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
     echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
@@ -5108,6 +5237,10 @@ test_codex_pins gpt-6-astra medium no "codex defaults pin Astra and medium in ar
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
 test_codex_pins gpt-6-astra xhigh risk:T4 "TRIBUNAL_RISK=T4 lifts the Codex leg to xhigh"
 test_codex_pins gpt-6-astra low risk:T1 "TRIBUNAL_RISK=T1 lowers the Codex leg to low"
+test_codex_native_review ok "codex exec review runs against the pinned base and feeds the verdict pass"
+test_codex_native_review fail "a failed codex exec review is recorded and the verdict pass still runs"
+test_codex_native_review off "TRIBUNAL_NATIVE_REVIEW=off skips codex exec review"
+test_claude_native_review
 test_codex_parse_diagnostics
 test_codex_empty_output
 test_claude_execution_diagnostics
