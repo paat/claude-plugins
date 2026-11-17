@@ -59,17 +59,20 @@ else
   [ -s "$DIFF_FILE" ] || { tribunal_empty codex "$CODEX_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
   if [ "${TRIBUNAL_NATIVE_REVIEW:-on}" != off ]; then
+    # A clone pinned to the reviewed head keeps uncommitted changes out of the native diff.
+    NATIVE_ROOT="$(tribunal_walk_root "$TMPDIR/native-walk" "$(printf '%s' "$DIFF_STAT" | jq -r '.head_oid')")" \
+      || NATIVE_ROOT="$WALK_ROOT"
     native_rc=0
-    (cd "$WALK_ROOT" && env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 240 codex exec review \
+    (cd "$NATIVE_ROOT" && env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$TRIBUNAL_NATIVE_TIMEOUT" codex exec review \
       "${model_args[@]}" -m "$CODEX_MODEL" --base "$(printf '%s' "$DIFF_STAT" | jq -r '.base_oid')" \
       --output-last-message "$TMPDIR/native.txt" < /dev/null > /dev/null 2> "$TMPDIR/native.err") || native_rc=$?
-    NATIVE_NOTE="$(tribunal_native_leads 'codex exec review' "$TMPDIR/native.txt" "$native_rc" "$CONTEXT_FILE")"
+    NATIVE_NOTE="$(tribunal_native_leads 'codex exec review' "$TMPDIR/native.txt" "$native_rc" "$CONTEXT_FILE" "$TMPDIR/native.err")"
   fi
   tribunal_review_prompt codex "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 fi
 
 rc=0
-RUN_TIMEOUT=$((600 - SECONDS))  # one 600 s leg budget covers the native pass and the verdict pass
+RUN_TIMEOUT="$(tribunal_verdict_timeout)"
 [ "$MODE" = smoke ] && RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
 LAST_FILE="$TMPDIR/last-message.json"
 SCHEMA_FILE="$(tribunal_review_schema)"
