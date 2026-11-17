@@ -181,7 +181,7 @@ DeepSeek uses the direct DeepSeek API and walks the repository with a read-only 
 | `TRIBUNAL_SMOKE_PROBE` | `off` | Set to `on` to make preflight probe usable selected Codex, Claude, OpenCode, and DeepSeek transports with minimal structured responses. |
 | `TRIBUNAL_SMOKE_TIMEOUT_SECONDS` | `60` | Per-provider timeout for the opt-in smoke probe; accepted range is 5–300 seconds. |
 | `TRIBUNAL_DIAGNOSTIC_TAILS` | `off` | Set to `on` only for local troubleshooting to include printable-ASCII 2 KiB stdout/stderr tails in failed provider artifacts (DeepSeek always omits tails). |
-| `TRIBUNAL_NATIVE_REVIEW` | `on` | The Codex and Claude legs first run the harness's own review command (`codex exec review --base <pinned base>`, Claude `/code-review <level> <captured diff>`) and feed its report to the schema-bound verdict pass as leads; the outcome is recorded in `summary.note`. `off` skips that extra call. |
+| `TRIBUNAL_NATIVE_REVIEW` | `on` | The Codex and Claude legs first run the harness's own review command (`codex exec review --base <pinned base>`, Claude `/review <level> <captured diff>`) and feed its report to the schema-bound verdict pass as leads; the outcome is recorded in `summary.note`. The native call gets 180 s of the 600 s leg budget. `off` skips it. |
 | `TRIBUNAL_SCOPE_LENS` | `off` | Set to `on` to add the minimal-diff scope-control lens (`scope_findings`). |
 | `TRIBUNAL_CALLER_PROVIDER` | _(unset)_ | Optional informational identity for the inline calling context. |
 | `TRIBUNAL_CALLER_MODEL` | _(unset)_ | Optional caller model metadata. |

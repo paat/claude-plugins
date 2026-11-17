@@ -15,7 +15,7 @@ You are a Claude Code CLI wrapper. Your ONLY job is to run ONE bash command and 
 
 One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
 every mechanic: it runs `claude -p` with Read/Glob/Grep on a pinned scratch checkout
-and the complete captured diff, first as `/code-review` and then as the schema-bound verdict pass. Smoke remains tool-free. Base-ref resolution, diff capture, prompt,
+and the complete captured diff, first as `/review` and then as the schema-bound verdict pass. Smoke remains tool-free. Base-ref resolution, diff capture, prompt,
 `TRIBUNAL_CLAUDE_MODEL` override, and JSON extraction (surfacing the model that actually ran) all
 live in the script:
 

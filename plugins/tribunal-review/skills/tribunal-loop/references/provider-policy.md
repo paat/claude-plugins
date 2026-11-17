@@ -39,17 +39,20 @@ effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers ove
 
 ## Native review commands
 
-Checked 2026-11-17 against the installed CLIs (`--help`, bundled skill files, smoke runs).
+Checked 2026-11-17. Sources: [Codex developer commands](https://developers.openai.com/codex/cli/reference)
+and `codex exec review --help`; [Claude Code `/code-review`](https://code.claude.com/docs/en/code-review-local);
+for the other harnesses, the installed CLI's `--help` and bundled skill files.
 A leg runs its harness's own review command first where that command can review a pinned range
 headlessly under the leg's existing restrictions. No native command emits the review schema,
-accepts the context block, or reports the files it read, so its report joins the context block as
-leads and the verdict pass verifies them. A failed or empty native run is recorded in
-`summary.note` and the verdict pass runs without it. `TRIBUNAL_NATIVE_REVIEW=off` skips the call.
+accepts the context block, or reports the files it read, so its report (capped at 16 KiB) joins
+the context block as leads and the verdict pass verifies them. The native call gets 180 s of the
+600 s leg budget. A failed or empty native run is recorded in `summary.note` and on the wrapper's
+stderr, and the verdict pass runs without it. `TRIBUNAL_NATIVE_REVIEW=off` skips the call.
 
 | Leg | Native command | Used |
 |---|---|---|
-| Codex 0.169.0 | `codex exec review --base <base oid>` | yes; `--output-schema` is ignored and a prompt cannot be combined with `--base` |
-| Claude Code 2.1.326 | `/code-review <level> <captured diff file>` under `claude -p` | yes; level is the leg effort capped at `high`; `--json-schema` suppresses the review |
+| Codex 0.169.0 | `codex exec review --base <base oid>` in a clone pinned to the reviewed head | yes; `--output-schema` is ignored and a prompt cannot be combined with `--base` |
+| Claude Code 2.1.326 | `/review <level> <captured diff file>` under `claude -p` | yes; `/review` always runs the bundled `/code-review`; level is the leg effort capped at `high`; `--json-schema` suppresses the review |
 | Grok 1.0.88 | `/review --main` | no; reviews against `origin/main` on a clean tree only and needs write and shell tools the leg denies |
 | Qwen 0.25.3 | `qwen review run` | no; targets a PR or the working tree, defaults to `yolo` |
 | OpenCode 2.3.0 | `/review [commit\|branch\|pr]` | no; expansion under `opencode run` is unconfirmed |

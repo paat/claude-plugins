@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "f1045a3b07e1135fb4d165a5b527479a12fb1bf04fddc1ad0d1a13066cae166b"
+      "sha256": "201a2a0cd376976ee5ff93db7ba2eea1279af50be6a3848700031591df5dd2db"
     },
     {
       "path": "scripts/review-panel.tsv",
@@ -30,11 +30,11 @@
     },
     {
       "path": "scripts/run-claude-review.sh",
-      "sha256": "a21b85edcdd721efd9eef21e55b3b1b233c12bd093a23bd27e8545db69fa491a"
+      "sha256": "ef1ea46142f12605f7ddd67336308b9f01e7371e11d1915950bd01e41b912af4"
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "5f802a18f0f0bd64b61734082d31b05be5e63e603b6cc624609e06ab87f003c3"
+      "sha256": "43b964746aa63c2d087a1434f47e4db43654c9330e010fe656620ab0605d1b6c"
     },
     {
       "path": "scripts/run-gemini-review.sh",

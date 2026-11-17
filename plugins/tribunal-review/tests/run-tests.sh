@@ -1493,6 +1493,7 @@ test_codex_native_review() {
 #!/usr/bin/env bash
 if [ "\${2:-}" = review ]; then
   printf '%s\n' "\$@" > "$work/native.args"
+  pwd > "$work/native.cwd"
   [ "\${NATIVE_FIXTURE:-ok}" = fail ] && exit 7
   while [ \$# -gt 0 ]; do
     [ "\$1" = --output-last-message ] && printf '%s\n' '- [P2] Fixture lead — file.txt:1-1' > "\$2"
@@ -1515,7 +1516,7 @@ EOF
       fail) export NATIVE_FIXTURE=fail ;;
       off) export TRIBUNAL_NATIVE_REVIEW=off ;;
     esac
-    bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json"
+    bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/out.json" 2> "$work/err.txt"
   ) || ok=1
   base_oid="$(git -C "$work" rev-parse HEAD~1 2>/dev/null)"
   [ "$(wc -l < "$work/verdict.calls" 2>/dev/null)" = 1 ] || ok=1
@@ -1525,6 +1526,8 @@ EOF
       expected_note='native review (codex exec review) fed the verdict pass'
       grep -q 'Native review report (from codex exec review)' "$work/verdict.prompt" || ok=1
       grep -q 'Fixture lead — file.txt:1-1' "$work/verdict.prompt" || ok=1
+      grep -q '^## End of native review report$' "$work/verdict.prompt" || ok=1
+      [ -n "$(cat "$work/native.cwd")" ] && [ "$(cat "$work/native.cwd")" != "$work" ] || ok=1
       awk -v base="$base_oid" '
         previous == "--base" && $0 == base { base_seen = 1 }
         $0 == "--dangerously-bypass-approvals-and-sandbox" { bypass_seen = 1 }
@@ -1537,6 +1540,7 @@ EOF
     fail)
       expected_note='native review (codex exec review) unavailable (exit 7); verdict pass ran without it'
       ! grep -q 'Native review report' "$work/verdict.prompt" || ok=1
+      grep -q 'tribunal: native review (codex exec review) unavailable: exit 7; stderr_bytes=0' "$work/err.txt" || ok=1
       ;;
     off)
       expected_note=''
@@ -1554,8 +1558,7 @@ EOF
 }
 
 test_claude_native_review() {
-  local label="Claude /code-review reads the captured diff with read-only tools and feeds the verdict pass"
-  local work fake ok=0
+  local mode="$1" label="$2" work fake expected_note ok=0
   work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
   cat > "$fake/claude" <<EOF
 #!/usr/bin/env bash
@@ -1564,9 +1567,13 @@ if [ "\${1:-}" = auth ] && [ "\${2:-}" = status ]; then
   exit 0
 fi
 case "\${2:-}" in
-  /code-review*)
+  /review*)
     printf '%s\n' "\$@" > "$work/native.args"
-    printf '%s\n' '{"result":"file.txt:1 — Fixture lead"}'
+    if [ "\${NATIVE_FIXTURE:-ok}" = error ]; then
+      printf '%s\n' '{"is_error":true,"result":"usage limit reached"}'
+    else
+      printf '%s\n' '{"result":"file.txt:1 — Fixture lead"}'
+    fi
     exit 0 ;;
 esac
 printf '%s\n' "\$@" > "$work/verdict.args"
@@ -1579,22 +1586,67 @@ EOF
     cd "$work"
     native_review_repo
     unset TRIBUNAL_CLAUDE_MODEL TRIBUNAL_CLAUDE_EFFORT
+    case "$mode" in
+      error) export NATIVE_FIXTURE=error ;;
+      off) export TRIBUNAL_NATIVE_REVIEW=off ;;
+    esac
     PATH="$fake:$PATH" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_RISK=T4 \
-      bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/out.json"
+      bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/out.json" 2> "$work/err.txt"
   ) || ok=1
-  jq -e '.provider=="claude" and .summary.verdict=="APPROVE"
-      and .summary.note=="native review (/code-review) fed the verdict pass"' "$work/out.json" >/dev/null 2>&1 || ok=1
-  grep -q 'Native review report (from /code-review)' "$work/verdict.prompt" 2>/dev/null || ok=1
-  grep -q 'file.txt:1 — Fixture lead' "$work/verdict.prompt" 2>/dev/null || ok=1
-  awk '
-    NR == 2 && $0 ~ /^\/code-review high \/.*\/input\/review\.diff$/ { target_seen = 1 }
-    previous == "--tools" && $0 == "Read,Glob,Grep" { tools_seen = 1 }
-    $0 == "--safe-mode" { safe_seen = 1 }
-    $0 == "--disable-slash-commands" || $0 == "--json-schema" { verdict_only_seen = 1 }
-    { previous = $0 }
-    END { exit !(target_seen && tools_seen && safe_seen && !verdict_only_seen) }
-  ' "$work/native.args" 2>/dev/null || ok=1
+  jq -e '.provider=="claude" and .summary.verdict=="APPROVE"' "$work/out.json" >/dev/null 2>&1 || ok=1
+  grep -q '^You are a senior code reviewer' "$work/verdict.prompt" 2>/dev/null || ok=1
   grep -qx -- '--disable-slash-commands' "$work/verdict.args" 2>/dev/null || ok=1
+  case "$mode" in
+    ok)
+      expected_note='native review (/review) fed the verdict pass'
+      grep -q 'Native review report (from /review)' "$work/verdict.prompt" 2>/dev/null || ok=1
+      grep -q 'file.txt:1 — Fixture lead' "$work/verdict.prompt" 2>/dev/null || ok=1
+      awk '
+        NR == 2 && $0 ~ /^\/review high \/.*\/input\/review\.diff$/ { target_seen = 1 }
+        previous == "--tools" && $0 == "Read,Glob,Grep" { tools_seen = 1 }
+        $0 == "--safe-mode" { safe_seen = 1 }
+        $0 == "--disable-slash-commands" || $0 == "--json-schema" { verdict_only_seen = 1 }
+        { previous = $0 }
+        END { exit !(target_seen && tools_seen && safe_seen && !verdict_only_seen) }
+      ' "$work/native.args" 2>/dev/null || ok=1
+      ;;
+    error)
+      expected_note='native review (/review) unavailable (no report); verdict pass ran without it'
+      ! grep -q 'Native review report\|usage limit reached' "$work/verdict.prompt" 2>/dev/null || ok=1
+      grep -q 'tribunal: native review (/review) unavailable: no report; stderr_bytes=0' "$work/err.txt" || ok=1
+      ;;
+    off)
+      expected_note=''
+      [ ! -e "$work/native.args" ] || ok=1
+      ! grep -q 'Native review report' "$work/verdict.prompt" 2>/dev/null || ok=1
+      ;;
+  esac
+  jq -e --arg note "$expected_note" '(.summary.note // "") == $note' "$work/out.json" >/dev/null 2>&1 || ok=1
+  if [ "$ok" -eq 0 ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
+test_native_review_helpers() {
+  local label="native report is capped to valid UTF-8 and the verdict timeout keeps a floor" work ok=0
+  work="$(mktemp -d)"
+  (
+    set -e
+    . "$PLUGIN_ROOT/scripts/lib.sh"
+    # 16383 ASCII bytes put the 3-byte em dash across the 16384-byte cap.
+    { head -c 16383 /dev/zero | tr '\0' 'a'; printf '—tail\n'; } > "$work/report.txt"
+    : > "$work/context.md"; : > "$work/err.txt"
+    note="$(tribunal_native_leads fixture "$work/report.txt" 0 "$work/context.md" "$work/err.txt")"
+    [ "$note" = 'native review (fixture) fed the verdict pass' ]
+    python3 -c 'import sys; open(sys.argv[1], "rb").read().decode("utf-8")' "$work/context.md"
+    ! grep -q 'tail' "$work/context.md"
+    [ "$(tail -n 1 "$work/context.md")" = '## End of native review report' ]
+    SECONDS=100; [ "$(tribunal_verdict_timeout)" = 500 ]
+    SECONDS=700; [ "$(tribunal_verdict_timeout)" = 60 ]
+  ) || ok=1
   if [ "$ok" -eq 0 ]; then
     echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
   else
@@ -5240,7 +5292,10 @@ test_codex_pins gpt-6-astra low risk:T1 "TRIBUNAL_RISK=T1 lowers the Codex leg t
 test_codex_native_review ok "codex exec review runs against the pinned base and feeds the verdict pass"
 test_codex_native_review fail "a failed codex exec review is recorded and the verdict pass still runs"
 test_codex_native_review off "TRIBUNAL_NATIVE_REVIEW=off skips codex exec review"
-test_claude_native_review
+test_claude_native_review ok "Claude /review reads the captured diff with read-only tools and feeds the verdict pass"
+test_claude_native_review error "an is_error Claude /review result is recorded and the verdict pass still runs"
+test_claude_native_review off "TRIBUNAL_NATIVE_REVIEW=off skips Claude /review"
+test_native_review_helpers
 test_codex_parse_diagnostics
 test_codex_empty_output
 test_claude_execution_diagnostics
