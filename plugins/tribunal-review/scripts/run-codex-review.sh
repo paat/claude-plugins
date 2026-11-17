@@ -61,9 +61,11 @@ else
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
   if [ "${TRIBUNAL_NATIVE_REVIEW:-on}" != off ]; then
     # A clone pinned to the reviewed head keeps uncommitted changes out of the native diff.
+    # WALK_ROOT is reused only when it is already a scratch clone at that head.
+    HEAD_OID="$(printf '%s' "$DIFF_STAT" | jq -r '.head_oid')"
     NATIVE_ROOT="$WALK_ROOT"
-    [ "$WALK_ROOT" != "$REPO_ROOT" ] \
-      || NATIVE_ROOT="$(tribunal_walk_root "$TMPDIR/native-walk" "$(printf '%s' "$DIFF_STAT" | jq -r '.head_oid')")" \
+    { [ "$WALK_ROOT" != "$REPO_ROOT" ] && [ "$(git -C "$WALK_ROOT" rev-parse HEAD 2>/dev/null)" = "$HEAD_OID" ]; } \
+      || NATIVE_ROOT="$(tribunal_walk_root "$TMPDIR/native-walk" "$HEAD_OID")" \
       || NATIVE_ROOT="$WALK_ROOT"
     # The reviewer runs on review_model, not -m. Efforts above high would spend the native budget.
     native_effort_args=(${effort_args[@]+"${effort_args[@]}"})
