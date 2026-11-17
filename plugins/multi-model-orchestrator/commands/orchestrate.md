@@ -87,7 +87,9 @@ explicitly asked for a local no-PR run. Choose reviewer route cards after implem
 one different provider for ordinary nontrivial work and two only for high risk or conflicting
 evidence, subject to provider restrictions. Give each the original request, acceptance criteria,
 `BASE_SHA`, and a bounded finding contract. Reviewers must not edit. Run multiple reviewers
-concurrently and independently. Create `RUN_DIR=$(mktemp -d)` before dispatch and remove it
+concurrently and independently. A leg can outlast the host's foreground command limit (Claude Code
+Bash: 10 minutes), so dispatch each worker and this reviewer block through the host's background
+mechanism (Claude Code: Bash `run_in_background: true`) and continue on its completion notice. Create `RUN_DIR=$(mktemp -d)` before dispatch and remove it
 after findings are arbitrated.
 
 ```bash
@@ -123,9 +125,9 @@ esac
 
 On `review_needs_work=1` the run is not done: arbitrate the findings, fix only the confirmed ones,
 rerun the affected tests, and run the reviewers and this gate again. Only a gate exit of 0 ends
-review.
+review: when that one recheck still does not return 0, stop and report the open findings as a
+blocker, never the task as done.
 
 The snippet illustrates all providers; launch only the selected allowed route cards. Verify every
-finding against the repository. Fix only confirmed task-blocking defects, rerun affected tests,
-and permit at most one bounded recheck. Report the ledger, tests, reviewer verdicts,
+finding against the repository. Fix only confirmed task-blocking defects and rerun affected tests. Report the ledger, tests, reviewer verdicts,
 accepted/rejected findings, and final diff scope.

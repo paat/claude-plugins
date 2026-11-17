@@ -108,12 +108,13 @@ binds() {  # binds window model
   case "$1" in *_*) [[ "$2" == *"${1#*_}"* ]] ;; esac
 }
 
-# Prints the earliest reset among the windows that bind this worker; fails when none does.
+# Prints the latest reset among the tight windows that bind this worker (it is usable only
+# after all of them reset); fails when none does.
 tight_reset() {  # tight_reset provider model
   local t_provider t_window t_epoch found=""
   while read -r t_provider t_window t_epoch; do
     [ "$t_provider" = "$1" ] && binds "$t_window" "$2" || continue
-    [ -n "$found" ] && [ "$found" -le "$t_epoch" ] || found="$t_epoch"
+    [ -n "$found" ] && [ "$found" -ge "$t_epoch" ] || found="$t_epoch"
   done <<< "$tight"
   [ -n "$found" ] && printf '%s' "$found"
 }
@@ -191,8 +192,6 @@ fi
 
 command -v git >/dev/null 2>&1 || { printf 'pool: git not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
-out_abs=""
-[ -z "$output_file" ] || out_abs="$(realpath -m "$output_file")"
 prompt_file="$(mktemp)"
 runner_stderr=""
 trap 'rm -f "$prompt_file" "$runner_stderr"' EXIT
@@ -215,7 +214,7 @@ for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++));
     *) runner="run-$r_provider.sh" ;;
   esac
   printf 'pool: %s -> %s/%s/%s\n' "$r_tier" "$r_provider" "$r_model" "$r_effort" >&2
-  before="$(mmo_tree_state "$repo_dir" "$out_abs")"
+  before="$(mmo_tree_state "$repo_dir" "$output_file")"
   rc=0
   if [ "$r_provider" = claude ]; then
     [ -n "$runner_stderr" ] || runner_stderr="$(mktemp)"
@@ -226,7 +225,7 @@ for ((candidate_index=0; candidate_index<${#candidates[@]}; candidate_index++));
   fi
   case "$rc" in
     75|77|127)
-      if [ "$(mmo_tree_state "$repo_dir" "$out_abs")" != "$before" ]; then
+      if [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$before" ]; then
         printf 'pool: %s exited %s after changing the repository; not handing the task to another worker\n' "$r_provider" "$rc" >&2
         rc=55
         fell_through=0

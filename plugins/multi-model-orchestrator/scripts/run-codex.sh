@@ -50,6 +50,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$final_file"
 case "$mode" in implement|research|review) ;; *) printf 'run-codex: --mode must be implement, research, or review\n' >&2; exit 2 ;; esac
 valid_effort "$effort" || {
   printf 'run-codex: unsupported effort %s (expected low|medium|high|xhigh|max|ultra)\n' "$effort" >&2
@@ -107,36 +108,12 @@ else
 fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
+leg_paths=("$final_file" "$stream_file")
 
 if [ "$mode" = review ]; then
   if [ "$base_set" -eq 1 ]; then
     diff_file="$(mktemp)"
-    git -C "$repo_dir" rev-parse --verify "$base_ref^{commit}" >/dev/null || {
-      printf 'run-codex: invalid base ref: %s\n' "$base_ref" >&2
-      exit 2
-    }
-    git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
-    while IFS= read -r -d '' untracked; do
-      # --no-index exits 1 when files differ (expected). Keep 2>/dev/null so the
-      # exit-1 path does not leak incidental git stderr into the runner; exit 2+
-      # is a real failure and must not be swallowed.
-      set +e
-      git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null
-      untracked_rc=$?
-      set -e
-      if [ "$untracked_rc" -gt 1 ]; then
-        printf 'run-codex: failed to include untracked file in review diff: %s\n' "$untracked" >&2
-        exit "$untracked_rc"
-      fi
-    done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
-    [ -s "$diff_file" ] || { printf 'run-codex: no diff to review\n' >&2; exit 3; }
-    max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-    [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-codex: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-    diff_bytes="$(wc -c < "$diff_file" | tr -d ' ')"
-    [ "$diff_bytes" -le "$max_bytes" ] || {
-      printf 'run-codex: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
-      exit 4
-    }
+    mmo_review_diff run-codex "$repo_dir" "$base_ref" "$diff_file" "${leg_paths[@]}"
   fi
   combined_file="$(mktemp)"
   {
@@ -177,6 +154,8 @@ codex_args+=(-m "$model" -c "model_reasoning_effort=\"$effort\"")
 [ "$mode" != research ] || codex_args+=(-c tools.web_search=true)
 codex_args+=(-o "$final_file" -)
 
+# The Codex CLI has no read-only mode to enforce, so detect a write instead.
+[ "$mode" = implement ] || tree_before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 set +e
 mmo_run direct "" "" mmo_leg_env CODEX_HOME CODEX_API_KEY OPENAI_API_KEY -- timeout -k 10 "$run_timeout" codex "${codex_args[@]}" \
   < "$prompt_file" > "$stream_file" 2> "${stream_file}.stderr"
@@ -196,6 +175,10 @@ mmo_outcome_tokens="$(awk '
   END { print tokens }
 ' "${stream_file}.stderr" 2>/dev/null || true)"
 
+if [ "$mode" != implement ] && [ "$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")" != "$tree_before" ]; then
+  printf 'run-codex: the %s leg changed %s; inspect git status before trusting it\n' "$mode" "$repo_dir" >&2
+  rc=7
+fi
 if [ "$rc" -eq 0 ] && [ ! -s "$final_file" ]; then
   printf 'run-codex: missing or empty final-message artifact: %s\n' "$final_file" >&2
   rc=5

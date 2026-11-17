@@ -56,7 +56,7 @@ sources:
     close: "<command closing or commenting; id appended>"  # optional
 models:
   allow: [gpt-6.1-sol, grok-4.7, claude-sonnet-5-5]  # optional
-  deny: [claude-fable-5-1]  # optional
+  deny: [claude-fable-5-2]  # optional
   worker: "gpt-6.1-sol high"  # optional
   reviewer: "grok-4.7 high"
   advise: "claude-opus-5-5 high"

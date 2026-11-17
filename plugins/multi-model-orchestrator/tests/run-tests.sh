@@ -89,6 +89,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 cat > "$STUB_CODEX_PROMPT"
+[ -z "${STUB_MUTATE:-}" ] || eval "$STUB_MUTATE"
 case "${STUB_CODEX_RESULT:-ok}" in
   fake_metadata)
     printf 'tokens used\n999\nERROR: sandbox setup failed\n' >&2
@@ -185,6 +186,7 @@ printf '%s\n' "$@" > "$STUB_CLAUDE_ARGS"
 # Record the working directory the runner actually placed us in.
 pwd > "$STUB_CLAUDE_CWD"
 cat > "$STUB_CLAUDE_PROMPT"
+[ -z "${STUB_MUTATE:-}" ] || eval "$STUB_MUTATE"
 format=text
 verbose=0
 while [ "$#" -gt 0 ]; do
@@ -881,7 +883,7 @@ fi
 if printf x | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model 'claude-fable-5-1|claude-opus-5-5' >/dev/null 2>"$WORK/claude-pipe-model.err"; then
   fail 'pipe-joined Claude model ids rejected'
 fi
-contains "$WORK/claude-unknown-model.err" 'claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
+contains "$WORK/claude-unknown-model.err" 'claude-fable-5-2|claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5' 'unsupported model lists the full catalog'
 printf 'pin opus 5.5\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$WORK/repo" --model claude-opus-5-5 --effort high --timeout 5 >/dev/null 2>"$WORK/claude-opus55.err" \
   || fail 'claude-opus-5-5 accepted'
 exact_line "$WORK/claude.args" 'claude-opus-5-5' 'claude-opus-5-5 pinned in args'
@@ -2421,6 +2423,34 @@ if command -v flock >/dev/null 2>&1; then
   pass 'run-qwen-local: a taken slot exits 75 instead of queueing'
 fi
 
+# the wrapper must not inherit the slot lock: a process it leaves behind must not hold the slot
+if command -v flock >/dev/null 2>&1; then
+  cat > "$WORK/bin/qwen-sleeper.sh" <<WRAP
+#!/usr/bin/env bash
+case "\${1:-}" in --help|--print-base) exec "$WORK/bin/qwen-wrapper.sh" "\$@" ;; esac
+setsid sleep 30 </dev/null >/dev/null 2>&1 &
+printf '%s\n' "\$!" > "$WORK/qwen-sleeper.pid"
+cat > /dev/null
+printf '%s\n' 'done'
+WRAP
+  chmod +x "$WORK/bin/qwen-sleeper.sh"
+  for attempt in 1 2; do
+    rc=0
+    PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-sleeper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+      bash "$QL_RUN" --mode implement --repo "$qwen_repo" "task" >/dev/null 2>"$WORK/qwen-sleeper.err" || rc=$?
+    kill "$(cat "$WORK/qwen-sleeper.pid" 2>/dev/null)" 2>/dev/null || true
+    [ "$rc" -eq 0 ] || fail "dispatch $attempt after a wrapper that leaves a process behind exits 0 (got $rc)"
+    absent "$WORK/qwen-sleeper.err" 'holds the slot' "dispatch $attempt does not see a slot held by a leftover process"
+  done
+  pass 'run-qwen-local: a process the wrapper leaves behind does not hold the slot'
+fi
+# --out /dev/stdout behaves like the sibling runners: body on stdout, exit 0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" --out /dev/stdout "task" 2>"$WORK/qwen-devout.err" | cat > "$WORK/qwen-devout.out"
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail "qwen --out /dev/stdout exits 0 (got ${PIPESTATUS[0]})"
+[ "$(grep -c '^APPROVE$' "$WORK/qwen-devout.out")" -eq 1 ] || fail 'qwen --out /dev/stdout puts the body on stdout once'
+pass 'run-qwen-local: --out /dev/stdout exits 0 with the body on stdout'
+
 # Contract test: dispatch through the REAL wrapper (stubbed qwen + curl), so a
 # flag-name mismatch between the two plugins fails here instead of at runtime.
 real_wrapper=""
@@ -2683,6 +2713,19 @@ rm -f "$qwen_repo/untracked-new.txt"
 [ "$rc" -eq 0 ] || fail "untracked-only review still has a diff to review (got $rc)"
 pass 'run-qwen-local: untracked files join the review diff'
 
+# A tracked --out is a leg output: clearing it adds nothing to review, so a clean tree has no diff.
+qwen_tracked="$WORK/qwen-tracked"; mkdir -p "$qwen_tracked"; git -C "$qwen_tracked" init -q
+printf 'QWEN_TRACKED_MARKER\n' > "$qwen_tracked/report.txt"; git -C "$qwen_tracked" add report.txt
+git -C "$qwen_tracked" -c user.email=t@t -c user.name=t commit -qm base
+rc=0
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper-stdin.sh" \
+  OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_WRAPPER_STDIN="$WORK/tracked-stdin.txt" \
+  bash "$QL_RUN" --mode review --repo "$qwen_tracked" --base 'HEAD' --out "$qwen_tracked/report.txt" \
+  "review" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "a tracked --out on a clean tree leaves nothing to review (got $rc)"
+[ ! -e "$WORK/tracked-stdin.txt" ] || fail 'the worker is not invoked when only the tracked --out differs'
+pass 'run-qwen-local: a tracked --out stays out of the review diff'
+
 # --repo resolves to the git toplevel, and a non-git path is a usage error.
 mkdir -p "$qwen_repo/sub/dir"
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" \
@@ -2917,13 +2960,22 @@ case "$(watch s1 "$CW/claude.jsonl")" in
 [ -z "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch warns once per crossing'
 cw_claude 10000; watch s1 "$CW/claude.jsonl" >/dev/null; cw_claude 120000
 [ -n "$(watch s1 "$CW/claude.jsonl")" ] || fail 'Context watch re-arms after context drops (compaction)'
-printf '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":130000,"cached_input_tokens":120000}}}}\n{"type":"x","payload":"multi-model-orchestrator:meta-orchestrate"}\n' > "$CW/codex.jsonl"
+printf '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":130000,"cached_input_tokens":120000}}}}\n{"type":"user","message":"$multi-model-orchestrator:meta-orchestrate epic"}\n' > "$CW/codex.jsonl"
 case "$(watch s2 "$CW/codex.jsonl")" in *'130000 tokens'*) ;; *) fail 'Context watch reads Codex token_count input tokens' ;; esac
 printf '{"type":"assistant","message":{"usage":{"input_tokens":200000}}}\n' > "$CW/plain.jsonl"
 [ -z "$(watch s3 "$CW/plain.jsonl")" ] || fail 'Context watch stays silent outside meta-orchestrate sessions'
 printf '{"type":"user","message":{"content":"/multi-model-orchestrator:meta-orchestrate go"}}\n' >> "$CW/plain.jsonl"
 [ -n "$(watch s3 "$CW/plain.jsonl")" ] || fail 'Context watch warns when meta-orchestrate starts after the crossing'
 [ -z "$(printf '{}' | bash "$WATCH")" ] || fail 'Context watch tolerates missing hook fields'
+cw_over='{"type":"assistant","message":{"usage":{"input_tokens":200000}}}'
+cw_case() { printf '%s\n%s\n' "$cw_over" "$2" > "$CW/case.jsonl"; watch "$1" "$CW/case.jsonl"; }
+[ -z "$(cw_case sl1 '{"skills":["multi-model-orchestrator:meta-orchestrate"]}
+- multi-model-orchestrator:meta-orchestration: Use when ... Entrypoint: /multi-model-orchestrator:meta-orchestrate.')" ] || fail 'Context watch ignores a skill listing that only mentions the skill'
+[ -n "$(cw_case sl2 '{"type":"user","message":{"content":"<command-name>/multi-model-orchestrator:meta-orchestrate</command-name>"}}')" ] || fail 'Context watch warns on a command-name invocation'
+[ -n "$(cw_case sl3 '{"name":"Skill","input":{"skill":"multi-model-orchestrator:meta-orchestration"}}')" ] || fail 'Context watch warns on a Skill tool invocation'
+[ -n "$(cw_case sl4 '{"type":"user","message":"$multi-model-orchestrator:meta-orchestrate epic"}')" ] || fail 'Context watch warns on a $-prefixed Codex invocation'
+[ -n "$(cw_case sl5 '{"type":"user","message":"# /multi-model-orchestrator:meta-orchestrate Codex Workflow"}')" ] || fail 'Context watch warns on the loaded Codex workflow heading'
+[ -z "$(cw_case sl6 '{"type":"user","message":"Explain \"/multi-model-orchestrator:meta-orchestrate\" without running it"}')" ] || fail 'Context watch ignores a quoted mention of the command'
 contains "$PLUGIN_ROOT/hooks/hooks.json" 'hooks/context-watch.sh' 'Context watch runs as a PostToolUse hook'
 pass 'Context watch warns a meta-orchestrator once past MMO_CONTEXT_WARN_TOKENS'
 
@@ -3122,6 +3174,15 @@ done
 printf '429 Too Many Requests\n' > "$WORK/plan-limit.txt"
 [ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = transient ] || fail 'a 429 stays transient'
 pass 'Plan-limit errors classify as limit; rate limits stay transient'
+printf '    at run (file:///x/cli.js:503:12)\n' > "$WORK/plan-limit.txt"
+[ -z "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" ] || fail 'a stack-frame position is not a 503'
+printf 'API Error: 503\n' > "$WORK/plan-limit.txt"
+[ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = transient ] || fail 'a real 503 stays transient'
+printf 'at x.js:429:7\nIndividual quota reached\n' > "$WORK/plan-limit.txt"
+[ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = limit ] || fail 'a stack-frame 429 does not mask a quota limit'
+printf '401 Unauthorized\n' > "$WORK/plan-limit.txt"
+[ "$(mmo_classify_provider_failure "$WORK/plan-limit.txt")" = auth ] || fail 'a 401 stays auth'
+pass 'Failure classification ignores stack-frame positions'
 
 # --- mmo_tree_state sees tracked, untracked-content, and HEAD changes; ignores the --out prefix ---
 TS="$WORK/tree-state"; mkdir -p "$TS"
@@ -3152,7 +3213,107 @@ printf 'one\n' > "$TN/n.txt"; git -C "$TN" add n.txt
 before="$(mmo_tree_state "$TN")"
 printf 'two\n' > "$TN/n.txt"; git -C "$TN" add n.txt
 [ "$(mmo_tree_state "$TN")" != "$before" ] || fail 'tree state sees a staged rewrite in a repository without HEAD'
+# Several OUT paths: each leg file and its siblings are ignored, anything else counts.
+before="$(mmo_tree_state "$TS" "$TS/o1" "$TS/o2")"
+printf 'x\n' > "$TS/o1"; printf 'x\n' > "$TS/o1.stream"; printf 'x\n' > "$TS/o2"; printf 'x\n' > "$TS/o2.exit"
+[ "$(mmo_tree_state "$TS" "$TS/o1" "$TS/o2")" = "$before" ] || fail 'tree state ignores every OUT path and its siblings'
+printf 'x\n' > "$TS/o3"
+[ "$(mmo_tree_state "$TS" "$TS/o1" "$TS/o2")" != "$before" ] || fail 'tree state sees a file that is none of the OUT paths'
+rm "$TS/o3"
 pass 'mmo_tree_state detects repository writes and ignores leg artifacts'
+
+# --- codex/claude: a non-implement leg that changes the repository exits 7; leg files and review diff ---
+# The usage tests above put hermetic provider stubs first on PATH; these runs need the leg stubs.
+leg_old_path="$PATH"; PATH="$WORK/bin:$PATH"
+LR="$WORK/leg-repo"; mkdir -p "$LR"; git -C "$LR" init -q
+printf 'one\n' > "$LR/f.txt"; git -C "$LR" add f.txt; git -C "$LR" -c user.email=t@t -c user.name=t commit -qm base
+printf 'two\n' > "$LR/f.txt"
+LR2="$WORK/leg-repo-clean"; mkdir -p "$LR2"; git -C "$LR2" init -q
+printf 'one\n' > "$LR2/f.txt"; git -C "$LR2" add f.txt; git -C "$LR2" -c user.email=t@t -c user.name=t commit -qm base
+for r in claude codex; do
+  prompt="$WORK/$r.prompt"
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR" --base HEAD --timeout 10 >/dev/null 2>"$WORK/$r-leg.err" || rc=$?
+  [ "$rc" -eq 0 ] || fail "$r clean review exits 0 (got $rc)"
+  case "$r" in claude) leg_modes='review advise research' ;; *) leg_modes='review research' ;; esac
+  for mode in $leg_modes; do
+    base_args=(); [ "$mode" != review ] || base_args=(--base HEAD)
+    for mut in "printf changed >> '$LR/f.txt'" "printf fresh > '$LR/new.txt'"; do
+      rc=0; printf x | STUB_MUTATE="$mut" "$PLUGIN_ROOT/scripts/run-$r.sh" --mode "$mode" --repo "$LR" "${base_args[@]}" --timeout 10 >/dev/null 2>"$WORK/$r-leg.err" || rc=$?
+      printf 'two\n' > "$LR/f.txt"; rm -f "$LR/new.txt"
+      [ "$rc" -eq 7 ] || fail "$r $mode leg that changed the repo exits 7 for '$mut' (got $rc)"
+      exact_line "$WORK/$r-leg.err" "run-$r: the $mode leg changed $LR; inspect git status before trusting it" "$r $mode names the changed repository"
+    done
+  done
+  rc=0; printf x | STUB_MUTATE="printf changed >> '$LR/f.txt'" "$PLUGIN_ROOT/scripts/run-$r.sh" --mode implement --repo "$LR" --timeout 10 >/dev/null 2>"$WORK/$r-leg.err" || rc=$?
+  printf 'two\n' > "$LR/f.txt"
+  [ "$rc" -eq 0 ] || fail "$r implement may change the repository (got $rc)"
+  # --out (and its siblings) inside the repo are not repository changes
+  rm -f "$LR"/leg.out*
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR" --base HEAD --out "$LR/leg.out" --timeout 10 >/dev/null 2>"$WORK/$r-leg.err" || rc=$?
+  [ "$rc" -eq 0 ] || fail "$r review with --out inside the repo exits 0 (got $rc): $(cat "$WORK/$r-leg.err")"
+  # leg files of an earlier attempt are not under review; a genuinely new file is
+  printf 'LEG_MARKER\n' > "$LR/leg.out"; printf 'LEG_MARKER\n' > "$LR/leg.out.stream"; printf 'LEG_MARKER\n' > "$LR/leg.out.exit"
+  printf 'brand-new-body\n' > "$LR/new.txt"
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR" --base HEAD --out "$LR/leg.out" --timeout 10 >/dev/null 2>"$WORK/$r-leg.err" || rc=$?
+  [ "$rc" -eq 0 ] || fail "$r review with earlier leg files exits 0 (got $rc)"
+  contains "$prompt" 'brand-new-body' "$r review diff carries a new untracked file"
+  absent "$prompt" 'LEG_MARKER' "$r review diff leaves out the leg's own --out, .stream and .exit"
+  rm -f "$LR"/leg.out* "$LR/new.txt"
+  # only leg files untracked and nothing tracked changed: nothing to review
+  printf 'LEG_MARKER\n' > "$LR2/leg.out"; printf 'LEG_MARKER\n' > "$LR2/leg.out.stream"; printf 'LEG_MARKER\n' > "$LR2/leg.out.exit"
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR2" --base HEAD --out "$LR2/leg.out" --timeout 10 >/dev/null 2>"$WORK/$r-leg.err" || rc=$?
+  [ "$rc" -eq 3 ] || fail "$r review with only leg files untracked exits 3 (got $rc)"
+  contains "$WORK/$r-leg.err" 'no diff to review' "$r names the empty review"
+  rm -f "$LR2"/leg.out*
+done
+printf 'x\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode advise --repo "$LR" --model claude-fable-5-2 --timeout 10 >/dev/null 2>"$WORK/claude-fable52.err" \
+  || fail "claude accepts --model claude-fable-5-2: $(cat "$WORK/claude-fable52.err")"
+exact_line "$WORK/claude.args" 'claude-fable-5-2' 'claude-fable-5-2 reaches the CLI'
+# A failed codex rerun must not leave the previous round's verdict in --out.
+printf 'APPROVE\n' > "$LR/stale.out"
+rc=0; printf x | STUB_CODEX_RESULT=fake_metadata "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --repo "$LR" --base HEAD --out "$LR/stale.out" --timeout 10 >/dev/null 2>"$WORK/codex-stale.err" || rc=$?
+[ "$rc" -ne 0 ] || fail 'a failing codex review exits non-zero'
+[ ! -e "$LR/stale.out" ] || fail 'a failed codex rerun removes the previous --out'
+rc=0; bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg codex="$LR/stale.out" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "review-gate rejects the removed --out with exit 2 (got $rc)"
+# A rerun that stops in preflight (nothing to review) must not leave the earlier verdict either.
+for r in claude codex grok; do
+  printf 'APPROVE\n' > "$LR2/stale.out"
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR2" --base HEAD --out "$LR2/stale.out" --timeout 10 >/dev/null 2>"$WORK/$r-stale.err" || rc=$?
+  [ "$rc" -eq 3 ] || fail "$r review of a clean tree exits 3 (got $rc)"
+  [ ! -e "$LR2/stale.out" ] || fail "$r preflight failure removes the previous --out"
+done
+# A symlinked --out inside the repo keeps pointing at its report and is not a repository change.
+for r in claude codex; do
+  printf 'APPROVE\n' > "$WORK/ext-report.txt"; ln -s "$WORK/ext-report.txt" "$LR/link.out"
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR" --base HEAD --out "$LR/link.out" --timeout 10 >/dev/null 2>"$WORK/$r-link.err" || rc=$?
+  [ "$rc" -eq 0 ] || fail "$r review with a symlinked --out exits 0 (got $rc): $(cat "$WORK/$r-link.err")"
+  [ -L "$LR/link.out" ] || fail "$r keeps the --out symlink"
+  [ -s "$WORK/ext-report.txt" ] || fail "$r writes the report through the --out symlink"
+  rm -f "$LR"/link.out* "$WORK/ext-report.txt"
+done
+# Grok resolves --out before writing: the symlink as given is still a leg output, not a change.
+ln -s "$WORK/ext-grok.txt" "$LR2/link.out"
+rc=0; printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$LR2" --base HEAD --out "$LR2/link.out" --timeout 10 >/dev/null 2>"$WORK/grok-link.err" || rc=$?
+[ "$rc" -eq 3 ] || fail "grok review of a clean tree with a symlinked --out exits 3 (got $rc): $(cat "$WORK/grok-link.err")"
+rm -f "$LR2"/link.out* "$WORK/ext-grok.txt"
+# A tracked --out is a leg output too: it stays out of the tracked part of the review diff.
+LR3="$WORK/leg-repo-tracked"; mkdir -p "$LR3"; git -C "$LR3" init -q
+printf 'one\n' > "$LR3/f.txt"; printf 'TRACKED_MARKER\n' > "$LR3/leg.out"
+git -C "$LR3" add f.txt leg.out; git -C "$LR3" -c user.email=t@t -c user.name=t commit -qm base
+printf 'two\n' > "$LR3/f.txt"
+rc=0; printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --repo "$LR3" --base HEAD --out "$LR3/leg.out" --timeout 10 >/dev/null 2>"$WORK/codex-tracked.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "codex review with a tracked --out exits 0 (got $rc): $(cat "$WORK/codex-tracked.err")"
+contains "$WORK/codex.prompt" '+two' 'codex review diff carries the tracked change'
+absent "$WORK/codex.prompt" 'TRACKED_MARKER' 'codex review diff leaves out a tracked --out'
+# A custom --stream-log inside the repo is a leg output: an earlier run's stream is not under review.
+printf 'GROK_STREAM_MARKER\n' > "$LR/custom.stream"
+rc=0; printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$LR" --base HEAD --out "$WORK/grok-leg.out" --stream-log "$LR/custom.stream" --timeout 10 >/dev/null 2>"$WORK/grok-leg.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "grok review with an in-repo --stream-log exits 0 (got $rc): $(cat "$WORK/grok-leg.err")"
+absent "$WORK/grok.prompt" 'GROK_STREAM_MARKER' 'grok review diff leaves out its --stream-log'
+rm -f "$LR"/custom.stream*
+PATH="$leg_old_path"
+pass 'codex/claude: a non-implement leg that changes the repo exits 7; leg files stay out of the review diff; fable-5-2 accepted'
 
 # --- run-agy.sh against a stub agy ---
 AG="$WORK/agy"; mkdir -p "$AG/bin" "$AG/calls"
@@ -3212,6 +3373,9 @@ for bad in '--mode review' '--mode implement --base HEAD' '--mode implement --ef
 done
 git -C "$AR" checkout -q -- f.txt
 pass 'run-agy: YOLO implement, diff-only review outside the repo, write detection, exits'
+out="$(printf 'x\n' | "${agy_env[@]}" bash "$AGY_RUN" --mode implement --repo "$AR" --out /dev/stdout --timeout 30 2>"$AG/err")" || fail "run-agy --out /dev/stdout exits 0: $(cat "$AG/err")"
+case "$out" in *done*) ;; *) fail "run-agy --out /dev/stdout puts the body on stdout: $out" ;; esac
+pass 'run-agy: --out /dev/stdout exits 0 with the body on stdout'
 
 for level in low medium high; do
   argon_n="$(find "$AG/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
@@ -3588,6 +3752,14 @@ out="$(pick --tier T2 --prefer gpt-5.6-terra --deny codex --usage /dev/null 2>/d
 case "$out" in *gpt-5.6-terra*) fail 'model preference cannot bypass provider denial' ;; esac
 out="$(pick --tier T2 --prefer gpt-5.6-terra 2>/dev/null)"
 case "$out" in *gpt-5.6-terra*) fail 'model preference cannot bypass tight usage windows' ;; esac
+# A worker bound by several tight windows is usable only after the LATEST of them resets.
+two_h=$(( $(date +%s) + 7200 )); three_d=$(( $(date +%s) + 259200 ))
+printf 'claude 5h 95%% resets %s in 2h as-of x\nclaude 7d 97%% resets %s in 3d as-of x\n' "$(utc_min "$two_h")" "$(utc_min "$three_d")" > "$PL/usage-multi.txt"
+rc=0; pick --tier T2 --allow claude --usage "$PL/usage-multi.txt" >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "two tight Claude windows with only Claude allowed exit 75 (got $rc)"
+contains "$PL/err" "skip T2 claude/claude-sonnet-5: plan window >= 90% until $(utc_min "$three_d")" 'skip line shows the latest binding reset'
+contains "$PL/err" "earliest plan reset $(utc_min "$three_d")" 'no-worker exit shows the latest binding reset of the only worker'
+pass 'pool reports the latest reset among the tight windows binding a worker'
 # Use it or lose it: a 7d window <= 60% used that resets within 24h moves that provider first.
 half=$(( $(date +%s) + 43200 )); twodays=$(( $(date +%s) + 172800 ))
 printf 'codex 7d 40%% resets %s in 12h as-of x\nagy 7d 61%% resets %s\nclaude 7d 10%% resets %s\n' \

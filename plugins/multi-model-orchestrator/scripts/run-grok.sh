@@ -55,6 +55,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$output_file"
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 case "$model" in
   grok-4.7|grok-4.6|grok-4.5) ;;
@@ -118,6 +119,8 @@ isolated_auth="$isolated_grok_home/auth.json"
 start_auth_snapshot="$runtime_dir/auth.start.json"
 user_out=0
 [ -z "$output_file" ] || user_out=1
+# As given, before symlinks are resolved: both forms are leg outputs.
+leg_paths=("$output_file" "$stream_file")
 [ -n "$output_file" ] || output_file="$(mktemp)"
 out_dev=""
 case "$output_file" in
@@ -238,32 +241,7 @@ cat > "$request_file"
 
 case "$mode" in
   review)
-    git -C "$repo_dir" rev-parse --verify "$base_ref^{commit}" >/dev/null || {
-      printf 'run-grok: invalid base ref: %s\n' "$base_ref" >&2
-      exit 2
-    }
-    git -C "$repo_dir" diff --no-ext-diff --binary "$base_ref" -- > "$diff_file"
-    while IFS= read -r -d '' untracked; do
-      # --no-index exits 1 when files differ (expected). Keep 2>/dev/null so the
-      # exit-1 path does not leak incidental git stderr into the runner; exit 2+
-      # is a real failure and must not be swallowed.
-      set +e
-      git -C "$repo_dir" diff --no-index --binary -- /dev/null "$untracked" >> "$diff_file" 2>/dev/null
-      untracked_rc=$?
-      set -e
-      if [ "$untracked_rc" -gt 1 ]; then
-        printf 'run-grok: failed to include untracked file in review diff: %s\n' "$untracked" >&2
-        exit "$untracked_rc"
-      fi
-    done < <(git -C "$repo_dir" ls-files -z --others --exclude-standard)
-    [ -s "$diff_file" ] || { printf 'run-grok: no diff to review\n' >&2; exit 3; }
-    max_bytes="${MMO_REVIEW_DIFF_MAX_BYTES:-1048576}"
-    [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: MMO_REVIEW_DIFF_MAX_BYTES must be positive\n' >&2; exit 2; }
-    diff_bytes="$(wc -c < "$diff_file" | tr -d ' ')"
-    [ "$diff_bytes" -le "$max_bytes" ] || {
-      printf 'run-grok: diff is %s bytes; split or raise MMO_REVIEW_DIFF_MAX_BYTES=%s explicitly\n' "$diff_bytes" "$max_bytes" >&2
-      exit 4
-    }
+    mmo_review_diff run-grok "$repo_dir" "$base_ref" "$diff_file" "${leg_paths[@]}"
     {
       printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files.'
       printf 'You have at most %s agent turns: read the diff first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
@@ -383,7 +361,7 @@ set +e
 if [ "$continue_n" -gt 0 ]; then
   session_id="$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
   session_id="${session_id:0:8}-${session_id:8:4}-4${session_id:13:3}-a${session_id:17:3}-${session_id:20:12}"
-  [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "$output_file")"
+  [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 fi
 started=$SECONDS
 run_grok_call "$run_timeout" "$prompt_file" ${inspect_args[@]+"${inspect_args[@]}"} ${session_id:+--session-id "$session_id"}
@@ -394,7 +372,7 @@ while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max tur
   left=$((run_timeout - (SECONDS - started)))
   [ "$left" -ge 30 ] || break
   if [ "$mode" = implement ]; then
-    now="$(mmo_tree_state "$repo_dir" "$output_file")"
+    now="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
     [ "$now" != "$before" ] || break
     before="$now"
   fi
