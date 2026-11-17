@@ -37,6 +37,18 @@ WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
   || { tribunal_error codex "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
 PROMPT_FILE="$TMPDIR/prompt.md"
 DIFF_FILE="$TMPDIR/review.diff"
+model_args=(
+  --ignore-user-config --ignore-rules --strict-config
+  --disable apps --disable plugins --disable hooks --disable multi_agent
+  --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access
+  --disable computer_use --disable in_app_browser --disable standalone_web_search
+  --disable enable_mcp_apps --disable image_generation
+  --dangerously-bypass-approvals-and-sandbox
+  --ephemeral
+  -c 'mcp_servers={}' -c 'shell_environment_policy.inherit="core"'
+)
+[ -z "$CODEX_EFFORT" ] || model_args+=(-c "model_reasoning_effort=\"$CODEX_EFFORT\"")
+NATIVE_NOTE=""
 if [ "$MODE" = smoke ]; then
   tribunal_smoke_prompt codex > "$PROMPT_FILE"
 else
@@ -46,26 +58,22 @@ else
   DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
   [ -s "$DIFF_FILE" ] || { tribunal_empty codex "$CODEX_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
   tribunal_context_block "$REPO_ROOT" "$CONTEXT_FILE"
+  if [ "${TRIBUNAL_NATIVE_REVIEW:-on}" != off ]; then
+    native_rc=0
+    (cd "$WALK_ROOT" && env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 240 codex exec review \
+      "${model_args[@]}" -m "$CODEX_MODEL" --base "$(printf '%s' "$DIFF_STAT" | jq -r '.base_oid')" \
+      --output-last-message "$TMPDIR/native.txt" < /dev/null > /dev/null 2> "$TMPDIR/native.err") || native_rc=$?
+    NATIVE_NOTE="$(tribunal_native_leads 'codex exec review' "$TMPDIR/native.txt" "$native_rc" "$CONTEXT_FILE")"
+  fi
   tribunal_review_prompt codex "$DIFF_FILE" "$CONTEXT_FILE" "repo-walking" > "$PROMPT_FILE"
 fi
 
-model_args=(
-  --ignore-user-config --ignore-rules --strict-config
-  --disable apps --disable plugins --disable hooks --disable multi_agent
-  --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access
-  --disable computer_use --disable in_app_browser --disable standalone_web_search
-  --disable enable_mcp_apps --disable image_generation
-  --dangerously-bypass-approvals-and-sandbox
-  --ephemeral --color never
-  -c 'mcp_servers={}' -c 'shell_environment_policy.inherit="core"'
-)
-[ -z "$CODEX_EFFORT" ] || model_args+=(-c "model_reasoning_effort=\"$CODEX_EFFORT\"")
 rc=0
-RUN_TIMEOUT=600
+RUN_TIMEOUT=$((600 - SECONDS))  # one 600 s leg budget covers the native pass and the verdict pass
 [ "$MODE" = smoke ] && RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
 LAST_FILE="$TMPDIR/last-message.json"
 SCHEMA_FILE="$(tribunal_review_schema)"
-env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" -m "$CODEX_MODEL" \
+env CODEX_HOME="$ISOLATED_CODEX_HOME" timeout -k 10 "$RUN_TIMEOUT" codex exec "${model_args[@]}" --color never -m "$CODEX_MODEL" \
   --output-schema "$SCHEMA_FILE" \
   --output-last-message "$LAST_FILE" -C "$WALK_ROOT" - \
   < "$PROMPT_FILE" > "$TMPDIR/out.txt" 2> "$TMPDIR/err.txt" || rc=$?
@@ -82,7 +90,8 @@ if [ "$rc" -eq 0 ]; then
         "Codex returned an unusable repository review" \
         "$RESPONSE_FILE" "$TMPDIR/err.txt" "$rc" \
       | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
-      | tribunal_stamp_diff_stat "$DIFF_STAT"
+      | tribunal_stamp_diff_stat "$DIFF_STAT" \
+      | tribunal_stamp_note "$NATIVE_NOTE"
   fi
 else
   tribunal_error_with_diagnostics codex "Codex execution failed or timed out" execution \

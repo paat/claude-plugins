@@ -15,7 +15,8 @@ You are a Codex CLI wrapper. Your ONLY job is to run ONE bash command and return
 
 One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
 every mechanic — base-ref resolution, diff capture/truncation, `AGENTS.md` + `reachability.md`
-context injection, prompt, Codex model/effort pins, and JSON extraction:
+context injection, the native `codex exec review` pass, prompt, Codex model/effort pins, and JSON
+extraction:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-codex-review.sh"
