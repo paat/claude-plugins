@@ -55,7 +55,7 @@ if [ "$MODE" = review ] && [ "${TRIBUNAL_NATIVE_REVIEW:-on}" != off ]; then
   # `/review` always runs the bundled /code-review; a repository skill cannot replace it.
   case "$CLAUDE_EFFORT" in low|medium|high) NATIVE_LEVEL="$CLAUDE_EFFORT" ;; xhigh|max) NATIVE_LEVEL=high ;; *) NATIVE_LEVEL=medium ;; esac
   native_rc=0
-  (cd "$SCRATCH" && timeout -k 10 "$TRIBUNAL_NATIVE_TIMEOUT" claude -p "/review $NATIVE_LEVEL $DIFF_FILE" "${claude_args[@]}" \
+  (cd "$SCRATCH" && timeout -k 10 "$tribunal_native_seconds" claude -p "/review $NATIVE_LEVEL $DIFF_FILE" "${claude_args[@]}" \
     < /dev/null > "$TMPDIR/native.json" 2> "$TMPDIR/native.err") || native_rc=$?
   jq -r 'select(.is_error != true) | .result // empty' "$TMPDIR/native.json" > "$TMPDIR/native.txt" 2>/dev/null \
     || : > "$TMPDIR/native.txt"
