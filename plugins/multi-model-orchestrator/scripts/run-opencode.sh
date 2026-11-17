@@ -47,6 +47,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$output_file"
 case "$mode" in implement|review) ;; *) printf 'run-opencode: --mode must be implement or review\n' >&2; exit 2 ;; esac
 [[ "$model" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || { printf 'run-opencode: unsupported model %s (expected a bare OpenCode Go model id)\n' "$model" >&2; exit 2; }
 [ "$effort" = default ] || [[ "$effort" =~ ^[a-z]+$ ]] || { printf 'run-opencode: unsupported effort %s (expected default or a lowercase variant)\n' "$effort" >&2; exit 2; }
@@ -93,7 +94,7 @@ cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-opencode: empty prompt\n' >&2; exit 2; }
 
 if [ "$mode" = review ]; then
-  mmo_review_diff run-opencode "$repo_dir" "$base_ref" "$diff_file" "$(realpath -m "$output_file")"
+  mmo_review_diff run-opencode "$repo_dir" "$base_ref" "$diff_file" "$output_file"
   {
     printf '%s\n' 'You are an independent, read-only reviewer. Do not create or modify any file.'
     printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
@@ -106,7 +107,7 @@ if [ "$mode" = review ]; then
   work_dir="$runtime_dir/empty"
   mkdir "$work_dir"
   oc_args=(--agent plan)
-  tree_before="$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")"
+  tree_before="$(mmo_tree_state "$repo_dir" "$output_file")"
 else
   {
     printf '%s\n' 'You are one fresh, bounded implementation worker.'
@@ -171,7 +172,7 @@ elif [ "$rc" -eq 1 ] && [ "$err_type" = provider.no-route ]; then
   # mmo_finish reclassifies 75; this text must not turn it into auth.
   : > "$classify_file"
 fi
-if [ "$mode" = review ] && [ "$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")" != "$tree_before" ]; then
+if [ "$mode" = review ] && [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$tree_before" ]; then
   printf 'run-opencode: the review leg changed %s; inspect git status before trusting it\n' "$repo_dir" >&2
   rc=7
 fi

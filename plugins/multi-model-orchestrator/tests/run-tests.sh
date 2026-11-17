@@ -2962,6 +2962,7 @@ cw_case() { printf '%s\n%s\n' "$cw_over" "$2" > "$CW/case.jsonl"; watch "$1" "$C
 [ -n "$(cw_case sl3 '{"name":"Skill","input":{"skill":"multi-model-orchestrator:meta-orchestration"}}')" ] || fail 'Context watch warns on a Skill tool invocation'
 [ -n "$(cw_case sl4 '{"type":"user","message":"$multi-model-orchestrator:meta-orchestrate epic"}')" ] || fail 'Context watch warns on a $-prefixed Codex invocation'
 [ -n "$(cw_case sl5 '{"type":"user","message":"# /multi-model-orchestrator:meta-orchestrate Codex Workflow"}')" ] || fail 'Context watch warns on the loaded Codex workflow heading'
+[ -z "$(cw_case sl6 '{"type":"user","message":"Explain \"/multi-model-orchestrator:meta-orchestrate\" without running it"}')" ] || fail 'Context watch ignores a quoted mention of the command'
 contains "$PLUGIN_ROOT/hooks/hooks.json" 'hooks/context-watch.sh' 'Context watch runs as a PostToolUse hook'
 pass 'Context watch warns a meta-orchestrator once past MMO_CONTEXT_WARN_TOKENS'
 
@@ -3262,6 +3263,37 @@ rc=0; printf x | STUB_CODEX_RESULT=fake_metadata "$PLUGIN_ROOT/scripts/run-codex
 [ ! -e "$LR/stale.out" ] || fail 'a failed codex rerun removes the previous --out'
 rc=0; bash "$PLUGIN_ROOT/scripts/review-gate.sh" --leg codex="$LR/stale.out" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "review-gate rejects the removed --out with exit 2 (got $rc)"
+# A rerun that stops in preflight (nothing to review) must not leave the earlier verdict either.
+for r in claude codex grok; do
+  printf 'APPROVE\n' > "$LR2/stale.out"
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR2" --base HEAD --out "$LR2/stale.out" --timeout 10 >/dev/null 2>"$WORK/$r-stale.err" || rc=$?
+  [ "$rc" -eq 3 ] || fail "$r review of a clean tree exits 3 (got $rc)"
+  [ ! -e "$LR2/stale.out" ] || fail "$r preflight failure removes the previous --out"
+done
+# A symlinked --out inside the repo keeps pointing at its report and is not a repository change.
+for r in claude codex; do
+  printf 'APPROVE\n' > "$WORK/ext-report.txt"; ln -s "$WORK/ext-report.txt" "$LR/link.out"
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode review --repo "$LR" --base HEAD --out "$LR/link.out" --timeout 10 >/dev/null 2>"$WORK/$r-link.err" || rc=$?
+  [ "$rc" -eq 0 ] || fail "$r review with a symlinked --out exits 0 (got $rc): $(cat "$WORK/$r-link.err")"
+  [ -L "$LR/link.out" ] || fail "$r keeps the --out symlink"
+  [ -s "$WORK/ext-report.txt" ] || fail "$r writes the report through the --out symlink"
+  rm -f "$LR"/link.out* "$WORK/ext-report.txt"
+done
+# A tracked --out is a leg output too: it stays out of the tracked part of the review diff.
+LR3="$WORK/leg-repo-tracked"; mkdir -p "$LR3"; git -C "$LR3" init -q
+printf 'one\n' > "$LR3/f.txt"; printf 'TRACKED_MARKER\n' > "$LR3/leg.out"
+git -C "$LR3" add f.txt leg.out; git -C "$LR3" -c user.email=t@t -c user.name=t commit -qm base
+printf 'two\n' > "$LR3/f.txt"
+rc=0; printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --repo "$LR3" --base HEAD --out "$LR3/leg.out" --timeout 10 >/dev/null 2>"$WORK/codex-tracked.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "codex review with a tracked --out exits 0 (got $rc): $(cat "$WORK/codex-tracked.err")"
+contains "$WORK/codex.prompt" '+two' 'codex review diff carries the tracked change'
+absent "$WORK/codex.prompt" 'TRACKED_MARKER' 'codex review diff leaves out a tracked --out'
+# A custom --stream-log inside the repo is a leg output: an earlier run's stream is not under review.
+printf 'GROK_STREAM_MARKER\n' > "$LR/custom.stream"
+rc=0; printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$LR" --base HEAD --out "$WORK/grok-leg.out" --stream-log "$LR/custom.stream" --timeout 10 >/dev/null 2>"$WORK/grok-leg.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "grok review with an in-repo --stream-log exits 0 (got $rc): $(cat "$WORK/grok-leg.err")"
+absent "$WORK/grok.prompt" 'GROK_STREAM_MARKER' 'grok review diff leaves out its --stream-log'
+rm -f "$LR"/custom.stream*
 PATH="$leg_old_path"
 pass 'codex/claude: a non-implement leg that changes the repo exits 7; leg files stay out of the review diff; fable-5-2 accepted'
 

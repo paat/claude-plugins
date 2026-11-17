@@ -89,6 +89,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$output_file"
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-claude: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 api_key_file="${MMO_CLAUDE_API_KEY_FILE:-}"
 if [ "$api" -eq 1 ]; then
@@ -156,8 +157,7 @@ if [ "$api" -eq 1 ]; then
 fi
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-claude: empty prompt\n' >&2; exit 2; }
-leg_paths=("$(realpath -m "$output_file")")
-[ "$stream_log_set" -eq 0 ] || leg_paths+=("$(realpath -m "$stream_file")")
+leg_paths=("$output_file" "$stream_file")
 
 case "$mode" in
   review)

@@ -55,6 +55,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$output_file"
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 case "$model" in
   grok-4.7|grok-4.6|grok-4.5) ;;
@@ -238,7 +239,7 @@ cat > "$request_file"
 
 case "$mode" in
   review)
-    mmo_review_diff run-grok "$repo_dir" "$base_ref" "$diff_file" "$output_file"
+    mmo_review_diff run-grok "$repo_dir" "$base_ref" "$diff_file" "$output_file" "$stream_file"
     {
       printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files.'
       printf 'You have at most %s agent turns: read the diff first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
@@ -358,7 +359,7 @@ set +e
 if [ "$continue_n" -gt 0 ]; then
   session_id="$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
   session_id="${session_id:0:8}-${session_id:8:4}-4${session_id:13:3}-a${session_id:17:3}-${session_id:20:12}"
-  [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "$output_file")"
+  [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "$output_file" "$stream_file")"
 fi
 started=$SECONDS
 run_grok_call "$run_timeout" "$prompt_file" ${inspect_args[@]+"${inspect_args[@]}"} ${session_id:+--session-id "$session_id"}
@@ -369,7 +370,7 @@ while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max tur
   left=$((run_timeout - (SECONDS - started)))
   [ "$left" -ge 30 ] || break
   if [ "$mode" = implement ]; then
-    now="$(mmo_tree_state "$repo_dir" "$output_file")"
+    now="$(mmo_tree_state "$repo_dir" "$output_file" "$stream_file")"
     [ "$now" != "$before" ] || break
     before="$now"
   fi

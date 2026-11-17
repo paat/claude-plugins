@@ -50,6 +50,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$output_file"
 case "$mode" in advise|implement|research|review) ;; *) printf 'run-muse: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
 case "$model" in default|muse-*) ;; *) printf 'run-muse: unsupported model %s (expected default or a muse-* id)\n' "$model" >&2; exit 2 ;; esac
 case "$effort" in minimal|low|medium|high|xhigh|max) ;; *) printf 'run-muse: unsupported effort %s (expected minimal|low|medium|high|xhigh|max)\n' "$effort" >&2; exit 2 ;; esac
@@ -88,7 +89,7 @@ cat > "$request_file"
 
 case "$mode" in
   review)
-    mmo_review_diff run-muse "$repo_dir" "$base_ref" "$diff_file" "$(realpath -m "$output_file")"
+    mmo_review_diff run-muse "$repo_dir" "$base_ref" "$diff_file" "$output_file"
     {
       printf '%s\n' 'You are an independent, read-only reviewer. Do not create or modify any file.'
       printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
@@ -145,7 +146,7 @@ case "$mode" in
 esac
 [ "$model" = default ] || muse_args+=(--model "$model")
 muse_args+=(--workspace "$work_dir")
-[ "$mode" = implement ] || tree_before="$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")"
+[ "$mode" = implement ] || tree_before="$(mmo_tree_state "$repo_dir" "$output_file")"
 
 run_cli() {
   cd "$work_dir" || return
@@ -176,7 +177,7 @@ if [ "$model" != default ] && [ -n "$served" ] && [ "$served" != "$model" ]; the
   printf 'run-muse: muse configured model %s, not the requested %s\n' "$served" "$model" >&2
   rc=7
 fi
-if [ "$mode" != implement ] && [ "$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")" != "$tree_before" ]; then
+if [ "$mode" != implement ] && [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$tree_before" ]; then
   printf 'run-muse: the %s leg changed %s; inspect git status before trusting it\n' "$mode" "$repo_dir" >&2
   rc=7
 fi

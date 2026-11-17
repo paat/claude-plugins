@@ -24,7 +24,7 @@ if [ "$tokens" -lt "$limit" ]; then rm -f "$marker"; exit 0; fi
 [ -e "$marker" ] && exit 0
 # An invocation, not a mention: every session's skill listing names the skill.
 # Skill tool input, a slash or $ command opening a message, or the loaded Codex workflow skill.
-grep -qE '"skill":"multi-model-orchestrator:meta-orchestrat|"[/$]multi-model-orchestrator:meta-orchestrat|<command-name>/?multi-model-orchestrator:meta-orchestrat|# /multi-model-orchestrator:meta-orchestrate Codex Workflow' "$transcript" || exit 0
+grep -qE '"skill":"multi-model-orchestrator:meta-orchestrat|[^\\]"[/$]multi-model-orchestrator:meta-orchestrat|<command-name>/?multi-model-orchestrator:meta-orchestrat|# /multi-model-orchestrator:meta-orchestrate Codex Workflow' "$transcript" || exit 0
 : > "$marker"
 
 msg="Context is at $tokens tokens (MMO_CONTEXT_WARN_TOKENS=$limit). If this session is running /multi-model-orchestrator:meta-orchestrate: bring the handoff current now, and keep this item lean (legs return verdicts, no full-file reads here); compaction resumes from the handoff."

@@ -109,18 +109,29 @@ mmo_finish() {
 # Pathspec for REPO without each leg output path under it and the runner files written
 # beside it (.stream, .stderr, .stream.stderr, .exit). Sets the array mmo_spec.
 mmo_out_spec() {  # mmo_out_spec REPO [OUT]...
-  local repo="$1" out suffix
+  local repo="$1" out form suffix
   shift
   mmo_spec=(.)
   for out in "$@"; do
-    case "$out" in
-      "$repo"/*)
-        for suffix in '' .stream .stderr .stream.stderr .exit; do
-          mmo_spec+=(":(exclude,literal)${out#"$repo"/}$suffix")
-        done
-        ;;
-    esac
+    [ -n "$out" ] || continue
+    # As given and resolved: --out may be a symlink inside REPO, or reached through one.
+    for form in "$out" "$(realpath -m -- "$out" 2>/dev/null || true)"; do
+      case "$form" in
+        "$repo"/*)
+          for suffix in '' .stream .stderr .stream.stderr .exit; do
+            mmo_spec+=(":(exclude,literal)${form#"$repo"/}$suffix")
+          done
+          ;;
+      esac
+    done
   done
+}
+
+# A leg that fails must not leave an earlier run's report (a verdict) at its --out.
+# A symlink is emptied in place so it keeps pointing at its target.
+mmo_clear_out() {  # mmo_clear_out PATH
+  case "$1" in ''|/dev/*) return 0 ;; esac
+  if [ -L "$1" ]; then : > "$1"; else rm -f -- "$1"; fi 2>/dev/null || true
 }
 
 # Fingerprint HEAD, index, working tree, and untracked file contents, so a caller can
@@ -139,14 +150,16 @@ mmo_tree_state() {  # mmo_tree_state REPO [OUT]...
   } 2>/dev/null | cksum
 }
 
-# Write the review diff of REPO against BASE to DIFF, then close it (below).
+# Write the review diff of REPO against BASE to DIFF, without the leg outputs, then close it (below).
 # Exits 2 on an invalid ref.
 mmo_review_diff() {  # mmo_review_diff RUNNER REPO BASE DIFF [OUT]...
   git -C "$2" rev-parse --verify "$3^{commit}" >/dev/null || {
     printf '%s: invalid base ref: %s\n' "$1" "$3" >&2
     exit 2
   }
-  git -C "$2" diff --no-ext-diff --binary "$3" -- > "$4"
+  local -a mmo_spec
+  mmo_out_spec "$2" "${@:5}"
+  git -C "$2" diff --no-ext-diff --binary "$3" -- "${mmo_spec[@]}" > "$4"
   mmo_review_diff_close "$1" "$2" "$4" "${@:5}"
 }
 

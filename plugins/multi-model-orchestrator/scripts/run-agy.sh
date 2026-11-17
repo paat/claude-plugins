@@ -44,6 +44,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$output_file"
 case "$mode" in implement|review) ;; *) printf 'run-agy: --mode must be implement or review\n' >&2; exit 2 ;; esac
 case "$model" in gemini-3.8-flash|gemini-4-argon|gemini-4-hydrogen|claude-opus-5-5|claude-sonnet-5-5) ;; *) printf 'run-agy: unsupported model %s (current catalog: gemini-3.8-flash|gemini-4-argon|gemini-4-hydrogen|claude-opus-5-5|claude-sonnet-5-5)\n' "$model" >&2; exit 2 ;; esac
 case "$effort" in low|medium|high) ;; *) printf 'run-agy: unsupported effort %s (expected low|medium|high)\n' "$effort" >&2; exit 2 ;; esac
@@ -85,7 +86,7 @@ cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-agy: empty prompt\n' >&2; exit 2; }
 
 if [ "$mode" = review ]; then
-  mmo_review_diff run-agy "$repo_dir" "$base_ref" "$diff_file" "$(realpath -m "$output_file")"
+  mmo_review_diff run-agy "$repo_dir" "$base_ref" "$diff_file" "$output_file"
   {
     printf '%s\n' 'You are an independent, read-only reviewer. Do not create or modify any file.'
     printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
@@ -98,7 +99,7 @@ if [ "$mode" = review ]; then
   work_dir="$runtime_dir/empty"
   mkdir "$work_dir"
   agy_args=()
-  tree_before="$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")"
+  tree_before="$(mmo_tree_state "$repo_dir" "$output_file")"
 else
   {
     printf '%s\n' 'You are one fresh, bounded implementation worker.'
@@ -143,7 +144,7 @@ if [ "$rc" -eq 1 ] && grep -Eq 'invalid model selection.*model .* is not recogni
   printf 'run-agy: selected model is unavailable in this CLI/account\n' >&2
   rc=75
 fi
-if [ "$mode" = review ] && [ "$(mmo_tree_state "$repo_dir" "$(realpath -m "$output_file")")" != "$tree_before" ]; then
+if [ "$mode" = review ] && [ "$(mmo_tree_state "$repo_dir" "$output_file")" != "$tree_before" ]; then
   printf 'run-agy: the review leg changed %s; inspect git status before trusting it\n' "$repo_dir" >&2
   rc=7
 fi

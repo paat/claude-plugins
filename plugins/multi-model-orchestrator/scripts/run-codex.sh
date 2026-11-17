@@ -50,6 +50,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$final_file"
 case "$mode" in implement|research|review) ;; *) printf 'run-codex: --mode must be implement, research, or review\n' >&2; exit 2 ;; esac
 valid_effort "$effort" || {
   printf 'run-codex: unsupported effort %s (expected low|medium|high|xhigh|max|ultra)\n' "$effort" >&2
@@ -107,7 +108,7 @@ else
 fi
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'run-codex: empty prompt\n' >&2; exit 2; }
-leg_paths=("$(realpath -m "$final_file")" "$(realpath -m "$stream_file")")
+leg_paths=("$final_file" "$stream_file")
 
 if [ "$mode" = review ]; then
   if [ "$base_set" -eq 1 ]; then
@@ -153,8 +154,6 @@ codex_args+=(-m "$model" -c "model_reasoning_effort=\"$effort\"")
 [ "$mode" != research ] || codex_args+=(-c tools.web_search=true)
 codex_args+=(-o "$final_file" -)
 
-# A failed rerun must not leave an earlier verdict in --out: Codex writes it only on success.
-rm -f -- "$final_file"
 # The Codex CLI has no read-only mode to enforce, so detect a write instead.
 [ "$mode" = implement ] || tree_before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 set +e

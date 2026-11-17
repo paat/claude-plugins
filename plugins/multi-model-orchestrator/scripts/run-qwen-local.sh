@@ -64,6 +64,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+mmo_clear_out "$output_file"
 command -v git >/dev/null 2>&1 || { printf 'run-qwen-local: git not found\n' >&2; exit 127; }
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || {
   printf 'run-qwen-local: not a git repository: %s\n' "$repo_dir" >&2
@@ -174,7 +175,7 @@ if [ "$mode" = review ]; then
     printf 'run-qwen-local: cannot diff %s in %s\n' "$base_ref" "$repo_dir" >&2
     exit 2
   }
-  mmo_review_diff_close run-qwen-local "$repo_dir" "$review_patch" "$(realpath -m "$output_file")"
+  mmo_review_diff_close run-qwen-local "$repo_dir" "$review_patch" "$output_file"
 fi
 
 # 2. Take the slot first, so our own dispatches never race each other into the
