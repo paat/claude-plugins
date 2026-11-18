@@ -2025,9 +2025,9 @@ pass '#523l: empty stream under --stream-log exits 5, not malformed'
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
   'README must not claim no jq dependency'
 contains "$PLUGIN_ROOT/README.md" \
-  '`jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, and the local-Qwen route' \
+  '`jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, `run-vibe.sh`, and the local-Qwen route' \
   'README documents where jq is required'
-pass 'README documents jq for Claude --stream-log, agy, Muse, OpenCode, and local Qwen'
+pass 'README documents jq for Claude --stream-log, agy, Muse, OpenCode, Vibe, and local Qwen'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
@@ -3816,14 +3816,141 @@ printf 'x\n' | "${oc_env[@]}" MMO_OUTCOMES_FILE="$OC/outcomes.tsv" bash "$OC_RUN
 awk -F '\t' 'NR == 2 {exit !($5 == "opencode" && $11 == 173)} END {if (NR != 2) exit 1}' "$OC/outcomes.tsv" || fail "opencode outcome row has provider and summed tokens: $(cat "$OC/outcomes.tsv")"
 pass 'run-opencode: --auto implement, plan-agent review outside the repo, variants, write detection, error mapping, v1 refusal, exits'
 
+# --- run-vibe.sh against a stub vibe (stream and export shapes of vibe 3.1.3) ---
+VB="$WORK/vibe"; mkdir -p "$VB/bin" "$VB/calls"
+VIBE_RUN="$PLUGIN_ROOT/scripts/run-vibe.sh"
+cat > "$VB/bin/vibe" <<'STUB'
+#!/usr/bin/env bash
+[ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
+if [ "${1:-}" = --version ]; then printf '%s\n' "${STUB_VIBE_VERSION:-vibe 3.1.3}"; exit 0; fi
+n=$(find "$STUB_VIBE_CALLS" -name 'call.*.args' | wc -l)
+printf '%s\n' "$@" > "$STUB_VIBE_CALLS/call.$n.args"
+pwd > "$STUB_VIBE_CALLS/call.$n.cwd"
+export_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --prompt-file) cp "$2" "$STUB_VIBE_CALLS/call.$n.prompt"; shift 2 ;;
+    --output-dir) export_dir="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -z "${STUB_VIBE_SLEEP:-}" ] || sleep "$STUB_VIBE_SLEEP"
+[ -z "${STUB_VIBE_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_VIBE_TOUCH"
+[ -z "${STUB_VIBE_STDERR:-}" ] || printf '%s\n' "$STUB_VIBE_STDERR" >&2
+msg() { jq -cn --arg r "$1" --arg t "$2" --arg o "$3" '{type:"message",role:$r,content:[{type:"text",text:$t}],outcome:(if $o == "" then null else {type:$o} end)}'; }
+msg user 'the prompt' ''
+printf '%s\n' '{"type":"reasoning","text":"private","outcome":{"type":"committed"}}'
+msg assistant 'thinking aloud' committed
+printf '%s\n' '{"type":"effect","title":"file_system.read_file","state":{"status":"completed"}}'
+msg assistant "${STUB_VIBE_RESPONSE-done
+
+APPROVE}" committed
+[ -z "${STUB_VIBE_DISCARDED:-}" ] || msg assistant "$STUB_VIBE_DISCARDED" discarded
+mkdir -p "$export_dir"
+jq -n --arg o "${STUB_VIBE_OUTCOME:-finished}" --arg e "${STUB_VIBE_ERROR:-}" --arg m "${STUB_VIBE_ACTIVE-mistral-large-4-0}" \
+  '{outcome:$o,error:(if $e == "" then null else {message:$e,code:null} end),usage:{input_tokens:150,output_tokens:23,total_tokens:173},config:{active_model:$m}}' > "$export_dir/export.json"
+exit "${STUB_VIBE_EXIT:-0}"
+STUB
+chmod +x "$VB/bin/vibe"
+VR="$VB/repo"; mkdir -p "$VR"; git -C "$VR" init -q
+printf 'one\n' > "$VR/f.txt"; git -C "$VR" add f.txt; git -C "$VR" -c user.email=t@t -c user.name=t commit -qm base
+vibe_env=(env -u MMO_VIBE_MODEL -u MMO_VIBE_EFFORT -u MMO_VIBE_MAX_TURNS PATH="$VB/bin:$PATH" STUB_VIBE_CALLS="$VB/calls")
+
+out="$(printf 'make f say two\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30 2>"$VB/err")" || fail "run-vibe implement succeeds: $(cat "$VB/err")"
+for flag in --prompt-file --output streaming --trust --auto-approve --max-turns 50 --output-dir; do
+  exact_line "$VB/calls/call.0.args" "$flag" "vibe implement passes $flag"
+done
+for flag in --enabled-tools --model --thinking; do
+  absent "$VB/calls/call.0.args" "$flag" "vibe implement passes no $flag by default"
+done
+exact_line "$VB/calls/call.0.cwd" "$VR" 'vibe implement runs in the repository'
+contains "$VB/calls/call.0.prompt" 'make f say two' 'vibe prompt carries the task packet'
+case "$out" in *done*) ;; *) fail "run-vibe prints the final message: $out" ;; esac
+case "$out" in *thinking*|*private*) fail "run-vibe prints only the last assistant message: $out" ;; esac
+contains "$VB/err" 'run-vibe: exit=0 model=mistral-large-4-0 effort=default mode=implement' 'run-vibe reports its exit line with the served model'
+
+printf 'x\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode implement --model mistral-medium-3.5 --effort high --max-turns 7 --repo "$VR" --timeout 30 >/dev/null 2>"$VB/err" \
+  || fail "run-vibe accepts a model alias and effort: $(cat "$VB/err")"
+for flag in --model mistral-medium-3.5 --thinking high 7; do
+  exact_line "$VB/calls/call.1.args" "$flag" "vibe pin passes $flag"
+done
+
+printf 'two\n' > "$VR/f.txt"
+out="$(printf 'review it\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30 2>"$VB/err")" || fail "run-vibe review succeeds: $(cat "$VB/err")"
+exact_line "$VB/calls/call.2.args" '--enabled-tools' 'vibe review restricts tools'
+exact_line "$VB/calls/call.2.args" 'read_file' 'vibe review enables read_file only'
+[ "$(grep -c -- '--enabled-tools' "$VB/calls/call.2.args")" -eq 1 ] || fail 'vibe review enables exactly one tool'
+absent "$VB/calls/call.2.args" '--auto-approve' 'vibe review does not auto-approve'
+absent "$VB/calls/call.2.args" '--trust' 'vibe review does not trust the folder'
+exact_line "$VB/calls/call.2.cwd" "$VR" 'vibe review runs in the repository'
+contains "$VB/calls/call.2.prompt" '+two' 'vibe review is handed the diff'
+case "$out" in *APPROVE*) ;; *) fail "run-vibe review prints the verdict: $out" ;; esac
+printf 'x\n' | "${vibe_env[@]}" STUB_VIBE_RESPONSE='file map' bash "$VIBE_RUN" --mode advise --repo "$VR" --timeout 30 >/dev/null 2>"$VB/err" \
+  || fail "run-vibe advise succeeds without a verdict: $(cat "$VB/err")"
+exact_line "$VB/calls/call.3.args" 'read_file' 'vibe advise enables read_file only'
+absent "$VB/calls/call.3.args" '--auto-approve' 'vibe advise does not auto-approve'
+
+vibe_rc() { local want="$1"; shift; local r=0; printf 'x\n' | "${vibe_env[@]}" "$@" >"$VB/out" 2>"$VB/err" || r=$?; [ "$r" -eq "$want" ] || fail "run-vibe want $want got $r: $* -- $(cat "$VB/err")"; }
+vibe_rc 6 STUB_VIBE_RESPONSE='looks fine' bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
+vibe_rc 7 STUB_VIBE_TOUCH="$VR/f.txt" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
+git -C "$VR" checkout -q -- f.txt; printf 'two\n' > "$VR/f.txt"
+vibe_rc 7 STUB_VIBE_TOUCH="$VR/new.txt" bash "$VIBE_RUN" --mode advise --repo "$VR" --timeout 30
+rm -f "$VR/new.txt"
+vibe_rc 5 STUB_VIBE_RESPONSE='' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+vibe_rc 5 STUB_VIBE_RESPONSE='' STUB_VIBE_DISCARDED='APPROVE' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+# vibe exits 3 for every limit stop; the export's outcome names which one.
+vibe_rc 78 STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=turn_limit STUB_VIBE_STDERR='Tool call denied: file_system.write_file (Tool execution denied by approval policy)' bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
+contains "$VB/err" 'turn cap reached (50) in --mode review' 'vibe review turn cap is named'
+contains "$VB/err" 'vibe denied 1 tool call(s) in --mode review' 'vibe denied tool calls are counted'
+[ ! -s "$VB/out" ] || fail 'a turn-capped vibe leg prints no interim message as its report'
+vibe_rc 78 STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=turn_limit bash "$VIBE_RUN" --mode advise --repo "$VR" --out "$VB/capped.txt" --timeout 30
+[ ! -s "$VB/capped.txt" ] || fail 'a turn-capped vibe leg leaves no interim message at --out'
+vibe_rc 76 STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=turn_limit bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'work may be partial' 'vibe implement turn cap says the work may be partial'
+vibe_rc 1 STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=token_limit bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'vibe failed (outcome: token_limit)' 'vibe names another limit stop'
+vibe_rc 77 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=config_error STUB_VIBE_ERROR='Missing MISTRAL_API_KEY environment variable for mistral provider' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'no Mistral API key in this home' 'vibe missing key is named'
+vibe_rc 77 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=infrastructure_failure STUB_VIBE_ERROR='API error 401 Unauthorized' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'exit=77 failure=auth' 'vibe 401 is classified as auth'
+vibe_rc 75 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=infrastructure_failure STUB_VIBE_ERROR='API error 429: rate limit exceeded' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'exit=75 failure=transient' 'vibe 429 is classified as transient'
+vibe_rc 1 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=usage_error STUB_VIBE_ERROR='Unknown model: nope. Available: mistral-large-4-0' bash "$VIBE_RUN" --mode implement --model nope --repo "$VR" --timeout 30
+contains "$VB/err" 'Unknown model: nope' 'vibe unknown alias is named'
+vibe_rc 1 STUB_VIBE_OUTCOME=terminated bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'without a finished run export' 'vibe exit 0 without a finished export is a failure'
+vibe_rc 124 STUB_VIBE_SLEEP=5 bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 1
+vibe_n="$(find "$VB/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
+vibe_rc 127 STUB_VIBE_VERSION='vibe 2.9.4' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'needs Mistral Vibe 3' 'run-vibe refuses vibe 2'
+[ "$(find "$VB/calls" -name 'call.*.args' | wc -l | tr -d ' ')" = "$vibe_n" ] || fail 'vibe 2 never reaches a run'
+for bad in '--mode probe' '--mode implement --effort ultra' '--mode implement --model Bad/Id' '--mode implement --max-turns 0' '--mode review --base --output=x'; do
+  r=0
+  # shellcheck disable=SC2086
+  printf 'x\n' | "${vibe_env[@]}" bash "$VIBE_RUN" $bad --repo "$VR" >/dev/null 2>&1 || r=$?
+  [ "$r" -eq 2 ] || fail "run-vibe rejects '$bad' as usage (got $r)"
+done
+printf 'x' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --out /dev/stdout --timeout 30 2>"$WORK/vibe-devout.err" | cat > "$WORK/vibe-devout.out"
+[ "${PIPESTATUS[1]}" -eq 0 ] || fail 'vibe --out /dev/stdout success rc want 0'
+[ "$(grep -c 'APPROVE' "$WORK/vibe-devout.out")" -eq 1 ] || fail 'vibe --out /dev/stdout piped must hold the body exactly once'
+printf 'x\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --out "$VR/review.txt" --timeout 30 >/dev/null 2>"$VB/err" \
+  || fail "run-vibe review with --out inside the repository is not a repository write: $(cat "$VB/err")"
+[ -s "$VR/review.txt.stream" ] || fail 'run-vibe keeps the event stream beside --out'
+rm -f "$VR/review.txt" "$VR/review.txt.stream"
+git -C "$VR" checkout -q -- f.txt
+printf 'x\n' | "${vibe_env[@]}" MMO_OUTCOMES_FILE="$VB/outcomes.tsv" bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30 >/dev/null 2>&1 \
+  || fail 'run-vibe records an outcome'
+awk -F '\t' 'NR == 2 {exit !($5 == "vibe" && $6 == "default" && $7 == "mistral-large-4-0" && $11 == 173)} END {if (NR != 2) exit 1}' "$VB/outcomes.tsv" || fail "vibe outcome row has provider, served model and tokens: $(cat "$VB/outcomes.tsv")"
+pass 'run-vibe: auto-approve implement, read_file-only untrusted advise/review, default model, write detection, turn cap, error mapping, vibe 2 refusal, exits'
+
 # --- secret isolation (#589): untracked .env* refusal and a scrubbed leg environment ---
 SE="$WORK/secret-env"; mkdir -p "$SE"; git -C "$SE" init -q
 printf '.env*\n' > "$SE/.gitignore"; printf 'x\n' > "$SE/f.txt"
 git -C "$SE" add .gitignore f.txt; git -C "$SE" -c user.email=t@t -c user.name=t commit -qm base
 printf 'TOKEN=1\n' > "$SE/.env.local"
 seen="$WORK/secret-seen"; : > "$seen"
-se_env=(env PATH="$WORK/bin:$AG/bin:$MU/bin:$OC/bin:$PATH" STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" STUB_OPENCODE_CALLS="$OC/calls" STUB_SECRET_SEEN="$seen" LEG_SECRET=leak)
-for runner in claude codex grok agy muse opencode; do
+se_env=(env PATH="$WORK/bin:$AG/bin:$MU/bin:$OC/bin:$VB/bin:$PATH" STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" STUB_OPENCODE_CALLS="$OC/calls" STUB_VIBE_CALLS="$VB/calls" STUB_SECRET_SEEN="$seen" LEG_SECRET=leak)
+for runner in claude codex grok agy muse opencode vibe; do
   rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" || rc=$?
   [ "$rc" -eq 2 ] || fail "run-$runner refuses a repo holding an untracked .env file (got $rc)"
   contains "$WORK/secret.err" '.env.local' "run-$runner names the env file it refused"
@@ -3838,7 +3965,7 @@ printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-claude.sh" --mode r
 printf 'x\n' | "${se_env[@]}" MMO_ALLOW_ENV_FILES=1 bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>&1 \
   || fail 'MMO_ALLOW_ENV_FILES=1 opts out of the refusal'
 rm "$SE/.env.local"; : > "$seen"
-for runner in claude codex grok agy muse opencode; do
+for runner in claude codex grok agy muse opencode vibe; do
   printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
     || fail "run-$runner runs in a repo without env files: $(cat "$WORK/secret.err")"
   exact_line "$seen" "$runner unset" "run-$runner scrubs an unlisted variable from the leg environment"

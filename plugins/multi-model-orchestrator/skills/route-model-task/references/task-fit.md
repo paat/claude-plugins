@@ -58,6 +58,8 @@ run-codex.sh --mode implement --repo . --model gpt-6.1-sol --effort xhigh < task
   multi-file changes. Flash and Argon expose only those three levels here.
 - OpenCode Go: effort is the model variant (`low`, `high`, `max` on the routed models; no
   `medium`). Each Go model has its own monthly allowance, so a spent model does not block another.
+- Vibe: `default` passes no `--thinking`, so the model's configured level applies. `off`–`max` are
+  passed as written and were not checked against Mistral's models (2026-11-18).
 - Muse: use the plugin's `minimal`–`max` range. The CLI's higher/default settings and vendor
   `max` benchmark scores do not establish the cheapest successful setting for this task.
 - The strict catalog describes **this plugin's** supported surface: Haiku omits effort,

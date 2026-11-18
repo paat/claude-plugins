@@ -1,7 +1,7 @@
 # multi-model-orchestrator
 
 Route each software task to a current Claude Code, Codex, Grok Build, Muse Code, Antigravity
-(Gemini Flash/Argon), OpenCode Go, or local Qwen worker by task fit, complexity, plan-limit headroom, and availability, then verify the
+(Gemini Flash/Argon), OpenCode Go, Mistral Vibe, or local Qwen worker by task fit, complexity, plan-limit headroom, and availability, then verify the
 result deterministically and review it independently when the risk justifies another pass.
 
 The standalone `route-model-task` skill can return route cards without executing work, and
@@ -33,13 +33,14 @@ Prior Claude generations (Opus 5, Sonnet 5, Fable 5.1, Fable 5, Haiku 4.5) are k
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
 | Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-hydrogen`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits; Argon for complex coding; Hydrogen as a T3 trial behind Argon; Sonnet/Opus as small same-model overflow when the Claude plan window is spent; all advisory in review mode |
 | OpenCode Go (`opencode`) | `glm-5.3-flash` (T1 `low`), `glm-5.3` (T2 `high`, T3 `max`), `kimi-k3.1-pro` (T3 `high`) | Implementation on a Go plan; each model has its own monthly allowance; advisory in review; v2 CLI only |
+| Mistral Vibe (`vibe`) | `default` (passes no `--model`; the installed CLI selects it) | Direct route outside the pool (`run-vibe.sh`): bounded implementation, read-only advice, advisory review; vibe 3+ only |
 
 Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.2,
 Fable 5.1, Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
 `medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, Argon, and Hydrogen support `low`, `medium`, and `high`; Muse catalog models support
 `minimal` through `max`. OpenCode effort is the model variant, which differs per model
-(the three routed models have `low`, `high`, `max`); `default` passes no variant.
+(the three routed models have `low`, `high`, `max`); `default` passes no variant. Vibe's `default` passes no `--thinking`; `off` through `max` are passed as written.
 
 ## Routing policy
 
@@ -130,7 +131,7 @@ stops pool fall-through. The default state location is outside the checkout.
 | 2 `repo` | Origin remote's `owner/name`, otherwise directory basename |
 | 3 `tier` | Attempted worker's pool tier; empty on direct runner calls |
 | 4 `role` | Runner mode, or `gate` |
-| 5 `provider` | `claude`, `codex`, `grok`, `muse`, `agy`, `opencode`, or `qwen`; empty for gate |
+| 5 `provider` | `claude`, `codex`, `grok`, `muse`, `agy`, `opencode`, `vibe`, or `qwen`; empty for gate |
 | 6 `requested_model` | Requested model, including aliases such as `default` |
 | 7 `served_model` | Model named by the captured provider output; empty when unknown |
 | 8 `effort` | Runner effort (`n/a` for Claude Haiku); empty when inapplicable |
@@ -149,7 +150,7 @@ assistant message model (or system/init model) and result usage, summing input, 
 and cache-creation tokens. Codex reads the terminal stderr `tokens used` footer; its startup model
 is a requested setting, so served model stays empty. Muse reads `run.model.configured`'s model ID;
 local Qwen reads its wrapper's running-model stderr line. OpenCode sums every `step_finish`'s
-tokens (served model stays empty). Muse/Qwen token counts, agy/Grok metadata,
+tokens (served model stays empty). Vibe reads its run export: `usage.total_tokens`, and `config.active_model`, which is empty when the default model is server-routed. Muse/Qwen token counts, agy/Grok metadata,
 and plain-text Claude metadata stay empty because these captured formats expose no supported
 fields. Requested models are never substituted for missing served models.
 
@@ -238,7 +239,7 @@ except a command carrying per-command allowed domains still goes to the classifi
 of a compound command must match ([permissions](https://code.claude.com/docs/en/permissions.md), checked 2026-11-15: "Every subcommand must be allowed for a compound command to run without a prompt"), so a rule for the runner paths is not a reliable lever for the wrapped `…; echo $? > <marker>` dispatch.
 After 3 consecutive (or 20 total) classifier blocks, auto mode pauses and prompts. Example `autoMode.environment` entry — prose the classifier reads, not a pattern. Replace `<marketplace>` and `<version>`, or describe the directory in your own words, and write the home directory as an absolute path:
 "The multi-model-orchestrator runners at /home/yourname/.claude/plugins/cache/<marketplace>/multi-model-orchestrator/<version>/scripts/ and the
-codex, grok, muse, agy, opencode, and qwen CLIs they call are trusted for sending repository diffs."
+codex, grok, muse, agy, opencode, vibe, and qwen CLIs they call are trusted for sending repository diffs."
 
 ## Execution posture
 
@@ -256,7 +257,9 @@ codex, grok, muse, agy, opencode, and qwen CLIs they call are trusted for sendin
   with a verdict line (exit 6) and must leave the repository unchanged (exit 7). Claude and Grok research legs have web-only
   tool allowlists with no file access; Muse research has no write or shell tools and runs from an
   empty directory but keeps read tools. OpenCode implement uses `--auto`; its review uses
-  `--agent plan` (edit tool denied) from an empty directory, is advisory, and exits 7 on writes. The Codex CLI has no per-tool allowlist and
+  `--agent plan` (edit tool denied) from an empty directory, is advisory, and exits 7 on writes. Vibe implement uses
+  `--trust --auto-approve`; its advise and review enable `read_file` only in an untrusted folder (no project `.vibe/` config or
+  hooks, no shell, no search; a headless run denies every call that needs approval), are advisory, and exit 7 on writes. The Codex CLI has no per-tool allowlist and
   keeps shell access, so Codex research runs from a scratch working root instead of the repository,
   bounded by that root and its prompt contract. This bounds blast radius rather than enforcing
   read-only, so a Codex or Claude advise, review, or research leg that changed the repository
@@ -294,8 +297,8 @@ file or a leg without a terminal verdict, and `3` when no leg is from an indepen
 With `--author`, a leg from the author's own provider family (a Codex reviewer for a GPT worker)
 does not count as independent either; omit it only for a run restricted to one provider.
 Classification is fail-closed: only labels naming a hosted catalog provider or model (Claude, Codex,
-GPT, Grok, Muse and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, `opencode`, or
-an unrecognized label are advisory. The local, agy, and OpenCode reviewers read the diff and cannot run probes,
+GPT, Grok, Muse and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, `opencode`, `vibe`, or
+an unrecognized label are advisory. The local, agy, OpenCode, and Vibe reviewers read the diff and cannot run probes,
 so none can be the only reviewer — the gate enforces that rather than trusting a prompt to say
 so. agy enforces no read-only mode in print mode, so `run-agy.sh --mode review` runs from an empty
 directory and exits 7 if the repository changed anyway.
@@ -317,12 +320,13 @@ one outcome with exit 143, 129, or 130 respectively.
   - Meta Muse Code (`muse`); bounded work requests `muse-spark-1.3`, T3 pins `muse-wonder-full-1.0`, and `default` passes no `--model`
   - Google Antigravity CLI (`agy`) for the Gemini and Claude-overflow routes
   - OpenCode v2 (`@opencode/cli`) with an OpenCode Go credential; v1 is not supported
+  - Mistral Vibe 3 or newer (`vibe`, PyPI `mistral-vibe`) with `MISTRAL_API_KEY` in `~/.vibe/.env`; vibe 2 is not supported
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   the pool moves to the next worker.
 - `flock` (util-linux) for `handoff-lease.sh`
 
-Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings.
+Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, `run-vibe.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings.
 
 ## Configuration
 
@@ -343,7 +347,10 @@ catalog.
 | `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200. A leg that uses its last step exits 76 (implement: work may be partial) or 78 (any other mode: no report) |
 | `MMO_OPENCODE_MODEL` | `glm-5.3` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
 | `MMO_OPENCODE_EFFORT` | `high` | OpenCode model variant (`default` passes none) |
-| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/local-Qwen review |
+| `MMO_VIBE_MODEL` | `default` | Vibe model alias; `default` passes no `--model` |
+| `MMO_VIBE_EFFORT` | `default` | Vibe thinking level (`off`, `low`, `medium`, `high`, `xhigh`, `max`); `default` passes no `--thinking` |
+| `MMO_VIBE_MAX_TURNS` | `50` | Vibe assistant-turn cap, from 1 to 200. A leg that uses its last turn exits 76 (implement: work may be partial) or 78 (any other mode: no report) |
+| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/Vibe/local-Qwen review |
 | `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |
 | `MMO_HANDOFF_DIR` | `.claude/handoffs` | Repo-relative handoff directory in the target repository |
 | `MMO_AGY_MODEL` | `gemini-3.8-flash` | agy worker/reviewer model |
