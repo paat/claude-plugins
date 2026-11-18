@@ -51,11 +51,14 @@ jobs:
         run: bash plugins/saas-operations/tests/run-tests.sh
 
       - name: tribunal-review tests (on a PR only when the plugin changed)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags origin "${{ github.base_ref }}"
-            if git diff --quiet "origin/${{ github.base_ref }}...HEAD" -- plugins/tribunal-review; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            if git diff --quiet "origin/$BASE_REF...HEAD" -- plugins/tribunal-review; then
               echo "plugins/tribunal-review unchanged: suite skipped"
               exit 0
             fi
