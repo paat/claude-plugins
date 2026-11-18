@@ -7103,11 +7103,13 @@ EOF
   mkdir -p "$work/home"
   git config --file "$work/home/.gitconfig" "includeIf.gitdir:$repo/.git.path" "$work/home/target-config"
   git config --file "$work/home/target-config" safe.directory "$repo"
-  # The collector also loads the host's system scope (hosted runners ship safe.directory=* there).
+  # The collector loads the system scope too and unsets GIT_CONFIG_SYSTEM when sourced:
+  # pin that scope to a fixture afterwards so the host's /etc/gitconfig cannot change the result.
+  git config --file "$work/home/system-config" safe.directory /system/fixture
   tr_check "round 2 T-005: safe.directory includeIf uses target repo" \
     env HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" GIT_CONFIG_NOSYSTEM=1 \
-    bash -c '. "$1"; SURFACE_ROOT="$2"; load_safe_directories; SURFACE_ROOT=""; test "$(hardened_git config --get-all safe.directory)" = "$(command git config --system --get-all safe.directory; printf "%s\n" "$2")"' \
-    _ "$plugin/scripts/surface-functions.sh" "$repo"
+    bash -c '. "$1"; export GIT_CONFIG_SYSTEM="$3"; SURFACE_ROOT="$2"; load_safe_directories; SURFACE_ROOT=""; test "$(hardened_git config --get-all safe.directory)" = "$(printf "%s\n%s" /system/fixture "$2")"' \
+    _ "$plugin/scripts/surface-functions.sh" "$repo" "$work/home/system-config"
   rm -rf "$work/home"
   mkdir "$work/version-bin"
   printf '#!/usr/bin/env bash\nprintf "git version 2.41.0\\n"\n' > "$work/version-bin/git"
