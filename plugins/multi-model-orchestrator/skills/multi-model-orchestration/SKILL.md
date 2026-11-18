@@ -19,7 +19,7 @@ no re-reads, and verdicts rather than logs back from every leg.
   owns model-specific guidance for every provider, including agy and the local model.
 - Run every CLI leg in YOLO mode inside the development-container boundary: Codex bypasses
   approvals and sandboxing, Claude skips permissions, Grok uses sandbox `none` with
-  `bypassPermissions`, and Muse uses `--yolo`. Keep reviewer mutation control in prompts and tool allowlists — except
+  `bypassPermissions`, Muse uses `--yolo`, and Vibe implement uses `--auto-approve`. Keep reviewer mutation control in prompts and tool allowlists — except
   local Qwen, whose read-only review is enforced by `--mode review`; dispatching its review as
   `--mode implement` would pass `--yolo` and give a reviewer real write access.
 - Keep implementation workers fresh and context packets self-contained. Do not pass the full
@@ -46,7 +46,7 @@ no re-reads, and verdicts rather than logs back from every leg.
    mode and usage snapshot unchanged from `pick`. It tries eligible workers in order and
    moves past unavailable ones (exit 75: local Qwen's one GPU slot busy, a plan limit, a transient
    error) and records the worker that ran. A pinned route calls `scripts/run-claude.sh`,
-   `run-codex.sh`, `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, `run-opencode.sh`, or `run-qwen-local.sh` directly. Every runner pins
+   `run-codex.sh`, `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, `run-opencode.sh`, `run-vibe.sh`, or `run-qwen-local.sh` directly. Every runner pins
    a current model; supported efforts are pinned explicitly. A task-selected effort differing
    from the table uses the exact runner command recorded after the pool eligibility check.
 6. Never wait for the local GPU slot, and never retry the same task on it in the same pass.
