@@ -7104,7 +7104,7 @@ EOF
   git config --file "$work/home/.gitconfig" "includeIf.gitdir:$repo/.git.path" "$work/home/target-config"
   git config --file "$work/home/target-config" safe.directory "$repo"
   tr_check "round 2 T-005: safe.directory includeIf uses target repo" \
-    env HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" GIT_CONFIG_NOSYSTEM=1 \
+    env HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null \
     bash -c '. "$1"; SURFACE_ROOT="$2"; load_safe_directories; SURFACE_ROOT=""; test "$(hardened_git config --get-all safe.directory)" = "$2"' \
     _ "$plugin/scripts/surface-functions.sh" "$repo"
   rm -rf "$work/home"
