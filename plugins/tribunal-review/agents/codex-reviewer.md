@@ -31,6 +31,6 @@ extraction:
   hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
   downstream as a provider failure (issue #487).
 - Honors `TRIBUNAL_CODEX` (`off` disables → emits a `disabled` marker),
-  `TRIBUNAL_CODEX_MODEL` (default `gpt-6-astra`), and `TRIBUNAL_CODEX_EFFORT`
+  `TRIBUNAL_CODEX_MODEL` (default `gpt-6.2-astra`), and `TRIBUNAL_CODEX_EFFORT`
   (default `medium`). If the Codex CLI is missing the script self-emits an error JSON —
   return it verbatim.

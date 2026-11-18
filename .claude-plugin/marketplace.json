@@ -31,7 +31,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (read-only repo-walking), OpenCode Go, Grok, Muse, DeepSeek, Gemini and Qwen, at least two must succeed, with calling-context arbitration",
-      "version": "0.30.2",
+      "version": "0.30.3",
       "author": {
         "name": "Andre Paat"
       },
@@ -174,7 +174,7 @@
     {
       "name": "codex-subagent",
       "description": "Drive GPT-6 Astra as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
-      "version": "0.4.5",
+      "version": "0.4.6",
       "author": {
         "name": "Andre Paat"
       },
@@ -240,7 +240,7 @@
     {
       "name": "multi-model-orchestrator",
       "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, OpenCode Go, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
-      "version": "0.26.21",
+      "version": "0.26.22",
       "author": {
         "name": "Andre Paat"
       },

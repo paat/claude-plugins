@@ -1,6 +1,6 @@
 {
   "name": "codex-subagent",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Drive GPT-6 Astra as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
   "author": {
     "name": "Andre Paat"

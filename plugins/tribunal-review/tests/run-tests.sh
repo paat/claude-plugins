@@ -1536,7 +1536,7 @@ EOF
         $0 == "--ignore-user-config" { isolated_seen = 1 }
         $0 == "--output-schema" { schema_seen = 1 }
         previous == "-c" && $0 == "model_reasoning_effort=\"high\"" { capped_seen = 1 }
-        previous == "-c" && $0 == "review_model=\"gpt-6-astra\"" { review_model_seen = 1 }
+        previous == "-c" && $0 == "review_model=\"gpt-6.2-astra\"" { review_model_seen = 1 }
         { previous = $0 }
         END { exit !(base_seen && bypass_seen && isolated_seen && !schema_seen && capped_seen && review_model_seen) }
       ' "$work/native.args" || ok=1
@@ -5300,10 +5300,10 @@ test_claude_tmpdir_cleanup
 assert_json_field "Claude complete-diff read-only transport regressions" "python3 '$PLUGIN_ROOT/tests/test-claude-transport.py'"
 assert_json_field "DeepSeek dsh runner, credentials, and preflight regressions" "bash '$PLUGIN_ROOT/tests/test-deepseek-runner.sh'"
 assert_json_field "DeepSeek sealed collection and quota backup regressions" "bash '$PLUGIN_ROOT/tests/test-deepseek-collection.sh'"
-test_codex_pins gpt-6-astra medium no "codex defaults pin Astra and medium in argv"
+test_codex_pins gpt-6.2-astra medium no "codex defaults pin Astra and medium in argv"
 test_codex_pins test-model high yes "codex model and effort environment overrides stay explicit"
-test_codex_pins gpt-6-astra xhigh risk:T4 "TRIBUNAL_RISK=T4 lifts the Codex leg to xhigh"
-test_codex_pins gpt-6-astra low risk:T1 "TRIBUNAL_RISK=T1 lowers the Codex leg to low"
+test_codex_pins gpt-6.2-astra xhigh risk:T4 "TRIBUNAL_RISK=T4 lifts the Codex leg to xhigh"
+test_codex_pins gpt-6.2-astra low risk:T1 "TRIBUNAL_RISK=T1 lowers the Codex leg to low"
 test_codex_native_review ok "codex exec review runs against the pinned base and feeds the verdict pass"
 test_codex_native_review fail "a failed codex exec review is recorded and the verdict pass still runs"
 test_codex_native_review off "TRIBUNAL_NATIVE_REVIEW=off skips codex exec review"
