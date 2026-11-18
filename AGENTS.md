@@ -25,7 +25,7 @@ python3 scripts/sync-codex-marketplace.py --check  # what CI runs
 bash plugins/<name>/tests/run-tests.sh             # one plugin's suite (saas-startup-team, saas-operations, ...)
 ```
 
-CI (`.github/workflows/plugin-checks.yml`) also checks the shared script copies between `saas-startup-team`, `lawyer` and `saas-operations` with `cmp`, and the LOC budgets of `saas-startup-team` and `saas-operations`. Edit one copy and the other must change identically.
+CI (`.github/workflows/plugin-checks.yml`) also checks the shared script copies between `saas-startup-team`, `lawyer` and `saas-operations` with `cmp`, and the LOC budgets of `saas-startup-team` and `saas-operations`, and runs the `saas-operations` suite and (on a PR, only when that plugin changed) the `tribunal-review` suite. Edit one copy and the other must change identically.
 
 ## Layout
 
