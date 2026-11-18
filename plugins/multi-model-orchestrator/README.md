@@ -27,7 +27,7 @@ Prior Claude generations (Opus 5, Sonnet 5, Fable 5.1, Fable 5, Haiku 4.5) are k
 | Provider | Models | Typical role |
 |---|---|---|
 | Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-2`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5-1`, `claude-fable-5` | Fast triage through highest-capability long-running work |
-| Codex | `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra`; prior-generation `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
+| Codex | `gpt-6-luna`, `gpt-6.2-sol`, `gpt-6.2-astra`, `gpt-6.1-terra`; prior-generation `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
@@ -333,7 +333,7 @@ catalog.
 |---|---|---|
 | `MMO_CLAUDE_MODEL` | `claude-opus-5-5` | Claude worker/reviewer model |
 | `MMO_CLAUDE_EFFORT` | `high` | Claude effort except Haiku |
-| `MMO_CODEX_MODEL` | `gpt-6-astra` | Codex worker/reviewer model |
+| `MMO_CODEX_MODEL` | `gpt-6.2-astra` | Codex worker/reviewer model |
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
 | `MMO_GROK_MAX_TURNS` | `30` (`60` for review, `150` for implement and probe) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement` and `--mode probe`; env values above 100 are clamped for the other modes. Review/advise resume once keeping the read-only allowlist on cap (`truncated=turns`; a review resumed after the cap can report findings but not approve), else exit 78; a research leg also exits 78 at the turn cap (no resume). Review, advise and probe legs with `--out FILE` and no `--stream-log` write `FILE.stream` |

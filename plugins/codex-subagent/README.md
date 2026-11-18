@@ -36,13 +36,13 @@ All three call `scripts/codex-run.sh`, which builds the canonical invocation:
 ```bash
 codex exec --dangerously-bypass-approvals-and-sandbox \
   --skip-git-repo-check -C <repo-abs-path> \
-  -m gpt-6-astra -c 'model_reasoning_effort="high"' -
+  -m gpt-6.2-astra -c 'model_reasoning_effort="high"' -
 ```
 
 - `-C` sets the working dir (avoids a leading `cd`, which complicates Bash permission matching).
 - `--skip-git-repo-check` avoids the repo-check prompt.
 - The prompt is fed on **stdin** (`codex exec -`), never as a giant argv string — this dodges the `MAX_ARG_STRLEN` "Argument list too long" trap on large prompts.
-- Model and effort are explicit, so `~/.codex/config.toml` cannot silently change unattended behavior. The role-agnostic wrapper defaults to `gpt-6-astra` + `high`; `/codex-implement` and `/codex-review` choose the cheapest sufficient `low|medium|high|xhigh` level unless an argument or `CODEX_SUBAGENT_EFFORT` overrides it. `max` and `ultra` are explicit-only; critique remains `high` by default.
+- Model and effort are explicit, so `~/.codex/config.toml` cannot silently change unattended behavior. The role-agnostic wrapper defaults to `gpt-6.2-astra` + `high`; `/codex-implement` and `/codex-review` choose the cheapest sufficient `low|medium|high|xhigh` level unless an argument or `CODEX_SUBAGENT_EFFORT` overrides it. `max` and `ultra` are explicit-only; critique remains `high` by default.
 
 ### Effort routing
 

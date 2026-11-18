@@ -83,7 +83,7 @@ legs=()   # one --leg per reviewer actually launched
 <task and acceptance criteria; ask for architecture, intent, UX, scope, and integration defects>
 PROMPT
 claude_pid=$!; legs+=(--leg claude="$RUN_DIR/claude.txt")
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode review --dir "$REPO_ROOT" --model gpt-6-astra --effort "$ROUTED_REVIEW_EFFORT" --timeout 1200 <<'PROMPT' > "$RUN_DIR/astra.txt" &
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode review --dir "$REPO_ROOT" --model gpt-6.2-astra --effort "$ROUTED_REVIEW_EFFORT" --timeout 1200 <<'PROMPT' > "$RUN_DIR/astra.txt" &
 Review the complete diff from BASE_SHA=<sha> to the working tree. Do not modify files.
 Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.
 Ignore speculative edge cases without a realistic failure path. End with APPROVE or NEEDS_WORK.

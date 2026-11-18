@@ -143,7 +143,7 @@ DeepSeek uses the direct DeepSeek API and walks the repository with a read-only 
 | `TRIBUNAL_MIN_OK_LEGS` | `2` | Per-environment APPROVE floor (`2..8`; `1` is rejected because a one-leg `APPROVE` is not allowed). Environment only; sealed into `manifest.json` under `panel_policy`. |
 | `TRIBUNAL_BACKUP_LEGS` | remaining available rows | Comma-separated backup leg order (any of the 8 providers); empty or `off` disables backups. Runs idle installed backups for `plan limit:` failures and when `ok` legs after pass 1 are below `TRIBUNAL_MIN_OK_LEGS`; original failed legs stay `failed`. |
 | `TRIBUNAL_CODEX` | selected by panel (`on` standalone) | `on` forces Codex into the panel; `off` excludes it (`disabled`). |
-| `TRIBUNAL_CODEX_MODEL` | tier row (`gpt-6-astra` standalone) | Model passed to `codex exec -m`; overrides the panel table row. |
+| `TRIBUNAL_CODEX_MODEL` | tier row (`gpt-6.2-astra` standalone) | Model passed to `codex exec -m`; overrides the panel table row. |
 | `TRIBUNAL_CODEX_EFFORT` | tier row (`medium` standalone) | Reasoning effort passed through `model_reasoning_effort`; overrides the panel table row. |
 | `TRIBUNAL_OPENCODE` | selected by panel (`off` standalone) | `on` forces the OpenCode Go leg into the panel; `off` excludes it (`disabled`). Requires OpenCode v2+. |
 | `TRIBUNAL_OPENCODE_MODEL` | tier row (`kimi-k3.1-pro` standalone) | Bare OpenCode Go model id (e.g. `glm-5.3`, `kimi-k3.1-pro`), with an optional `opencode-go/` prefix. Set the `#` variant separately with `TRIBUNAL_OPENCODE_EFFORT`. |

@@ -638,7 +638,7 @@ pass 'run-claude and run-grok --mode probe: verdict enforced, repo writes exit 7
 
 out="$(printf 'bounded review\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" --effort ultra --timeout 5 2> "$WORK/codex.err")"
 [ "$out" = $'codex findings\nAPPROVE' ] || fail 'Codex final output'
-contains "$WORK/codex.args" 'gpt-6-astra' 'Codex model pin'
+contains "$WORK/codex.args" 'gpt-6.2-astra' 'Codex model pin'
 contains "$WORK/codex.args" 'model_reasoning_effort="ultra"' 'Codex Ultra pin'
 contains "$WORK/codex.args" '--dangerously-bypass-approvals-and-sandbox' 'Codex unrestricted posture'
 contains "$WORK/codex.prompt" 'bounded review' 'Codex stdin prompt'
@@ -658,8 +658,10 @@ fi
 if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6.1-sol --effort ultra >/dev/null 2>&1; then
   fail 'Ultra on non-Astra model rejected'
 fi
-printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6.1-sol --effort high --timeout 5 >/dev/null 2>&1 || fail 'gpt-6.1-sol accepted'
-contains "$WORK/codex.args" 'gpt-6.1-sol' 'current Sol pin forwarded'
+printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6.2-sol --effort high --timeout 5 >/dev/null 2>&1 || fail 'gpt-6.2-sol accepted'
+contains "$WORK/codex.args" 'gpt-6.2-sol' 'current Sol pin forwarded'
+printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6.1-sol --effort high --timeout 5 >/dev/null 2>&1 || fail 'prior-generation gpt-6.1-sol stays routable'
+printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6-astra --effort ultra --timeout 5 >/dev/null 2>&1 || fail 'prior-generation gpt-6-astra keeps Ultra'
 printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6-sol --effort high --timeout 5 >/dev/null 2>&1 || fail 'prior-generation gpt-6-sol stays routable'
 printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --dir "$WORK/repo" --model gpt-6.1-terra --effort high --timeout 5 >/dev/null 2>&1 || fail 'gpt-6.1-terra accepted'
 contains "$WORK/codex.args" 'gpt-6.1-terra' 'current Terra pin forwarded'
