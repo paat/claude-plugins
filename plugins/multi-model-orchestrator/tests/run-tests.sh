@@ -615,6 +615,10 @@ done
 rc=0; printf 'probe it\n' | STUB_MUTATE="printf changed >> '$WORK/repo/app.txt'" "$PLUGIN_ROOT/scripts/run-claude.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/claude-probe.err" || rc=$?
 printf '%s\n' "$probe_app" > "$WORK/repo/app.txt"
 [ "$rc" -eq 7 ] || fail "claude probe that changed the repo exits 7 (got $rc)"
+probe_branch="$(git -C "$WORK/repo" symbolic-ref -q --short HEAD)"
+rc=0; printf 'probe it\n' | STUB_MUTATE="git -C '$WORK/repo' switch -qc probe-made-branch" "$PLUGIN_ROOT/scripts/run-claude.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/claude-probe.err" || rc=$?
+git -C "$WORK/repo" switch -q "$probe_branch"; git -C "$WORK/repo" branch -qD probe-made-branch
+[ "$rc" -eq 7 ] || fail "claude probe that switched branch at the same commit exits 7 (got $rc)"
 rc=0; printf 'probe it\n' | STUB_MUTATE="printf changed >> '$WORK/repo/app.txt'" "$PLUGIN_ROOT/scripts/run-grok.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/grok-probe.err" || rc=$?
 printf '%s\n' "$probe_app" > "$WORK/repo/app.txt"
 [ "$rc" -eq 7 ] || fail "grok probe that changed the repo exits 7 (got $rc)"

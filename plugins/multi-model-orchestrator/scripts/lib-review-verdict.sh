@@ -145,8 +145,9 @@ mmo_clear_out() {  # mmo_clear_out PATH
   if [ -L "$1" ]; then : > "$1"; else rm -f -- "$1"; fi 2>/dev/null || true
 }
 
-# Fingerprint HEAD, index, working tree, and untracked file contents, so a caller can
-# tell whether a leg wrote to the repository. The absolute OUT paths (a leg's --out and
+# Fingerprint HEAD (commit and checked-out branch), index, working tree, and untracked file
+# contents, so a caller can tell whether a leg wrote to the repository. Other branches and the
+# stash are left out: worktrees share them, so another session would trip the check. The absolute OUT paths (a leg's --out and
 # --stream-log) do not count, as in mmo_out_spec. Prints one cksum line; never fails.
 mmo_tree_state() {  # mmo_tree_state REPO [OUT]...
   local repo="$1"
@@ -154,6 +155,7 @@ mmo_tree_state() {  # mmo_tree_state REPO [OUT]...
   mmo_out_spec "$@"
   {
     git -C "$repo" rev-parse --verify -q HEAD || true
+    git -C "$repo" symbolic-ref -q HEAD || true
     git -C "$repo" status --porcelain=v1 --untracked-files=all -- "${mmo_spec[@]}" || true
     git -C "$repo" diff --no-ext-diff --binary --cached -- "${mmo_spec[@]}" || true
     git -C "$repo" diff --no-ext-diff --binary -- "${mmo_spec[@]}" || true
