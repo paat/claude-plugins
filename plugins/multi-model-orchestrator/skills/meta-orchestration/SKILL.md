@@ -87,7 +87,8 @@ Once the queue is ordered, and again immediately before every dispatch (includin
 research leg) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
 with the literal resume command, expected artifact paths, and baseline — all known before launch.
 If another session's handoff records conflicting in-flight work on this branch,
-reconcile; do not overwrite it.
+reconcile; do not overwrite it. Hold the run lease per the template's write rules; a refused
+claim (exit 75) = another orchestrator is live: stop.
 
 Resume (`--resume`): reconcile each recorded in-flight leg and open item
 with reality (PR merged/closed, output mtime still advancing, branch head as recorded),
@@ -100,7 +101,7 @@ overrides of decided judgment calls and brief deltas.
 Update the handoff after every merge, review verdict, ratified decision, filed
 research memo, or filed item — not at session end. After compaction, resume from this run's handoff
 (the summary names it); the summary is not authoritative. Browser QA, screenshots,
-logs, diffs: a leg or subagent returns a verdict.
+logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted reads, no re-reads.
 
 ## Per-item loop
 
@@ -110,8 +111,8 @@ logs, diffs: a leg or subagent returns a verdict.
    - **Advise (IN-REPO):** For ambiguous or high-coupling items, one advise leg via an allowed
      provider (`run-claude.sh`, `run-grok.sh`, or `run-muse.sh --mode advise`); constraints/risks/file map ground
      the worker. Skip when well-specified or no advise provider is allowed — tighten the packet.
-   - **Research (OUT-OF-REPO):** Prefer tool-restricted Claude, Grok, or Muse; Codex is the fallback.
-     Run `run-claude.sh`, `run-grok.sh`, `run-muse.sh`, or `run-codex.sh` with `--mode research`; apply
+   - **Research (OUT-OF-REPO):** `run-claude.sh`, `run-grok.sh` or `run-muse.sh` (tool-restricted;
+     `run-codex.sh` is the fallback) with `--mode research`; apply
      `references/research-leg.md` and ground the worker on the memo's load-bearing claims.
    An unknown is not automatically a human decision. Classify: unresearched (spend a research
    leg) vs. genuine judgment call (decide with the recommended default, attach research when a
@@ -119,19 +120,17 @@ logs, diffs: a leg or subagent returns a verdict.
 3. Fill `references/worker-prompt.md` with handoff rules-learned and any research memo for the item.
    Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800`, preserving
    preference, restrictions and usage from `pick`. Direct model/effort routes use the recorded
-   eligible runner (`run-*.sh`, `run-qwen-local.sh`).
+   eligible runner (`run-*.sh`).
 4. Gate yourself: inspect the item-branch diff, run the named suites, verify the final-message
    contract. If the leg's contract prevented committing, commit the gated result yourself —
    recording output or a memo is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, using the prompts AND the
    per-provider runner mode in `references/review-prompts.md`. Combine legs with
-   `${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh` (exit 3 = advisory-only); never hand-grep.
+   `${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh --author <worker>` (exit 3 = no independent reviewer); never hand-grep.
 6. On NEEDS_WORK: up to 5 fix cycles by the worker ("address exactly these, nothing else"), each
    followed by the SAME reviewer's bounded delta. From cycle 3, prefer simplify/descope over
    adding guards. If the fifth cycle's delta still returns NEEDS_WORK, report a blocker and park.
-7. Merge or open the PR only on the reviewer's literal line
-   `READY TO MERGE — nothing further coming.` — a report is not a merge signal. Absent that
-   line, ask the reviewer leg to confirm or state what is still coming.
+7. Merge or open the PR only on a gate exit of 0 — a report is not a merge signal.
 8. Critical findings are fixed in-run. Non-critical findings and in-scope discoveries are filed
    as tracker items (queued or explicitly marked not-blocking). Record the outcome in the
    handoff before dispatching the next item.

@@ -2,7 +2,8 @@
 # run-muse.sh — dispatch a bounded task to the Meta Muse Code CLI (`muse exec`, headless).
 #
 # Every mode runs --yolo: headless exec has no one to answer an approval prompt and would
-# hang until the timeout. implement keeps write and shell; advise and review drop both and
+# hang until the timeout. implement keeps write and shell; probe (a reviewer that verifies
+# by execution) keeps the shell only; advise and review drop both and
 # walk the repository read-only; research drops both and runs in an empty directory with
 # web and read tools. A non-implement leg that changed the repository exits 7.
 #
@@ -10,8 +11,10 @@
 # the installed CLI selects; any other model must be the one the run configured.
 #
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty final
-# message; 6 review without APPROVE/NEEDS_WORK; 7 leg wrote to the repository or ran
-# another model; 75 transient or plan limit; 77 auth; 124 timeout; 127 muse/git/jq missing.
+# message; 6 review or probe without APPROVE/NEEDS_WORK; 7 leg wrote to the repository or ran
+# another model; 75 transient or plan limit; 76 implement leg hit the step cap (work may be
+# partial); 77 auth; 78 any other leg hit the step cap without a report; 124 timeout;
+# 127 muse/git/jq missing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-muse.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model default|muse-*] [--effort minimal|low|medium|high|xhigh|max] [--max-steps N] [--timeout SECONDS] [--out FILE]'
+  printf '%s\n' 'Usage: run-muse.sh --mode advise|implement|probe|research|review [--repo DIR|--dir DIR] [--base REF] [--model default|muse-*] [--effort minimal|low|medium|high|xhigh|max] [--max-steps N] [--timeout SECONDS] [--out FILE]'
 }
 
 mode=""
@@ -51,7 +54,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 mmo_clear_out "$output_file"
-case "$mode" in advise|implement|research|review) ;; *) printf 'run-muse: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
+case "$mode" in advise|implement|probe|research|review) ;; *) printf 'run-muse: --mode must be advise, implement, probe, research, or review\n' >&2; exit 2 ;; esac
 case "$model" in default|muse-*) ;; *) printf 'run-muse: unsupported model %s (expected default or a muse-* id)\n' "$model" >&2; exit 2 ;; esac
 case "$effort" in minimal|low|medium|high|xhigh|max) ;; *) printf 'run-muse: unsupported effort %s (expected minimal|low|medium|high|xhigh|max)\n' "$effort" >&2; exit 2 ;; esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-muse: timeout must be a positive integer\n' >&2; exit 2; }
@@ -120,6 +123,7 @@ case "$mode" in
       cat "$request_file"
     } > "$prompt_file"
     ;;
+  probe) mmo_probe_prompt "$request_file" > "$prompt_file" ;;
   implement)
     {
       printf '%s\n' 'You are one fresh, bounded implementation worker.'
@@ -137,6 +141,7 @@ muse_args=(exec --json --yolo --reasoning-effort "$effort"
   --no-foreign-personal-context --disable-reminders)
 case "$mode" in
   implement) muse_args+=(--disable-web-tools) ;;
+  probe) muse_args+=(--disable-write --disable-web-tools) ;;
   advise|review) muse_args+=(--disable-write --disable-shell --disable-web-tools) ;;
   research)
     work_dir="$runtime_dir/empty"
@@ -173,6 +178,16 @@ if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$terminal" | jq -r '.terminal // empty' 
   printf 'run-muse: muse finished without a completed run terminal\n' >&2
   rc=1
 fi
+# muse 1.4 (checked 2026-11-18) fails a run that used its last model step with this reason.
+if [ "$rc" -eq 1 ] && printf '%s' "$terminal" | jq -r '.reason // empty' 2>/dev/null | grep -Eq 'did not reach a terminal state within [0-9]+ step'; then
+  if [ "$mode" = implement ]; then
+    printf 'run-muse: step cap reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-steps\n' "$max_steps" >&2
+    rc=76
+  else
+    printf 'run-muse: step cap reached (%s) in --mode %s; no report — raise --max-steps or narrow the packet\n' "$max_steps" "$mode" >&2
+    rc=78
+  fi
+fi
 if [ "$model" != default ] && [ -n "$served" ] && [ "$served" != "$model" ]; then
   printf 'run-muse: muse configured model %s, not the requested %s\n' "$served" "$model" >&2
   rc=7
@@ -185,8 +200,8 @@ if [ "$rc" -eq 0 ] && [ -z "$(tr -d '[:space:]' < "$output_file")" ]; then
   printf 'run-muse: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
 fi
-if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
-  printf 'run-muse: review completed without APPROVE or NEEDS_WORK\n' >&2
+if [ "$rc" -eq 0 ] && { [ "$mode" = review ] || [ "$mode" = probe ]; } && ! mmo_has_review_verdict "$output_file"; then
+  printf 'run-muse: %s completed without APPROVE or NEEDS_WORK\n' "$mode" >&2
   rc=6
 fi
 if [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then

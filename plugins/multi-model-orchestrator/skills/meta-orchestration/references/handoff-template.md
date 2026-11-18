@@ -6,6 +6,14 @@ exists, do not restate its protocol:
 state "The protocol sections of `<prior-handoff>` remain in force verbatim; this file adds only
 deltas." and record deltas.
 
+Run lease (one orchestrator per checkout — the lease lives in the handoff directory, so a
+second worktree holds its own): with each handoff write, run
+`${CLAUDE_PLUGIN_ROOT}/scripts/handoff-lease.sh claim <owner> --ttl <seconds>` — before a dispatch
+the ttl is that leg's deadline (`--timeout`, times the workers a `pool.sh run` could try) plus 600.
+`<owner>` is an id you make up once at a fresh start (`<UTC yyyymmddThhmmssZ>-<4 random hex>`) and
+record in State. Reuse it after compaction; a new session started with `--resume` claims with a new
+id, so it is refused while the previous session's lease is unexpired. `release <owner>` when the run ends.
+
 ```markdown
 # Handoff — <mission>: <one-line outcome>
 
@@ -36,6 +44,7 @@ so the successor starts with a decision, not a question.>
   one line on what the leg was told, how completion will be observed, literal resume command>`
   — or `none`.
 - Worktree: <branch, clean/dirty + why>.
+- Lease owner: `<owner id>`.
 - Usage: <per provider: tightest window %, reset UTC, as-of; or `unknown`>.
 
 ## OPERATOR ACTIONS REQUIRED

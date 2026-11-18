@@ -759,8 +759,8 @@ tribunal_review_payload_complete() {
   printf '%s' "$json" | jq -e '
     (.findings | type) == "array"
     and (.summary | type) == "object"
-    and ((.summary.verdict // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_upcase)
-        as $v | ($v == "APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK")
+    and (((.summary.verdict // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_upcase)
+        as $v | ($v == "APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"))
     and ((.summary.total_findings // null) | type) == "number"
     and ((.summary.critical // null) | type) == "number"
     and ((.summary.high // null) | type) == "number"

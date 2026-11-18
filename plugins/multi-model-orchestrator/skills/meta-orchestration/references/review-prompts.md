@@ -6,9 +6,11 @@ verdict tokens are `APPROVE` / `NEEDS_WORK` — always emit these; the runners' 
 tolerates close variants (`APPROVED`, `NEEDS WORK`) but orchestration decisions key on the
 canonical form. Reviewers that must
 EXECUTE probes: Codex legs use `--mode review`; Claude, Grok, and Muse review modes are read-only-tooled,
-so execute-probe legs on those providers use `--mode implement` with the prompt contract below.
-Those legs carry no runner verdict check of their own, so they go through
-`${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh` with every other leg — never a hand-grep.
+so execute-probe legs on those providers use `--mode probe` with the prompt contract below: the
+leg keeps its shell, and the runner exits 6 without a verdict line and 7 when the repository
+changed. Every leg goes through
+`${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh --author <worker provider>` — never a hand-grep.
+Its exit 0 is the merge signal. Omit `--author` only when the brief restricts the run to one provider.
 
 ## Adversarial review
 
@@ -36,8 +38,6 @@ VERDICT: APPROVE | NEEDS_WORK
 PROBES: numbered results, each with observed vs expected
 SUITES: table with exact counts
 FINDINGS: [critical|high|medium|low] file:line — reachable failure — validating test
-If VERDICT is APPROVE and nothing further is coming, end with the literal line:
-READY TO MERGE — nothing further coming.
 ```
 
 ## Bounded delta re-review
@@ -60,8 +60,6 @@ Bounded DELTA by execution — these items only. Read-only; modify nothing.
 VERDICT: APPROVE | NEEDS_WORK
 PROBES: results for the delta items + spot-reruns
 SUITES: table with exact counts
-If VERDICT is APPROVE and nothing further is coming, end with the literal line:
-READY TO MERGE — nothing further coming.
 ```
 
 ## Runner mode per reviewer
@@ -71,7 +69,7 @@ READY TO MERGE — nothing further coming.
 | Codex | `--mode review` | runner enforces APPROVE/NEEDS_WORK |
 | Local Qwen | `--mode review` | read-only; `--mode implement` would pass `--yolo` to a reviewer |
 | agy | `--mode review` | diff-only from an empty directory; the runner fails 7 if the repo changed |
-| Claude / Grok / Muse probe legs | `--mode implement` + modify-nothing contract | they must run probes to verify by execution |
+| Claude / Grok / Muse probe legs | `--mode probe` | shell kept to verify by execution; runner enforces the verdict and an unchanged repository |
 
 ## Local Qwen review leg
 
