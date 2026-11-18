@@ -339,6 +339,7 @@ cat > "$WORK/bin/grok" <<'STUB'
 #!/usr/bin/env bash
 [ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
 printf '%s\n' "$@" > "$STUB_GROK_ARGS"
+[ -z "${STUB_MUTATE:-}" ] || eval "$STUB_MUTATE"
 [ -z "${STUB_GROK_CALLS:-}" ] || printf '%s\n' "$*" >> "$STUB_GROK_CALLS"
 printf '%s\n' "$HOME" > "$STUB_GROK_HOME_ENV"
 printf '%s\n' "$GROK_HOME" > "$STUB_GROK_DIR_ENV"
@@ -595,6 +596,41 @@ if printf x | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode unknown --dir "$WORK/re
   fail 'unknown Codex mode rejected'
 fi
 pass 'All runners reject unknown modes'
+for r in claude grok; do
+  rc=0; printf x | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode unknown --repo "$WORK/repo" >/dev/null 2>"$WORK/$r-unk.err" || rc=$?
+  [ "$rc" -eq 2 ] || fail "run-$r unknown mode exits 2 (got $rc)"
+  contains "$WORK/$r-unk.err" 'probe' "run-$r unknown-mode error lists probe"
+done
+
+# --- --mode probe: Claude and Grok keep the shell, enforce a verdict, and forbid repository writes ---
+probe_app="$(cat "$WORK/repo/app.txt")"
+for r in claude grok; do
+  rc=0; printf 'probe it\n' | "$PLUGIN_ROOT/scripts/run-$r.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/$r-probe.err" || rc=$?
+  [ "$rc" -eq 0 ] || fail "run-$r probe with APPROVE exits 0 (got $rc): $(cat "$WORK/$r-probe.err")"
+  contains "$WORK/$r.prompt" 'verifies by execution' "$r probe prompt carries the execute-probe contract"
+  rc=0; printf 'probe it\n' | env "STUB_${r^^}_RESULT=progress" "$PLUGIN_ROOT/scripts/run-$r.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/$r-probe.err" || rc=$?
+  [ "$rc" -eq 6 ] || fail "run-$r probe without a verdict exits 6 (got $rc)"
+  contains "$WORK/$r-probe.err" 'probe completed without APPROVE or NEEDS_WORK' "run-$r names the missing probe verdict"
+done
+rc=0; printf 'probe it\n' | STUB_MUTATE="printf changed >> '$WORK/repo/app.txt'" "$PLUGIN_ROOT/scripts/run-claude.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/claude-probe.err" || rc=$?
+printf '%s\n' "$probe_app" > "$WORK/repo/app.txt"
+[ "$rc" -eq 7 ] || fail "claude probe that changed the repo exits 7 (got $rc)"
+rc=0; printf 'probe it\n' | STUB_MUTATE="printf changed >> '$WORK/repo/app.txt'" "$PLUGIN_ROOT/scripts/run-grok.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/grok-probe.err" || rc=$?
+printf '%s\n' "$probe_app" > "$WORK/repo/app.txt"
+[ "$rc" -eq 7 ] || fail "grok probe that changed the repo exits 7 (got $rc)"
+# Claude probe: shell allowed, writes denied.
+printf 'probe it\n' | "$PLUGIN_ROOT/scripts/run-claude.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>&1 || fail 'claude probe reruns'
+claude_allowed="$(awk 'p { print; exit } $0 == "--allowedTools" { p = 1 }' "$WORK/claude.args")"
+claude_denied="$(awk 'p { print; exit } $0 == "--disallowedTools" { p = 1 }' "$WORK/claude.args")"
+case ",$claude_allowed," in *,Bash,*) ;; *) fail "claude probe allows Bash (got $claude_allowed)" ;; esac
+case ",$claude_allowed," in *,Write,*|*,Edit,*) fail "claude probe must not allow Write or Edit (got $claude_allowed)" ;; esac
+case ",$claude_denied," in *,Write,*) ;; *) fail "claude probe denies Write (got $claude_denied)" ;; esac
+case ",$claude_denied," in *,Edit,*) ;; *) fail "claude probe denies Edit (got $claude_denied)" ;; esac
+# Grok probe: no tool allowlist, and the allowlist-debug-evidence check does not apply.
+rc=0; printf 'probe it\n' | STUB_GROK_DEBUG=absent "$PLUGIN_ROOT/scripts/run-grok.sh" --mode probe --repo "$WORK/repo" --timeout 10 >/dev/null 2>"$WORK/grok-probe.err" || rc=$?
+[ "$rc" -eq 0 ] || fail "grok probe needs no allowlist debug evidence (got $rc): $(cat "$WORK/grok-probe.err")"
+absent "$WORK/grok.args" '--tools' 'Grok probe passes no --tools allowlist'
+pass 'run-claude and run-grok --mode probe: verdict enforced, repo writes exit 7, shell kept, writes denied'
 
 out="$(printf 'bounded review\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode review --dir "$WORK/repo" --effort ultra --timeout 5 2> "$WORK/codex.err")"
 [ "$out" = $'codex findings\nAPPROVE' ] || fail 'Codex final output'
@@ -1043,6 +1079,20 @@ contains "$GROK_HOME/auth.json" '"new"' 'Grok refreshed auth copied back after s
 [ ! -e "$GROK_HOME/auth.json.lockdir" ] || fail 'Grok stale auth lock removed'
 pass 'Grok recovers stale auth locks safely'
 
+# A lock directory with no pid file is stale only once it is older than a minute.
+printf '{"key":"old"}\n' > "$GROK_HOME/auth.json"
+mkdir "$GROK_HOME/auth.json.lockdir"; touch -d '5 minutes ago' "$GROK_HOME/auth.json.lockdir"
+printf 'refresh auth\n' | STUB_GROK_REFRESH=1 "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-auth-nopid.err"
+contains "$GROK_HOME/auth.json" '"new"' 'Grok refreshed auth written back past an old pid-less lock'
+[ ! -e "$GROK_HOME/auth.json.lockdir" ] || fail 'Grok old pid-less auth lock removed'
+printf '{"key":"old"}\n' > "$GROK_HOME/auth.json"
+mkdir "$GROK_HOME/auth.json.lockdir"
+printf 'refresh auth\n' | STUB_GROK_REFRESH=1 "$PLUGIN_ROOT/scripts/run-grok.sh" --mode advise --repo "$WORK/repo" --timeout 5 >/dev/null 2> "$WORK/grok-auth-fresh.err"
+contains "$WORK/grok-auth-fresh.err" 'lock busy' 'Grok fresh pid-less lock reports lock busy'
+contains "$GROK_HOME/auth.json" '"old"' 'Grok fresh pid-less lock blocks the write-back'
+rmdir "$GROK_HOME/auth.json.lockdir"
+pass 'Grok pid-less auth lock: stale after a minute, busy while fresh'
+
 # Concurrent host refresh while a leg runs must not be clobbered by stale isolated auth.
 printf '{"key":"start"}\n' > "$GROK_HOME/auth.json"
 printf 'host race no isolated refresh\n' | \
@@ -1110,7 +1160,15 @@ contains "$PLUGIN_ROOT/README.md" '"autoCompactWindow": 500000' 'README document
 contains "$META_CMD" '--resume' 'Meta command documents resume'
 contains "$META_CMD" 'mission brief' 'Meta command takes a free-form what-to-achieve brief'
 contains "$META_SKILL" 'HOW is yours' 'Meta skill owns the how; the brief owns the what'
-contains "$META_SKILL" 'READY TO MERGE — nothing further coming.' 'Meta skill pins the literal merge signal'
+contains "$META_SKILL" 'review-gate.sh --author <worker>' 'Meta skill gates with the worker as author'
+contains "$META_SKILL" 'Hold the run lease' 'Meta skill holds the run lease'
+contains "$META_REFS/handoff-template.md" 'handoff-lease.sh claim <owner>' 'Handoff template claims the lease'
+contains "$META_REFS/handoff-template.md" 'Lease owner' 'Handoff template records the lease owner'
+contains "$PLUGIN_ROOT/commands/orchestrate.md" '--author "$WORKER_PROVIDER"' 'Orchestrate passes the worker as gate author'
+contains "$PLUGIN_ROOT/README.md" '--mode probe' 'README documents probe mode'
+contains "$PLUGIN_ROOT/README.md" 'handoff-lease.sh' 'README documents the handoff lease'
+contains "$META_SKILL" 'only on a gate exit of 0' 'Meta skill merges only on a gate exit of 0'
+absent "$META_SKILL" 'READY TO MERGE' 'Meta skill no longer relies on a literal merge line'
 contains "$META_SKILL" 'route-model-task' 'Meta skill routes via route-model-task'
 contains "$META_SKILL" 'any research memo for the item' 'Meta skill feeds research memos into the worker packet'
 contains "$META_SKILL" 'tribunal-review:closing-tribunal-loop' 'Meta skill chains the tribunal close-out'
@@ -1229,7 +1287,10 @@ tmpl="$(grep -m1 -E '^VERDICT:' "$META_REFS/review-prompts.md")" || fail 'Review
 assert_review_verdict "${tmpl%%|*}" 'Template APPROVE alternative renders past the runner gate'
 assert_review_verdict "${tmpl#*|}" 'Template NEEDS_WORK alternative renders past the runner gate'
 contains "$META_REFS/review-prompts.md" 'Bounded DELTA by execution' 'Review template keeps the bounded delta round'
-contains "$META_REFS/review-prompts.md" 'READY TO MERGE — nothing further coming.' 'Review templates request the merge signal on final APPROVE'
+absent "$META_REFS/review-prompts.md" 'READY TO MERGE' 'Review templates no longer request a literal merge line'
+contains "$META_REFS/review-prompts.md" '--mode probe' 'Review templates route execute-probe legs through --mode probe'
+contains "$META_REFS/review-prompts.md" 'review-gate.sh --author <worker provider>' 'Review templates run the gate with --author'
+absent "$META_REFS/review-prompts.md" '`--mode implement` + modify-nothing contract' 'Review templates dropped the implement+modify-nothing contract'
 contains "$META_REFS/review-prompts.md" 'Send after each fix cycle' 'Delta re-review runs after each fix cycle'
 absent "$META_REFS/review-prompts.md" 'single fix ''cycle' 'Delta re-review is not limited to one fix cycle'
 contains "$META_REFS/worker-prompt.md" 'the orchestrator commits' 'Worker template reconciles commits with no-commit leg contracts'
@@ -2841,7 +2902,8 @@ pass 'run-qwen-local: discovery skips stale cached wrapper versions'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/leg-liveness.md" \
   'run-qwen-local.sh' 'leg-liveness keeps the local-Qwen exit-75 exception'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
-  'run-qwen-local.sh' 'meta-orchestration can dispatch the local runner'
+  'eligible runner (`run-*.sh`)' 'meta-orchestration dispatches the recorded runner (run-*.sh covers the local runner)'
+[ -x "$PLUGIN_ROOT/scripts/run-qwen-local.sh" ] || fail 'run-qwen-local.sh matches the run-*.sh dispatch glob'
 contains "$PLUGIN_ROOT/skills/route-model-task/references/routing.md" \
   '| Local Qwen | `default` |' 'routing catalog keeps the local engine'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/references/review-prompts.md" \
@@ -2881,6 +2943,54 @@ bash "$GATE" --leg codex="$gate_dir/missing.txt" >/dev/null 2>&1 || rc=$?
 rc=0
 bash "$GATE" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "no legs is a usage error (got $rc)"
+# --author: a leg must come from a hosted provider family other than the author's.
+gate_author() { # EXPECTED_RC DESCRIPTION ARGS...
+  local want="$1" desc="$2" got=0; shift 2
+  bash "$GATE" "$@" >/dev/null 2>"$gate_dir/author.err" || got=$?
+  [ "$got" -eq "$want" ] || fail "gate $desc: want $want, got $got"
+}
+gate_author 3 '--author codex --leg codex' --author codex --leg codex="$gate_dir/codex.txt"
+contains "$gate_dir/author.err" 'other than the author' 'same-family gate exit 3 names the author rule'
+gate_author 3 '--author gpt-6.1-sol --leg astra' --author gpt-6.1-sol --leg astra="$gate_dir/codex.txt"
+gate_author 0 '--author codex --leg grok' --author codex --leg grok="$gate_dir/codex.txt"
+gate_author 0 '--author qwen --leg codex' --author qwen --leg codex="$gate_dir/codex.txt"
+gate_author 0 '--author claude-opus-5-5 --leg sonnet --leg codex' --author claude-opus-5-5 --leg sonnet="$gate_dir/codex.txt" --leg codex="$gate_dir/codex.txt"
+gate_author 3 '--author grok --leg qwen' --author grok --leg qwen="$gate_dir/codex.txt"
+gate_author 2 '--author without a value' --leg codex="$gate_dir/codex.txt" --author
+gate_author 0 'no --author keeps --leg codex independent' --leg codex="$gate_dir/codex.txt"
+gate_author 3 'agy is not a hosted label' --leg agy="$gate_dir/codex.txt"
+gate_author 3 'opencode is not a hosted label' --leg opencode="$gate_dir/codex.txt"
+pass 'review-gate --author requires a reviewer from another provider family'
+
+# --- handoff-lease.sh ---
+LEASE="$PLUGIN_ROOT/scripts/handoff-lease.sh"
+lease_dir="$WORK/lease"
+lease_rc() { local got=0; "$@" >/dev/null 2>"$WORK/lease.err" || got=$?; printf '%s' "$got"; }
+[ "$(lease_rc bash "$LEASE" claim a1 --dir "$lease_dir")" = 0 ] || fail 'lease: first claim succeeds'
+case "$(cat "$lease_dir/.lease")" in 'a1 '*) ;; *) fail 'lease: the lease file starts with the owner' ;; esac
+[ "$(lease_rc bash "$LEASE" claim b2 --dir "$lease_dir")" = 75 ] || fail 'lease: a second owner exits 75'
+contains "$WORK/lease.err" 'held by a1' 'lease: exit 75 names the holder'
+[ "$(lease_rc bash "$LEASE" claim a1 --dir "$lease_dir")" = 0 ] || fail 'lease: the owner renews'
+[ "$(lease_rc bash "$LEASE" release b2 --dir "$lease_dir")" = 0 ] || fail 'lease: a non-owner release exits 0'
+[ -f "$lease_dir/.lease" ] || fail 'lease: a non-owner release leaves the lease in place'
+case "$(cat "$lease_dir/.lease")" in 'a1 '*) ;; *) fail 'lease: still held by a1 after b2 release' ;; esac
+[ "$(lease_rc bash "$LEASE" release a1 --dir "$lease_dir")" = 0 ] || fail 'lease: owner release exits 0'
+[ ! -e "$lease_dir/.lease" ] || fail 'lease: owner release removes the lease'
+[ "$(lease_rc bash "$LEASE" claim b2 --dir "$lease_dir")" = 0 ] || fail 'lease: claim after release succeeds'
+printf 'a1 1\n' > "$lease_dir/.lease"
+[ "$(lease_rc bash "$LEASE" claim b2 --dir "$lease_dir")" = 0 ] || fail 'lease: an expired lease is taken over'
+case "$(cat "$lease_dir/.lease")" in 'b2 '*) ;; *) fail 'lease: takeover rewrites the owner' ;; esac
+for bad in 'claim a1 --ttl 0' 'claim a1 --ttl x' 'claim' 'claim a\ b' 'frobnicate a1'; do
+  # shellcheck disable=SC2086
+  [ "$(lease_rc bash "$LEASE" $bad --dir "$lease_dir")" = 2 ] || fail "lease: '$bad' exits 2"
+done
+[ "$(lease_rc bash "$LEASE" claim 'a b' --dir "$lease_dir")" = 2 ] || fail 'lease: an owner with a space exits 2'
+lease_repo="$WORK/lease-repo"; mkdir -p "$lease_repo"; git -C "$lease_repo" init -q
+(cd "$lease_repo" && bash "$LEASE" claim r1 >/dev/null 2>&1) || fail 'lease: default dir claim succeeds in a repo'
+[ -f "$lease_repo/.claude/handoffs/.lease" ] || fail 'lease: default dir is <repo>/.claude/handoffs'
+(cd "$lease_repo" && MMO_HANDOFF_DIR=state/h bash "$LEASE" claim r1 >/dev/null 2>&1) || fail 'lease: MMO_HANDOFF_DIR claim succeeds'
+[ -f "$lease_repo/state/h/.lease" ] || fail 'lease: MMO_HANDOFF_DIR is relative to the repo root'
+pass 'handoff-lease: claim, renew, release, expiry, usage, and default directories'
 # Fail-closed labels: the catalog names for the local engine, other casings, and
 # unknown providers are all advisory; only hosted catalog names count.
 for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local' 'opencode' 'kimi-k3.1-pro'; do
@@ -3552,6 +3662,36 @@ esac
 case "$line" in *'resets='*) fail "muse quota without a reset time adds no resets= field: $line" ;; esac
 rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='missing meta credentials: run `muse login` or set META_API_KEY' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
 [ "$rc" -eq 77 ] || fail "missing muse credentials exit 77 (got $rc)"
+# step cap: a failed terminal whose reason is the step-cap message maps by mode; other failures stay 1
+step_reason='model did not reach a terminal state within 50 step(s)'
+for mode_rc in implement:76 review:78 advise:78; do
+  mode="${mode_rc%%:*}"; want="${mode_rc##*:}"; margs=(); [ "$mode" != review ] || margs=(--base HEAD)
+  rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL="$step_reason" bash "$MUSE_RUN" --mode "$mode" --repo "$MR" "${margs[@]}" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+  [ "$rc" -eq "$want" ] || fail "muse $mode step cap exits $want (got $rc)"
+  contains "$MU/err" 'step cap reached' "muse $mode step cap is named"
+done
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_FAIL='boom' bash "$MUSE_RUN" --mode implement --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 1 ] || fail "a muse failure other than the step cap still exits 1 (got $rc)"
+pass 'run-muse: step cap exits 76 for implement and 78 for review/advise; other failures stay 1'
+
+# --mode probe: shell kept, writes disabled, verdict and unchanged repository enforced
+muse_f="$(cat "$MR/f.txt")"
+probe_n="$(find "$MU/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
+rc=0; printf 'probe it\n' | "${muse_env[@]}" bash "$MUSE_RUN" --mode probe --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 0 ] || fail "muse probe with APPROVE exits 0 (got $rc): $(cat "$MU/err")"
+exact_line "$MU/calls/call.${probe_n}.args" '--disable-write' 'muse probe drops write tools'
+absent "$MU/calls/call.${probe_n}.args" '--disable-shell' 'muse probe keeps the shell'
+contains "$MU/calls/call.${probe_n}.prompt" 'verifies by execution' 'muse probe prompt carries the execute-probe contract'
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_RESPONSE='looks fine' bash "$MUSE_RUN" --mode probe --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 6 ] || fail "a muse probe without a verdict exits 6 (got $rc)"
+contains "$MU/err" 'probe completed without APPROVE or NEEDS_WORK' 'muse probe names the missing verdict'
+rc=0; printf 'x\n' | "${muse_env[@]}" STUB_MUSE_TOUCH="$MR/f.txt" bash "$MUSE_RUN" --mode probe --repo "$MR" --timeout 30 >/dev/null 2>"$MU/err" || rc=$?
+printf '%s\n' "$muse_f" > "$MR/f.txt"
+[ "$rc" -eq 7 ] || fail "a muse probe that wrote to the repo exits 7 (got $rc)"
+rc=0; printf 'x\n' | "${muse_env[@]}" bash "$MUSE_RUN" --mode bogus --repo "$MR" >/dev/null 2>"$MU/err" || rc=$?
+[ "$rc" -eq 2 ] || fail "run-muse unknown mode exits 2 (got $rc)"
+contains "$MU/err" 'probe' 'run-muse unknown-mode error lists probe'
+pass 'run-muse --mode probe: write tools off, shell on, verdict and unchanged repo enforced'
 for bad in '--mode review --base --output=x' '--mode implement --effort ultra' '--mode implement --model gpt-6-sol' '--mode implement --max-steps 0' '--mode bogus'; do
   rc=0
   # shellcheck disable=SC2086

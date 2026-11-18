@@ -6,18 +6,17 @@ argument-hint: "<implementation request and any provider/model/effort restrictio
 
 # /multi-model-orchestrator:orchestrate
 
-Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`.
+Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`. The skill owns
+the policy (restrictions, YOLO boundary, gates, reviewer selection); this file adds how to read the
+request, the preflight, and the exact commands.
 
 ## Required interpretation
 
-- Natural wording is authoritative. Apply “only,” “do not use,” and provider/model allowlists or
-  denylists before routing. Never dispatch a forbidden provider.
+- Natural wording is authoritative: “only,” “do not use,” allowlists and denylists.
 - “Implement with Codex only” means every source edit belongs to a Codex worker. A fresh Codex
   reviewer is allowed; Claude Code, Grok Build, and Muse Code are not.
 - An explicit current model or compatible effort overrides the router default for that named leg.
   Reject contradictory restrictions and unsupported effort/model combinations.
-- Every selected CLI runs in YOLO mode. Do not downgrade the runner flags; the development
-  container is the security boundary. Reviewer/adviser prompts and tool lists remain read-only.
 
 ## Preflight
 
@@ -45,8 +44,6 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
 3. Dispatch each ready task with the route card's exact arguments: preserve the tier, mode,
    `--prefer`, `--allow`/`--deny` and usage snapshot from selection. A task-specific effort
    differing from the table uses the recorded direct runner after eligibility checks.
-   Default to sequential execution; parallel writes require disjoint
-   declared files and no shared generated state.
 
    ```bash
    # ROUTED_POOL_ARGS holds preference, restrictions and usage flags; never an eval string.
@@ -59,35 +56,23 @@ Load `skills/multi-model-orchestration/SKILL.md` and execute it for `$ARGUMENTS`
    PROMPT
    ```
 
-   The pool moves past workers that exit `75` (unavailable or at a plan limit), `77`, or `127`,
-   and names the worker that ran on stderr; record it in the ledger. Its own `75` means nobody in
-   the tier chain was available: report the blocker with the reset it printed. `55` means the
-   failing worker had already edited the tree: salvage or reset before redispatching; `76` (a Grok implement leg hit its turn cap after possibly editing) is handled the same way. A pinned model calls
-   its runner directly with the same contract (`run-codex.sh --dir`, `run-claude.sh`,
-   `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, `run-opencode.sh`, or `run-qwen-local.sh --repo`); omit `--effort` for Claude Haiku
-   4.5. Local Qwen and agy review only with `--mode review --base <range>`: diff-only advisory
-   lenses that `--mode implement` would turn into writers. Never replace a current model with an
-   earlier generation when a route is unavailable.
+   The pool names the worker that ran on stderr; record it in the ledger. Its own `75` means
+   nobody in the tier chain was available: report the blocker with the reset it printed. `55`
+   means the failing worker had already edited the tree: salvage or reset before redispatching;
+   `76` (a Grok turn cap or Muse step cap on an implement leg) is handled the same way. A pinned
+   model calls its runner directly (`run-codex.sh` takes `--dir`); omit `--effort` for Claude
+   Haiku 4.5. Local Qwen and agy review only with `--mode review --base <range>`. Never replace
+   a current model with an earlier generation when a route is unavailable.
 
-4. After every worker, inspect the diff, reject out-of-scope paths, and run its named test.
-   Do not launch the next dependent task until this gate passes. Allow one targeted correction;
-   otherwise report the blocker.
-5. Run the complete directly affected deterministic test set. Do not claim completion on model
-   testimony alone.
+4. Gate each worker and then the whole diff as the skill's Implementation gates say. Do not claim
+   completion on model testimony alone.
 
 ## Independent final review
 
-Default: push the branch, open (or update) the PR, and chain
-`tribunal-review:closing-tribunal-loop` on it — that skill owns preflight, rounds, PR comments,
-and the zero-critical/high exit; you arbitrate as calling context and never restate its
-protocol.
-
-Fallback — inline reviewer legs, only when `tribunal-review` is not installed or the caller
-explicitly asked for a local no-PR run. Choose reviewer route cards after implementation. Use
-one different provider for ordinary nontrivial work and two only for high risk or conflicting
-evidence, subject to provider restrictions. Give each the original request, acceptance criteria,
-`BASE_SHA`, and a bounded finding contract. Reviewers must not edit. Run multiple reviewers
-concurrently and independently. A leg can outlast the host's foreground command limit (Claude Code
+Follow the skill's Final review: `tribunal-review:closing-tribunal-loop` on the pushed PR by
+default, inline reviewer legs only as its fallback. For the fallback, choose reviewer route cards
+after implementation and give each the original request, acceptance criteria, `BASE_SHA`, and a
+bounded finding contract. A leg can outlast the host's foreground command limit (Claude Code
 Bash: 10 minutes), so dispatch each worker and this reviewer block through the host's background
 mechanism (Claude Code: Bash `run_in_background: true`) and continue on its completion notice. Create `RUN_DIR=$(mktemp -d)` before dispatch and remove it
 after findings are arbitrated.
@@ -114,11 +99,12 @@ wait "$astra_pid" || review_failed=1
 wait "$grok_pid" || review_failed=1
 [ "$review_failed" -eq 0 ] || { printf '%s\n' 'One or more reviewers failed; do not arbitrate their output.' >&2; exit 1; }
 gate_rc=0
-verdict="$("${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh" "${legs[@]}")" || gate_rc=$?
+# --author is the implementing provider; drop it only when the request restricts the run to one provider.
+verdict="$("${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh" --author "$WORKER_PROVIDER" "${legs[@]}")" || gate_rc=$?
 case "$gate_rc" in
   0) ;;                                   # APPROVE: continue to arbitration notes
   1) review_needs_work=1 ;;               # arbitrate to find WHAT to fix; never proceed on this verdict
-  3) printf '%s\n' 'Only the advisory local engine reviewed; launch an independent reviewer.' >&2; exit 3 ;;
+  3) printf '%s\n' 'No independent reviewer (advisory engine or the author provider only); launch one.' >&2; exit 3 ;;
   *) printf '%s\n' 'A review leg is missing or has no verdict; do not arbitrate.' >&2; exit "$gate_rc" ;;
 esac
 ```
@@ -128,6 +114,4 @@ rerun the affected tests, and run the reviewers and this gate again. Only a gate
 review: when that one recheck still does not return 0, stop and report the open findings as a
 blocker, never the task as done.
 
-The snippet illustrates all providers; launch only the selected allowed route cards. Verify every
-finding against the repository. Fix only confirmed task-blocking defects and rerun affected tests. Report the ledger, tests, reviewer verdicts,
-accepted/rejected findings, and final diff scope.
+The snippet illustrates all providers; launch only the selected allowed route cards.

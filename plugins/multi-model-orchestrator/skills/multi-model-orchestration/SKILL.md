@@ -8,7 +8,8 @@ description: "Use when a user asks to implement through Claude Code, Codex, Grok
 Deliver one software change through a thin controller, fresh bounded workers, deterministic
 gates, and independent final reviewers. Read `../route-model-task/SKILL.md` and its routing
 reference before assigning models or efforts. Read `references/research-2026-07.md` only when
-explaining the community evidence behind the original policy.
+explaining the community evidence behind the original policy. Be token-frugal: targeted reads,
+no re-reads, and verdicts rather than logs back from every leg.
 
 ## Controller contract
 
@@ -84,9 +85,10 @@ same-provider reviewer; preserve the restriction.
 - Ultra requires a bounded prompt: one pass, at most 10 findings, realistic reachable failures,
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 
-Combine reviewer legs with `scripts/review-gate.sh --leg <provider>=<final-message-file>`: it
-returns the combined verdict and exits 3 when the set contains only the advisory local engine,
-which cannot verify by execution.
+Combine reviewer legs with `scripts/review-gate.sh --author <implementing provider> --leg
+<provider>=<final-message-file>`: it returns the combined verdict and exits 3 when no leg is
+independent — only the advisory local engine, which cannot verify by execution, or only the
+author's own provider. Omit `--author` when a restriction requires a same-provider reviewer.
 
 The controller verifies file/line claims and reachable failures. Fix confirmed blocking findings
 only, rerun deterministic checks, then allow one affected-scope recheck. If reviewers disagree,
