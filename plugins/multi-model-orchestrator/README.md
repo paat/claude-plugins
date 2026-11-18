@@ -169,8 +169,10 @@ work. The brief is free-form and describes WHAT to achieve — an epic issue, an
 prioritize and implement, a goal to discover tasks for, or "scan for new workitems" — plus any
 autonomy bounds and model restrictions. HOW is the orchestrator's job: per-item worker legs
 routed through the model catalog, adversarial review plus a bounded delta re-review by a
-different provider, merge only on a literal ready signal, and a crash-safe handoff file updated
-after every decision. `--resume [handoff-path]` continues from the newest (or named) handoff;
+different provider, merge only on a review-gate exit of 0, and a crash-safe handoff file updated
+after every decision. `scripts/handoff-lease.sh` keeps one orchestrator per checkout: a second
+session on the same handoff directory (a cron `--resume` beside a live run) is refused with exit 75
+until the lease expires. A run in another worktree has its own handoffs and its own lease. `--resume [handoff-path]` continues from the newest (or named) handoff;
 trailing text is treated as overrides of decided judgment calls and brief deltas. A scan that finds nothing new writes
 nothing and stops; recurrence belongs to `/loop` or cron.
 
@@ -249,7 +251,9 @@ codex, grok, muse, agy, opencode, and qwen CLIs they call are trusted for sendin
   Grok uses `--sandbox none --permission-mode bypassPermissions`, Muse uses `--yolo` (headless
   `muse exec` otherwise blocks on an approval prompt until the timeout). Advice and review legs still
   receive semantic no-write contracts and read-only tool allowlists; Muse's drop write and shell
-  tools and exit 7 if the repository changed anyway. Claude and Grok research legs have web-only
+  tools and exit 7 if the repository changed anyway. A reviewer that must run probes uses
+  `--mode probe` (`run-claude.sh`, `run-grok.sh`, `run-muse.sh`): it keeps its shell, must end
+  with a verdict line (exit 6) and must leave the repository unchanged (exit 7). Claude and Grok research legs have web-only
   tool allowlists with no file access; Muse research has no write or shell tools and runs from an
   empty directory but keeps read tools. OpenCode implement uses `--auto`; its review uses
   `--agent plan` (edit tool denied) from an empty directory, is advisory, and exits 7 on writes. The Codex CLI has no per-tool allowlist and
@@ -284,9 +288,11 @@ codex, grok, muse, agy, opencode, and qwen CLIs they call are trusted for sendin
 
 ## Review gate
 
-`scripts/review-gate.sh --leg <provider>=<final-message-file> [--leg ...]` combines reviewer legs
+`scripts/review-gate.sh [--author <provider-or-model>] --leg <provider>=<final-message-file> [--leg ...]` combines reviewer legs
 into one verdict taken from each leg's last verdict line: `0` APPROVE, `1` NEEDS_WORK, `2` a missing
 file or a leg without a terminal verdict, and `3` when no leg is from an independent hosted provider.
+With `--author`, a leg from the author's own provider family (a Codex reviewer for a GPT worker)
+does not count as independent either; omit it only for a run restricted to one provider.
 Classification is fail-closed: only labels naming a hosted catalog provider or model (Claude, Codex,
 GPT, Grok, Muse and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, `opencode`, or
 an unrecognized label are advisory. The local, agy, and OpenCode reviewers read the diff and cannot run probes,
@@ -314,6 +320,7 @@ one outcome with exit 143, 129, or 130 respectively.
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   the pool moves to the next worker.
+- `flock` (util-linux) for `handoff-lease.sh`
 
 Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings.
 
@@ -329,11 +336,11 @@ catalog.
 | `MMO_CODEX_MODEL` | `gpt-6-astra` | Codex worker/reviewer model |
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
-| `MMO_GROK_MAX_TURNS` | `30` (`60` for review, `150` for implement) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement`; env values above 100 are clamped outside implement. Review/advise resume once keeping the read-only allowlist on cap (`truncated=turns`; a review resumed after the cap can report findings but not approve), else exit 78; a research leg also exits 78 at the turn cap (no resume). Review/advise legs with `--out FILE` and no `--stream-log` write `FILE.stream` |
+| `MMO_GROK_MAX_TURNS` | `30` (`60` for review, `150` for implement and probe) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement` and `--mode probe`; env values above 100 are clamped for the other modes. Review/advise resume once keeping the read-only allowlist on cap (`truncated=turns`; a review resumed after the cap can report findings but not approve), else exit 78; a research leg also exits 78 at the turn cap (no resume). Review, advise and probe legs with `--out FILE` and no `--stream-log` write `FILE.stream` |
 | `MMO_GROK_CONTINUE_ON_MAX_TURNS` | `1` | Implement only: finishing `--resume` passes (0-3) after a max-turns stop on a changed tree, within the one `--timeout`; a max-turns stop exits 76 |
 | `MMO_MUSE_MODEL` | `muse-spark-1.3` | Direct runner default. `default` passes no `--model`. Pool rows supply their own `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
-| `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200 |
+| `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200. A leg that uses its last step exits 76 (implement: work may be partial) or 78 (any other mode: no report) |
 | `MMO_OPENCODE_MODEL` | `glm-5.3` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
 | `MMO_OPENCODE_EFFORT` | `high` | OpenCode model variant (`default` passes none) |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/local-Qwen review |

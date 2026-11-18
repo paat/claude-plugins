@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|research|review [--api] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
+  printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|probe|research|review [--api] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
 }
 
 claude_model_catalog='claude-fable-5-2|claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5'
@@ -90,7 +90,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 mmo_clear_out "$output_file"
-case "$mode" in advise|implement|research|review) ;; *) printf 'run-claude: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
+case "$mode" in advise|implement|probe|research|review) ;; *) printf 'run-claude: --mode must be advise, implement, probe, research, or review\n' >&2; exit 2 ;; esac
 api_key_file="${MMO_CLAUDE_API_KEY_FILE:-}"
 if [ "$api" -eq 1 ]; then
   if [ -z "$api_key_file" ] || [ ! -f "$api_key_file" ] || [ ! -r "$api_key_file" ] || [ ! -s "$api_key_file" ]; then
@@ -194,6 +194,7 @@ case "$mode" in
       cat "$request_file"
     } > "$prompt_file"
     ;;
+  probe) mmo_probe_prompt "$request_file" > "$prompt_file" ;;
   implement)
     {
       printf '%s\n' 'You are one fresh, bounded implementation worker.'
@@ -221,6 +222,9 @@ claude_args+=(
 if [ "$mode" = implement ]; then
   allowed_tools='Read,Glob,Grep,Bash,Write,Edit'
   disallowed_tools='Task,WebFetch,WebSearch,NotebookEdit'
+elif [ "$mode" = probe ]; then
+  allowed_tools='Read,Glob,Grep,Bash'
+  disallowed_tools='Write,Edit,NotebookEdit,Task,WebFetch,WebSearch'
 elif [ "$mode" = research ]; then
   allowed_tools='WebSearch,WebFetch'
   disallowed_tools='Bash,Write,Edit,NotebookEdit,Task'
@@ -325,8 +329,8 @@ if [ "$rc" -eq 0 ] && [ ! -s "$output_file" ]; then
   printf 'run-claude: missing or empty final-message artifact: %s\n' "$output_file" >&2
   rc=5
 fi
-if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
-  printf 'run-claude: review completed without APPROVE or NEEDS_WORK\n' >&2
+if [ "$rc" -eq 0 ] && { [ "$mode" = review ] || [ "$mode" = probe ]; } && ! mmo_has_review_verdict "$output_file"; then
+  printf 'run-claude: %s completed without APPROVE or NEEDS_WORK\n' "$mode" >&2
   rc=6
 fi
 # Expose body on success and on verdict-format failure (rc=6) so controllers

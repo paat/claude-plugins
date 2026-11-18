@@ -26,6 +26,6 @@ Runners reclassify from each CLI's own error line only (Codex final `ERROR:` lin
   item until the earliest reset it printed, with no wait-and-retry.
 - **77 (EX_NOPERM):** auth (401, unauthorized, not logged in, login required, expired/invalid token or API key). Do not retry; queue re-authentication under the handoff's `OPERATOR ACTIONS REQUIRED` and continue with the next item that does not need that provider.
 
-Exit 7 from an advise, review, or research leg means the leg changed the repository (or, for Muse, ran another model): its report is not a verdict. Inspect `git status`, revert what the leg wrote, add a harmless test artifact to the exclude file, then rerun the leg.
+Exit 7 from an advise, review, probe, or research leg means the leg changed the repository (or, for Muse, ran another model): its report is not a verdict. Inspect `git status`, revert what the leg wrote, add a harmless test artifact to the exclude file, then rerun the leg.
 
-Before retrying an implement leg, inspect `git status` and salvage or reset partial edits on evidence (same principle as exit 124; exit 76 = Grok max turns, same salvage rule). Exit 78 (Grok review/advise/research turn cap without a report) leaves no partial edits; rerun with a larger `--max-turns` or a narrower packet.
+Before retrying an implement leg, inspect `git status` and salvage or reset partial edits on evidence (same principle as exit 124; exit 76 = Grok max turns or Muse step cap, same salvage rule). Exit 78 (a Grok or Muse non-implement leg hit its turn or step cap without a report) leaves no partial edits; rerun with a larger `--max-turns` / `--max-steps` or a narrower packet.

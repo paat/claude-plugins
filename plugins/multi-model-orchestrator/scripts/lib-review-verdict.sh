@@ -26,6 +26,17 @@ mmo_terminal_verdict() {
   esac
 }
 
+# Prompt of a --mode probe leg: a reviewer that verifies by execution. It keeps its shell,
+# so the runner checks the verdict line and that the repository is unchanged afterwards.
+mmo_probe_prompt() {  # mmo_probe_prompt REQUEST_FILE [EXTRA_LINE]
+  printf '%s\n' 'You are an independent reviewer who verifies by execution: run the probes and suites the task names.'
+  printf '%s\n' 'Leave the repository as you found it: no edits or new files in it, no commit, branch, index or stash change. Write scratch files outside it.'
+  [ -z "${2:-}" ] || printf '%s\n' "$2"
+  printf '%s\n' 'Report observed against expected for each probe. End with one terminal line: APPROVE or NEEDS_WORK.'
+  printf '\n## Review task\n'
+  cat "$1"
+}
+
 # Plain Grok output concatenates assistant messages with no separator, so a
 # terminal verdict can sit mid-line (`worktree.VERDICT: NEEDS_WORK` or
 # `worktree.**VERDICT: APPROVE**`). Split only when that trailing token,
@@ -134,8 +145,9 @@ mmo_clear_out() {  # mmo_clear_out PATH
   if [ -L "$1" ]; then : > "$1"; else rm -f -- "$1"; fi 2>/dev/null || true
 }
 
-# Fingerprint HEAD, index, working tree, and untracked file contents, so a caller can
-# tell whether a leg wrote to the repository. The absolute OUT paths (a leg's --out and
+# Fingerprint HEAD (commit and checked-out branch), index, working tree, and untracked file
+# contents, so a caller can tell whether a leg wrote to the repository. Other branches and the
+# stash are left out: worktrees share them, so another session would trip the check. The absolute OUT paths (a leg's --out and
 # --stream-log) do not count, as in mmo_out_spec. Prints one cksum line; never fails.
 mmo_tree_state() {  # mmo_tree_state REPO [OUT]...
   local repo="$1"
@@ -143,6 +155,7 @@ mmo_tree_state() {  # mmo_tree_state REPO [OUT]...
   mmo_out_spec "$@"
   {
     git -C "$repo" rev-parse --verify -q HEAD || true
+    git -C "$repo" symbolic-ref -q HEAD || true
     git -C "$repo" status --porcelain=v1 --untracked-files=all -- "${mmo_spec[@]}" || true
     git -C "$repo" diff --no-ext-diff --binary --cached -- "${mmo_spec[@]}" || true
     git -C "$repo" diff --no-ext-diff --binary -- "${mmo_spec[@]}" || true

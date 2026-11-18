@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty final
-# message; 6 review without APPROVE/NEEDS_WORK; 7 allowlist debug evidence missing or
-# not enforced; 75 transient or plan limit; 76 implement max turns reached; 77 auth;
-# 78 review/advise/research leg ended on the turn cap without a report; 124 timeout; 127 git/grok missing.
+# message; 6 review or probe without APPROVE/NEEDS_WORK; 7 allowlist debug evidence missing or
+# not enforced, or a probe leg changed the repository; 75 transient or plan limit; 76 implement max turns reached; 77 auth;
+# 78 review/advise/probe/research leg ended on the turn cap without a report; 124 timeout; 127 git/grok missing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-outcomes.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.7|grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.7 and grok-4.6)] [--max-turns N] [--continue-on-max-turns 0-3] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|probe|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.7|grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.7 and grok-4.6)] [--max-turns N] [--continue-on-max-turns 0-3] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
 }
 
 valid_effort() {
@@ -56,7 +56,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 mmo_clear_out "$output_file"
-case "$mode" in advise|implement|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, research, or review\n' >&2; exit 2 ;; esac
+case "$mode" in advise|implement|probe|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, probe, research, or review\n' >&2; exit 2 ;; esac
 case "$model" in
   grok-4.7|grok-4.6|grok-4.5) ;;
   *) printf 'run-grok: unsupported model %s (current catalog: grok-4.7 grok-4.6 grok-4.5)\n' "$model" >&2; exit 2 ;;
@@ -77,7 +77,7 @@ case "$model" in
 esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-grok: timeout must be a positive integer\n' >&2; exit 2; }
 case "$mode" in
-  implement) turns_cap=300 turns_default=150 ;;
+  implement|probe) turns_cap=300 turns_default=150 ;;
   review) turns_cap=100 turns_default=60 ;;
   *) turns_cap=100 turns_default=30 ;;
 esac
@@ -89,7 +89,7 @@ fi
 if [ -z "$continue_n" ]; then
   case "$mode" in
     implement) continue_n="${MMO_GROK_CONTINUE_ON_MAX_TURNS:-1}" ;;
-    review|advise) continue_n=1 ;;
+    review|advise|probe) continue_n=1 ;;
     *) continue_n=0 ;;
   esac
 fi
@@ -127,7 +127,7 @@ case "$output_file" in
   /dev/*) out_dev="$output_file"; output_file="$runtime_dir/out.txt"; user_out=0 ;;
   *) output_file="$(realpath -m "$output_file")" ;;
 esac
-if [ "$stream_log_set" -eq 0 ] && [ "$user_out" -eq 1 ] && { [ "$mode" = review ] || [ "$mode" = advise ]; }; then
+if [ "$stream_log_set" -eq 0 ] && [ "$user_out" -eq 1 ] && { [ "$mode" = review ] || [ "$mode" = advise ] || [ "$mode" = probe ]; }; then
   stream_file="${output_file}.stream"
   stream_log_set=1
 fi
@@ -157,7 +157,9 @@ writeback_auth() {
   if ! mkdir "$lock_dir" 2>/dev/null; then
     lock_pid=""
     [ ! -f "$lock_dir/pid" ] || IFS= read -r lock_pid < "$lock_dir/pid" || true
-    if [[ "$lock_pid" =~ ^[1-9][0-9]*$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+    # Stale: its holder is gone, or it died before writing its pid (the lock is held for milliseconds).
+    if { [[ "$lock_pid" =~ ^[1-9][0-9]*$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; } ||
+       { [ -z "$lock_pid" ] && [ -n "$(find "$lock_dir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
       rm -rf -- "$lock_dir"
       mkdir "$lock_dir" 2>/dev/null || {
         printf 'run-grok: auth refresh not written back; lock busy: %s\n' "$lock_dir" >&2
@@ -274,6 +276,9 @@ case "$mode" in
       cat "$request_file"
     } > "$prompt_file"
     ;;
+  probe)
+    mmo_probe_prompt "$request_file" "You have at most $max_turns agent turns: run the named probes first and write the report with turns to spare." > "$prompt_file"
+    ;;
   implement)
     {
       printf '%s\n' 'You are one fresh, bounded implementation worker.'
@@ -298,22 +303,23 @@ if [ "$mode" = research ]; then
 else
   grok_args+=(--disable-web-search)
 fi
-if [ "$mode" != implement ] && [ "$mode" != research ]; then
-  allowed_tools="read_file,list_dir,grep"
-fi
+case "$mode" in review|advise) allowed_tools="read_file,list_dir,grep" ;; esac
+# implement and probe run with every tool: a probe needs the shell, so its writes are
+# detected afterwards instead of prevented.
 [ -z "$allowed_tools" ] || grok_args+=(--tools "$allowed_tools")
 inspect_args=()
-[ "$mode" = implement ] || inspect_args+=(--debug-file "$debug_file")
+[ -z "$allowed_tools" ] || inspect_args+=(--debug-file "$debug_file")
 resume_args=()
-[ "$mode" = implement ] || resume_args+=(--debug-file "$resume_debug_file" --no-plan)
+[ -z "$allowed_tools" ] || resume_args+=(--debug-file "$resume_debug_file")
+[ "$mode" = implement ] || resume_args+=(--no-plan)
 
 child_home="$isolated_home"
-[ "$mode" != implement ] || child_home="$HOME"
+case "$mode" in implement|probe) child_home="$HOME" ;; esac
 
 call_err="$runtime_dir/call.stderr"
 resume_prompt="$runtime_dir/resume-prompt.txt"
 case "$mode" in
-  review)
+  review|probe)
     printf '%s\n' 'Stop inspecting. Do not use tools. Write the review report now from what you have read, ending with VERDICT: APPROVE or VERDICT: NEEDS_WORK on its own line.' > "$resume_prompt"
     ;;
   advise)
@@ -363,6 +369,7 @@ if [ "$continue_n" -gt 0 ]; then
   session_id="${session_id:0:8}-${session_id:8:4}-4${session_id:13:3}-a${session_id:17:3}-${session_id:20:12}"
   [ "$mode" != implement ] || before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 fi
+[ "$mode" != probe ] || tree_before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 started=$SECONDS
 run_grok_call "$run_timeout" "$prompt_file" ${inspect_args[@]+"${inspect_args[@]}"} ${session_id:+--session-id "$session_id"}
 if [ "$mode" != implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
@@ -440,7 +447,11 @@ allowlist_enforced() {
     }
   ' "$1" 2>/dev/null
 }
-if [ "$mode" != implement ]; then
+if [ "$mode" = probe ] && [ "$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")" != "$tree_before" ]; then
+  printf 'run-grok: the %s leg changed %s; inspect git status before trusting it\n' "$mode" "$repo_dir" >&2
+  rc=7
+fi
+if [ -n "$allowed_tools" ]; then
   debug_files=("$debug_file")
   [ "$continues" -eq 0 ] || debug_files+=("$resume_debug_file")
   for df in "${debug_files[@]}"; do
@@ -467,13 +478,13 @@ fi
 if [ "$rc" -eq 0 ] && [ -s "$output_file" ]; then
   mmo_separate_glued_verdict "$output_file"
 fi
-if [ "$rc" -eq 0 ] && [ "$mode" = review ] && ! mmo_has_review_verdict "$output_file"; then
-  printf 'run-grok: review completed without APPROVE or NEEDS_WORK\n' >&2
+if [ "$rc" -eq 0 ] && { [ "$mode" = review ] || [ "$mode" = probe ]; } && ! mmo_has_review_verdict "$output_file"; then
+  printf 'run-grok: %s completed without APPROVE or NEEDS_WORK\n' "$mode" >&2
   rc=6
 fi
 if [ "$truncated" = turns ] && [ "$rc" -eq 0 ]; then
   printf 'run-grok: max turns reached (%s) in --mode %s; synthesized from truncated inspection\n' "$max_turns" "$mode" >&2
-  if [ "$mode" = review ] && [ "$(mmo_terminal_verdict "$output_file")" = APPROVE ]; then
+  if { [ "$mode" = review ] || [ "$mode" = probe ]; } && [ "$(mmo_terminal_verdict "$output_file")" = APPROVE ]; then
     printf '\nInspection truncated at the turn cap (%s turns): an approval from a partial inspection is not accepted.\nVERDICT: NEEDS_WORK\n' "$max_turns" >> "$output_file"
     printf 'run-grok: inspection truncated at the turn cap (%s turns): an approval from a partial inspection is not accepted; overriding APPROVE to NEEDS_WORK\n' "$max_turns" >&2
   fi

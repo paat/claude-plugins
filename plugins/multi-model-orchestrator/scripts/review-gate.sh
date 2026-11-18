@@ -7,7 +7,11 @@
 # used to live in prose; this script enforces it.
 #
 # Usage:
-#   review-gate.sh --leg <provider>=<final-message-file> [--leg ...]
+#   review-gate.sh [--author <provider-or-model>] --leg <provider>=<final-message-file> [--leg ...]
+#
+# --author names who wrote the change. A leg from the same provider family then no longer
+# counts as the independent reviewer (a model reviewing its own family's work shares its
+# blind spots). Omit it only when the run is restricted to one provider.
 #
 # Fail-closed: only a label naming a hosted catalog provider or model counts as an
 # independent reviewer (claude/opus/sonnet/haiku/fable, codex/gpt/astra/terra/luna,
@@ -18,7 +22,8 @@
 #   0  APPROVE     — every leg approved and at least one independent leg did
 #   1  NEEDS_WORK  — at least one leg asked for work
 #   2  usage, unreadable leg, or a leg without a terminal verdict
-#   3  no leg from an independent hosted provider (advisory-only set)
+#   3  no leg from an independent hosted provider (advisory-only set), or with --author
+#      none from another provider than the author
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,12 +36,14 @@ mmo_outcome_init ""
 mmo_outcome_head_sha="$(git rev-parse --verify HEAD 2>/dev/null || true)"
 
 usage() {
-  printf '%s\n' 'Usage: review-gate.sh --leg <provider>=<final-message-file> [--leg ...]'
+  printf '%s\n' 'Usage: review-gate.sh [--author <provider-or-model>] --leg <provider>=<final-message-file> [--leg ...]'
 }
 
 legs=()
+author=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --author) [ "$#" -ge 2 ] && [ -n "$2" ] || { usage >&2; exit 2; }; author="$2"; shift 2 ;;
     --leg) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; legs+=("$2"); shift 2 ;;
     -h|--help) trap - EXIT; usage; exit 0 ;;
     *) printf 'review-gate: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -45,17 +52,21 @@ done
 
 [ "${#legs[@]}" -gt 0 ] || { printf 'review-gate: no --leg given\n' >&2; usage >&2; exit 2; }
 
-mmo_is_independent_provider() {
+# Prints the hosted provider family of a label, or nothing for a label outside the catalog.
+mmo_provider_family() {
   local label
   label="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   # A local engine is advisory whatever else the label contains.
-  case "$label" in *qwen*|*local*) return 1 ;; esac
+  case "$label" in *qwen*|*local*) return 0 ;; esac
   case "$label" in
-    claude*|opus*|sonnet*|haiku*|fable*|codex*|gpt*|astra*|terra*|luna*|grok*|muse*) return 0 ;;
-    *) return 1 ;;
+    claude*|opus*|sonnet*|haiku*|fable*) printf 'claude\n' ;;
+    codex*|gpt*|astra*|terra*|luna*) printf 'codex\n' ;;
+    grok*) printf 'grok\n' ;;
+    muse*) printf 'muse\n' ;;
   esac
 }
 
+author_family="$(mmo_provider_family "$author")"
 independent=0
 needs_work=0
 
@@ -83,11 +94,16 @@ for leg in "${legs[@]}"; do
       exit 2
       ;;
   esac
-  if mmo_is_independent_provider "$provider"; then
+  family="$(mmo_provider_family "$provider")"
+  if [ -n "$family" ] && [ "$family" != "$author_family" ]; then
     independent=1
   fi
 done
 
+if [ "$independent" -eq 0 ] && [ -n "$author_family" ]; then
+  printf 'review-gate: no leg is from a hosted provider other than the author (%s): a %s reviewer does not make the review independent\n' "$author" "$author_family" >&2
+  exit 3
+fi
 if [ "$independent" -eq 0 ]; then
   printf 'review-gate: advisory-only review set — no leg is from an independent hosted provider (claude, codex, grok, muse); the local engine reads the diff and cannot run probes, so it may not be the only reviewer\n' >&2
   exit 3
