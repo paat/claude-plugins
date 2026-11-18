@@ -170,8 +170,9 @@ prioritize and implement, a goal to discover tasks for, or "scan for new workite
 autonomy bounds and model restrictions. HOW is the orchestrator's job: per-item worker legs
 routed through the model catalog, adversarial review plus a bounded delta re-review by a
 different provider, merge only on a review-gate exit of 0, and a crash-safe handoff file updated
-after every decision. `scripts/handoff-lease.sh` keeps one orchestrator per repository: a second
-session (a cron `--resume` beside a live run) is refused with exit 75 until the lease expires. `--resume [handoff-path]` continues from the newest (or named) handoff;
+after every decision. `scripts/handoff-lease.sh` keeps one orchestrator per checkout: a second
+session on the same handoff directory (a cron `--resume` beside a live run) is refused with exit 75
+until the lease expires. A run in another worktree has its own handoffs and its own lease. `--resume [handoff-path]` continues from the newest (or named) handoff;
 trailing text is treated as overrides of decided judgment calls and brief deltas. A scan that finds nothing new writes
 nothing and stops; recurrence belongs to `/loop` or cron.
 

@@ -8,7 +8,8 @@
 # lease, when it is OWNER's, or when it has expired, and then holds it for --ttl seconds
 # (default 3600). A crashed session cannot release, so a lease blocks only until it expires:
 # renew it before every dispatch with a ttl that covers the leg.
-# DIR defaults to ${MMO_HANDOFF_DIR:-.claude/handoffs} under the repository root.
+# DIR defaults to ${MMO_HANDOFF_DIR:-.claude/handoffs} under the checkout's root, beside the
+# handoffs it guards: a linked worktree is a separate run with its own lease.
 #
 # Exit codes: 0 held by OWNER (claim) or not held by OWNER any more (release); 2 usage;
 # 75 held by another owner — that owner and its expiry go to stderr.
