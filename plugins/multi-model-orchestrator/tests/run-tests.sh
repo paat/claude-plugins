@@ -4167,9 +4167,11 @@ case "$out" in *claude*) fail "deny claude removes Claude through every transpor
 case "$out" in *gemini-3.8-flash*gemini-4-argon*) ;; *) fail "deny claude keeps agy Gemini rows: $out" ;; esac
 out="$(ship --tier T1 --allow claude --usage /dev/null 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | cut -f2 | sort -u)" = claude ] || fail "allow claude admits no agy transport: $out"
-out="$(ship --tier T1 --mode review --usage /dev/null 2>"$PL/err")" || true
-case "$out" in *agy*) fail "review still skips every agy row: $out" ;; esac
-contains "$PL/err" 'skip T3 agy/claude-opus-5-5: advisory reviewer' 'agy Claude stays an advisory reviewer'
+out="$(ship --tier T3 --mode review --allow agy --usage /dev/null 2>"$PL/err")" \
+  || fail "review pick keeps agy Opus: $(cat "$PL/err")"
+[ "$(printf '%s\n' "$out" | cut -f2,3 | tr '\t' ' ')" = "agy claude-opus-5-5" ] \
+  || fail "review allow agy keeps agy Opus and drops other agy models: $out"
+contains "$PL/err" 'skip T3 agy/gemini-4-argon: advisory reviewer' 'Argon stays an advisory reviewer'
 
 # run: the Claude plan is spent at run time (exit 75), so the same Opus model runs through agy.
 mv "$PL/bin/claude" "$PL/claude.ok"

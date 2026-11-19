@@ -8,7 +8,7 @@
 # The tier comes from the caller (route-model-task); the worker order per tier comes from
 # pool-tiers.tsv (or MMO_POOL_TIERS). This script only removes workers that cannot take the
 # task now: not allowed or denied (LIST = comma-separated providers or models), CLI not
-# installed, an advisory engine (local qwen, agy, opencode, vibe) on a review, or a plan window >= 90% used
+# installed, an advisory engine (local qwen, agy, opencode, vibe; agy claude-opus-5-5 excepted, paat/ai-overlord#474, 2026-11-18) on a review, or a plan window >= 90% used
 # that resets after the timeout. claude-api shares Claude's identity, but not its plan windows.
 # --deny claude also removes agy's claude-* rows (same model).
 # Within each tier, --prefer's rows go first, then the rows a 7d window binds when it is
@@ -154,7 +154,7 @@ for t in $chain; do
     why=""
     if [ -n "$allow" ] && ! in_list "$allow" "$r_provider" "$r_model"; then why="not allowed"
     elif [ -n "$deny" ] && { in_list "$deny" "$r_provider" "$r_model" || { [ "$r_provider" = agy ] && [[ "$r_model" == claude-* ]] && in_list "$deny" claude "$r_model"; }; }; then why="denied"
-    elif [ "$mode" = review ] && { [ "$r_provider" = qwen ] || [ "$r_provider" = agy ] || [ "$r_provider" = opencode ] || [ "$r_provider" = vibe ]; }; then why="advisory reviewer"
+    elif [ "$mode" = review ] && { [ "$r_provider" = qwen ] || [ "$r_provider" = opencode ] || [ "$r_provider" = vibe ] || { [ "$r_provider" = agy ] && [ "$r_model" != claude-opus-5-5 ]; }; }; then why="advisory reviewer"
     elif [ -n "$(cli_for "$r_provider")" ] && ! command -v "$(cli_for "$r_provider")" >/dev/null 2>&1; then why="CLI not installed"
     elif [ "$r_provider" = claude-api ]; then
       if [ -z "${MMO_CLAUDE_API_KEY_FILE:-}" ] || [ ! -f "$MMO_CLAUDE_API_KEY_FILE" ] || [ ! -r "$MMO_CLAUDE_API_KEY_FILE" ] || [ ! -s "$MMO_CLAUDE_API_KEY_FILE" ]; then
