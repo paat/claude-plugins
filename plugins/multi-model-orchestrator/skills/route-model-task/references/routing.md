@@ -33,7 +33,7 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate; review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `gemini-4-hydrogen` | Trial T3 candidate behind Argon, added 2026-11-14 when `agy models` first listed it; no local outcomes yet; review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-sonnet-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
-| agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; eligible in review (paat/ai-overlord#474, 2026-11-18) | `low`, `medium`, `high` |
+| agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
 | OpenCode Go | `glm-5.3-flash` | Cheap bounded edits with an exact check; T1 at `low` | `default`, `low`, `high`, `max` |
 | OpenCode Go | `glm-5.3` | Specified implementation on Go capacity; T2 at `high`, T3 at `max` | `default`, `low`, `high`, `max` |
 | OpenCode Go | `kimi-k3.1-pro` | Complex coding candidate; T3 at `high`. All Go routes are advisory in review | `default`, `low`, `high`, `max` |
@@ -115,7 +115,7 @@ plan limit, or — for `scripts/run-qwen-local.sh` — the one GPU slot busy, th
 pinned model not served (or several served and none pinned), or no wrapper. Local Qwen is never queued. `pool.sh run` moves to the next
 worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen,
-agy, OpenCode, and Vibe reviews remain advisory except agy `claude-opus-5-5` (paat/ai-overlord#474, 2026-11-18); OpenCode Go limits return 75. Local implementation stays bounded and mechanical; agy
+agy, OpenCode, and Vibe reviews remain advisory; OpenCode Go limits return 75. Local implementation stays bounded and mechanical; agy
 Flash stays in T1/T2 while Argon and Hydrogen are T3 implementation candidates. agy Sonnet 5.5 (T2) and Opus
 5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
 a plan leg returning `75` with `failure=limit` enables matching API overflow; transient
