@@ -9,13 +9,16 @@
 # repository exits 7.
 #
 # Unset passes neither --model nor --thinking, so the installed CLI selects both.
-# Flags and the export/stream shapes were checked against vibe 3.1.3 on 2026-11-18.
+# Every mode passes --max-price 0. A plan-funded call reports cost 0; once a call
+# has cost money the run stops. No flag or env var raises the cap (a plan budget
+# falls through to pay-as-you-go; paid usage is refused).
+# Flags and the export/stream shapes were checked against vibe 3.1.3 on 2026-11-19.
 #
 # Exit codes: 0 ok; 2 usage; 3 nothing to review; 4 diff over the cap; 5 empty final
 # message; 6 review without APPROVE/NEEDS_WORK; 7 leg wrote to the repository; 75 transient
-# or plan limit; 76 implement leg hit the turn cap (work may be partial); 77 auth or no
-# API key; 78 any other leg hit the turn cap without a report; 124 timeout; 127 vibe 3+,
-# git or jq missing.
+# or plan limit (including outcome price_limit); 76 implement leg hit the turn cap (work
+# may be partial); 77 auth or no API key; 78 any other leg hit the turn cap without a
+# report; 124 timeout; 127 vibe 3+, git or jq missing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -133,7 +136,7 @@ case "$mode" in
 esac
 
 vibe_args=(--prompt-file "$prompt_file" --output streaming --max-turns "$max_turns"
-  --output-dir "$runtime_dir/export")
+  --max-price 0 --output-dir "$runtime_dir/export")
 if [ "$mode" = implement ]; then
   vibe_args+=(--trust --auto-approve)
 else
@@ -186,6 +189,11 @@ if [ "$rc" -eq 1 ] && [ "$outcome" = turn_limit ]; then
     printf 'run-vibe: turn cap reached (%s) in --mode %s; no report — raise --max-turns or narrow the packet\n' "$max_turns" "$mode" >&2
     rc=78
   fi
+elif [ "$rc" -eq 1 ] && [ "$outcome" = price_limit ]; then
+  # vibe 3.1.3 exits 3 and records outcome price_limit when --max-price stops the run.
+  printf 'run-vibe: stopped at max-price 0 (plan budget spent; paid usage refused)\n' >&2
+  # mmo_finish maps this phrase to exit 75 failure=limit, so the pool skips the worker.
+  printf '%s\n' 'plan limit: quota exhausted' >> "$classify_file"
 elif [ "$rc" -eq 1 ] && grep -q 'Missing MISTRAL_API_KEY' "$classify_file"; then
   printf 'run-vibe: no Mistral API key in this home; run `vibe --setup` once\n' >&2
   rc=77

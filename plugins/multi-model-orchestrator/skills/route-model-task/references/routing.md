@@ -37,7 +37,7 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | OpenCode Go | `glm-5.3-flash` | Cheap bounded edits with an exact check; T1 at `low` | `default`, `low`, `high`, `max` |
 | OpenCode Go | `glm-5.3` | Specified implementation on Go capacity; T2 at `high`, T3 at `max` | `default`, `low`, `high`, `max` |
 | OpenCode Go | `kimi-k3.1-pro` | Complex coding candidate; T3 at `high`. All Go routes are advisory in review | `default`, `low`, `high`, `max` |
-| Mistral Vibe | `default` | Passes no `--model`; the installed CLI selects it. Direct route (`scripts/run-vibe.sh`), not in `pool-tiers.tsv`: added 2026-11-18, no local outcomes yet. Bounded implementation with a named test; `advise` and `review` read files by path only (no shell, no search) and review is advisory | `default`, `off`, `low`–`max` |
+| Mistral Vibe | `mistral-large-4` | Worker-only, lowest preference: T2 `medium`, T3 `high`. Added 2026-11-19; alias in the `vibe` 3.1.3 catalog (paat/ai-overlord#474). `run-vibe.sh` always passes `--max-price 0` and stops when the plan budget is spent. Not an orchestrator; `default` still passes no `--model`. Review is advisory | `medium`, `high`; `default` passes no `--thinking` |
 
 Use `task-fit.md` to select model and effort from the task's acceptance criteria. A newer
 flagship does not retire cheaper tiers. Explicit model requests still take precedence.
@@ -100,8 +100,8 @@ silently; select a supported level or return an incompatibility.
   another of them.
 - A pinned allowed model wins over defaults. A pinned unsupported effort produces a blocker unless
   the user also authorized automatic effort adjustment.
-- `Vibe only` or `Mistral only`: call `scripts/run-vibe.sh` directly (`--mode implement|advise|review`); no pool tier
-  includes it, so nothing else routes there. Any independence check must use a hosted pool provider.
+- `Vibe only` or `Mistral only`: `pool.sh --allow vibe` (`mistral-large-4`, worker only: T2 `medium`, T3 `high`).
+  A direct pin calls `scripts/run-vibe.sh`. Any independence check must use another provider.
 - Local Qwen (`qwen`), agy, and `opencode` are providers like any other: an allow/deny list that excludes them
   removes them from the pool, and a provider-only restriction (`Codex only`, `Claude only`,
   `Grok only`, `Muse only`) excludes them too. Pass restrictions to `pool.sh` as `--allow`/`--deny` lists of
