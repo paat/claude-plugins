@@ -3922,8 +3922,10 @@ printf 'x\n' | "${vibe_env[@]}" MMO_VIBE_MAX_PRICE=9 bash "$VIBE_RUN" --mode imp
 price_call="$(find "$VB/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
 price_call=$((price_call - 1))
 exact_line "$VB/calls/call.${price_call}.args" '--max-price' 'an env var cannot drop --max-price'
-exact_line "$VB/calls/call.${price_call}.args" '0' 'an env var cannot raise the price cap'
-absent "$VB/calls/call.${price_call}.args" '9' 'an env var is not forwarded as a price'
+[ "$(grep -Fx -A1 -- '--max-price' "$VB/calls/call.${price_call}.args" | sed -n 2p)" = '0' ] \
+  || fail 'an env var cannot raise the price cap'
+! grep -Fx -- '9' "$VB/calls/call.${price_call}.args" >/dev/null \
+  || fail 'an env var is not forwarded as a price'
 vibe_rc 77 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=config_error STUB_VIBE_ERROR='Missing MISTRAL_API_KEY environment variable for mistral provider' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
 contains "$VB/err" 'no Mistral API key in this home' 'vibe missing key is named'
 vibe_rc 77 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=infrastructure_failure STUB_VIBE_ERROR='API error 401 Unauthorized' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
