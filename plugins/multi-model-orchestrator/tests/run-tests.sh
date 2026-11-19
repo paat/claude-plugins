@@ -3857,7 +3857,7 @@ printf 'one\n' > "$VR/f.txt"; git -C "$VR" add f.txt; git -C "$VR" -c user.email
 vibe_env=(env -u MMO_VIBE_MODEL -u MMO_VIBE_EFFORT -u MMO_VIBE_MAX_TURNS PATH="$VB/bin:$PATH" STUB_VIBE_CALLS="$VB/calls")
 
 out="$(printf 'make f say two\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30 2>"$VB/err")" || fail "run-vibe implement succeeds: $(cat "$VB/err")"
-for flag in --prompt-file --output streaming --trust --auto-approve --max-turns 50 --output-dir; do
+for flag in --prompt-file --output streaming --trust --auto-approve --max-turns 50 --max-price 0 --output-dir; do
   exact_line "$VB/calls/call.0.args" "$flag" "vibe implement passes $flag"
 done
 for flag in --enabled-tools --model --thinking; do
@@ -3871,13 +3871,15 @@ contains "$VB/err" 'run-vibe: exit=0 model=mistral-large-4-0 effort=default mode
 
 printf 'x\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode implement --model mistral-medium-3.5 --effort high --max-turns 7 --repo "$VR" --timeout 30 >/dev/null 2>"$VB/err" \
   || fail "run-vibe accepts a model alias and effort: $(cat "$VB/err")"
-for flag in --model mistral-medium-3.5 --thinking high 7; do
+for flag in --model mistral-medium-3.5 --thinking high 7 --max-price 0; do
   exact_line "$VB/calls/call.1.args" "$flag" "vibe pin passes $flag"
 done
 
 printf 'two\n' > "$VR/f.txt"
 out="$(printf 'review it\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30 2>"$VB/err")" || fail "run-vibe review succeeds: $(cat "$VB/err")"
 exact_line "$VB/calls/call.2.args" '--enabled-tools' 'vibe review restricts tools'
+exact_line "$VB/calls/call.2.args" '--max-price' 'vibe review passes --max-price'
+exact_line "$VB/calls/call.2.args" '0' 'vibe review caps price at 0'
 exact_line "$VB/calls/call.2.args" 'read_file' 'vibe review enables read_file only'
 [ "$(grep -c -- '--enabled-tools' "$VB/calls/call.2.args")" -eq 1 ] || fail 'vibe review enables exactly one tool'
 absent "$VB/calls/call.2.args" '--auto-approve' 'vibe review does not auto-approve'
@@ -3888,6 +3890,8 @@ case "$out" in *APPROVE*) ;; *) fail "run-vibe review prints the verdict: $out" 
 printf 'x\n' | "${vibe_env[@]}" STUB_VIBE_RESPONSE='file map' bash "$VIBE_RUN" --mode advise --repo "$VR" --timeout 30 >/dev/null 2>"$VB/err" \
   || fail "run-vibe advise succeeds without a verdict: $(cat "$VB/err")"
 exact_line "$VB/calls/call.3.args" 'read_file' 'vibe advise enables read_file only'
+exact_line "$VB/calls/call.3.args" '--max-price' 'vibe advise passes --max-price'
+exact_line "$VB/calls/call.3.args" '0' 'vibe advise caps price at 0'
 absent "$VB/calls/call.3.args" '--auto-approve' 'vibe advise does not auto-approve'
 
 vibe_rc() { local want="$1"; shift; local r=0; printf 'x\n' | "${vibe_env[@]}" "$@" >"$VB/out" 2>"$VB/err" || r=$?; [ "$r" -eq "$want" ] || fail "run-vibe want $want got $r: $* -- $(cat "$VB/err")"; }
@@ -3909,6 +3913,17 @@ vibe_rc 76 STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=turn_limit bash "$VIBE_RUN" --mode
 contains "$VB/err" 'work may be partial' 'vibe implement turn cap says the work may be partial'
 vibe_rc 1 STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=token_limit bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
 contains "$VB/err" 'vibe failed (outcome: token_limit)' 'vibe names another limit stop'
+vibe_rc 75 STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=price_limit bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
+contains "$VB/err" 'run-vibe: stopped at max-price 0 (plan budget spent; paid usage refused)' 'vibe price limit names the refused paid spill'
+contains "$VB/err" 'exit=75 failure=limit' 'vibe price limit is quota-exhausted'
+[ ! -s "$VB/out" ] || fail 'a price-limited vibe leg prints no success body'
+printf 'x\n' | "${vibe_env[@]}" MMO_VIBE_MAX_PRICE=9 bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30 >/dev/null 2>"$VB/err" \
+  || fail "run-vibe ignores an env attempt to raise max-price: $(cat "$VB/err")"
+price_call="$(find "$VB/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
+price_call=$((price_call - 1))
+exact_line "$VB/calls/call.${price_call}.args" '--max-price' 'an env var cannot drop --max-price'
+exact_line "$VB/calls/call.${price_call}.args" '0' 'an env var cannot raise the price cap'
+absent "$VB/calls/call.${price_call}.args" '9' 'an env var is not forwarded as a price'
 vibe_rc 77 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=config_error STUB_VIBE_ERROR='Missing MISTRAL_API_KEY environment variable for mistral provider' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
 contains "$VB/err" 'no Mistral API key in this home' 'vibe missing key is named'
 vibe_rc 77 STUB_VIBE_EXIT=1 STUB_VIBE_OUTCOME=infrastructure_failure STUB_VIBE_ERROR='API error 401 Unauthorized' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
@@ -3924,7 +3939,7 @@ vibe_n="$(find "$VB/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
 vibe_rc 127 STUB_VIBE_VERSION='vibe 2.9.4' bash "$VIBE_RUN" --mode implement --repo "$VR" --timeout 30
 contains "$VB/err" 'needs Mistral Vibe 3' 'run-vibe refuses vibe 2'
 [ "$(find "$VB/calls" -name 'call.*.args' | wc -l | tr -d ' ')" = "$vibe_n" ] || fail 'vibe 2 never reaches a run'
-for bad in '--mode probe' '--mode implement --effort ultra' '--mode implement --model Bad/Id' '--mode implement --max-turns 0' '--mode review --base --output=x'; do
+for bad in '--mode probe' '--mode implement --effort ultra' '--mode implement --model Bad/Id' '--mode implement --max-turns 0' '--mode implement --max-price 1' '--mode review --base --output=x'; do
   r=0
   # shellcheck disable=SC2086
   printf 'x\n' | "${vibe_env[@]}" bash "$VIBE_RUN" $bad --repo "$VR" >/dev/null 2>&1 || r=$?
@@ -4241,6 +4256,32 @@ printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tie
   || fail "pool run dispatches opencode: $(cat "$PL/err")"
 exact_line "$PL/oc-calls/call.0.args" 'opencode-go/kimi-k3.1-pro#high' 'pool run sends the T3 variant to OpenCode'
 rm -f "$PL/bin/opencode"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/vibe"
+chmod +x "$PL/bin/vibe"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow vibe --usage /dev/null 2>"$PL/err")" \
+  || fail "pool pick T2 --allow vibe failed: $(cat "$PL/err")"
+[ "$(printf '%s\n' "$out" | head -n1)" = $'T2\tvibe\tmistral-large-4\tmedium' ] || fail "T2 pick returns the vibe row when others are excluded: $out"
+[ "$(printf '%s\n' "$out" | cut -f2 | sort -u)" = vibe ] || fail "allow vibe keeps only vibe rows: $out"
+rc=0
+"${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow vibe --mode review --usage /dev/null >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "vibe is not picked for review (got $rc)"
+contains "$PL/err" 'advisory reviewer' 'vibe stays an advisory reviewer'
+rm -f "$PL/bin/vibe"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow vibe --usage /dev/null 2>"$PL/err")" || true
+case "$out" in *vibe*) fail "pick skips vibe when the CLI is missing: $out" ;; esac
+contains "$PL/err" 'CLI not installed' 'pick names a missing vibe CLI'
+mkdir -p "$PL/vibe-calls"
+printf 'task\n' | env -u MMO_VIBE_MODEL -u MMO_VIBE_EFFORT -u MMO_VIBE_MAX_TURNS \
+  HOME="$PL/home" PATH="$VB/bin:/usr/bin:/bin" \
+  MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" STUB_VIBE_CALLS="$PL/vibe-calls" \
+  bash "$POOL" run --tier T2 --allow vibe --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
+  || fail "pool run dispatches vibe: $(cat "$PL/err")"
+exact_line "$PL/vibe-calls/call.0.args" '--model' 'pool run passes --model to vibe'
+exact_line "$PL/vibe-calls/call.0.args" 'mistral-large-4' 'pool run sends mistral-large-4'
+exact_line "$PL/vibe-calls/call.0.args" '--thinking' 'pool run passes effort as --thinking'
+exact_line "$PL/vibe-calls/call.0.args" 'medium' 'pool run sends the T2 medium effort'
+exact_line "$PL/vibe-calls/call.0.args" '--max-price' 'pool run keeps the hard price cap'
+exact_line "$PL/vibe-calls/call.0.args" '0' 'pool run caps price at 0'
 pass 'pool.sh: tiers, headroom, allow/deny/prefer, advisory review skip, escalation, fall-through'
 
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'pool.sh pick --tier' 'route-model-task picks through the pool'
