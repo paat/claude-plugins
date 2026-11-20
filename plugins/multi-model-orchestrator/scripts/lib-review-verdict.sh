@@ -4,6 +4,7 @@
 # - provider failure classification (plan limit or transient → 75, auth → 77)
 # - repository write detection and the review diff
 # - leg secret isolation (untracked .env* refusal, scrubbed environment)
+# - shared prompts and harness-adjustments.tsv lines
 #
 # Verdict check: case-insensitive. A line must be either a bare APPROVE/APPROVED or
 # NEEDS_WORK / NEEDS WORK token, or the same token prefixed by VERDICT:.
@@ -37,11 +38,58 @@ mmo_probe_prompt() {  # mmo_probe_prompt REQUEST_FILE [EXTRA_LINE]
   cat "$1"
 }
 
-# Prompt of an implement leg, shared by every runner.
-mmo_implement_prompt() {  # mmo_implement_prompt REQUEST_FILE [EXTRA_LINE]
+# Print why one harness-adjustments row is malformed, or nothing.
+mmo_adjustment_row_error() {  # mmo_adjustment_row_error ROW
+  local rest="$1" f=() i names=(provider model_glob mode line evidence as_of)
+  while [[ "$rest" == *$'\t'* ]]; do f+=("${rest%%$'\t'*}"); rest="${rest#*$'\t'}"; done
+  f+=("$rest")
+  [ "${#f[@]}" -eq 6 ] || { printf 'want 6 tab-separated columns, got %s\n' "${#f[@]}"; return 0; }
+  for i in 0 1 2 3 4 5; do
+    [[ "${f[$i]}" =~ [^[:space:]] ]] || { printf 'missing %s\n' "${names[$i]}"; return 0; }
+  done
+  case "${f[2]}" in implement|review|research|advise|'*') ;; *) printf 'bad mode %s\n' "${f[2]}"; return 0 ;; esac
+  [[ "${f[5]}" =~ ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$ ]] || printf 'as_of %s is not an ISO date\n' "${f[5]}"
+}
+
+# Rows of the harness-adjustments table (MMO_HARNESS_ADJUSTMENTS replaces the shipped file), skipping
+# comments and blank lines. With CHECK, print each malformed row and return 1 if there was one.
+mmo_adjustment_rows() {  # mmo_adjustment_rows [check]
+  local file="${MMO_HARNESS_ADJUSTMENTS:-$(dirname -- "${BASH_SOURCE[0]}")/harness-adjustments.tsv}" row err n=0 bad=0
+  if [ ! -r "$file" ]; then
+    printf 'harness-adjustments: cannot read %s\n' "$file" >&2
+    [ -z "${1:-}" ]; return
+  fi
+  while IFS= read -r row || [ -n "$row" ]; do
+    n=$((n + 1))
+    [[ "$row" =~ ^[[:space:]]*(#|$) ]] && continue
+    err="$(mmo_adjustment_row_error "$row")"
+    if [ -n "$err" ]; then
+      printf 'harness-adjustments: %s:%s: %s\n' "$file" "$n" "$err" >&2
+      bad=1
+    elif [ -z "${1:-}" ]; then
+      printf '%s\n' "$row"
+    fi
+  done < "$file"
+  [ -z "${1:-}" ] || return "$bad"
+}
+
+# Prompt lines for PROVIDER, exact MODEL id and MODE, from the matching table rows in order.
+# A malformed row is reported on stderr and skipped; {max_turns} becomes the runner's max_turns.
+mmo_adjustment_lines() {  # mmo_adjustment_lines PROVIDER MODEL MODE
+  local row f
+  while IFS= read -r row; do
+    IFS=$'\t' read -r -a f <<< "$row"
+    [ "${f[0]}" = "$1" ] && [[ "$2" == ${f[1]} ]] || continue
+    [ "${f[2]}" = '*' ] || [ "${f[2]}" = "$3" ] || continue
+    printf '%s\n' "${f[3]//\{max_turns\}/${max_turns:-}}"
+  done < <(mmo_adjustment_rows)
+}
+
+# Prompt of an implement leg, shared by every runner; adds the provider's harness adjustments.
+mmo_implement_prompt() {  # mmo_implement_prompt REQUEST_FILE
   printf '%s\n' 'You are one fresh, bounded implementation worker.'
   printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
-  [ -z "${2:-}" ] || printf '%s\n' "$2"
+  mmo_adjustment_lines "${mmo_outcome_provider:-}" "${model:-}" implement
   printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
   printf '%s\n' 'Make reasonable assumptions, state them in your final message, and finish the task; do not stop to ask questions or propose next steps.'
   printf '%s\n' 'Never weaken, skip or special-case a test to make it pass; if a requirement cannot be met, say so in your final message.'

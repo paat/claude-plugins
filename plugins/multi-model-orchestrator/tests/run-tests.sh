@@ -11,6 +11,8 @@ export MMO_OUTCOMES_FILE="$WORK/outcomes.tsv"
 export MMO_LEG_CHECKS_FILE="$WORK/leg-checks.tsv"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
 unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
+# Prompt assertions use the shipped harness-adjustments table.
+unset MMO_HARNESS_ADJUSTMENTS
 # API regressions supply their own dummy key; legacy pool fixtures must not opt in via the host.
 unset MMO_CLAUDE_API_KEY_FILE
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
@@ -1483,6 +1485,20 @@ grok_mt "$WORK/mt-250.err" --mode implement --max-turns 250
 exact_line "$WORK/grok.args" '250' 'implement forwards --max-turns 250'
 contains "$WORK/grok.prompt" 'at most 250 agent turns' 'implement preamble states the turn budget'
 contains "$WORK/grok.prompt" 'Do not broaden scope or commit.' 'implement preamble keeps the no-commit contract'
+# The turn-budget line moved to harness-adjustments.tsv; the prompt Grok receives is unchanged.
+old_implement_prompt() {  # the pre-move mmo_implement_prompt REQUEST_FILE [EXTRA_LINE]
+  printf '%s\n' 'You are one fresh, bounded implementation worker.'
+  printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
+  [ -z "${2:-}" ] || printf '%s\n' "$2"
+  printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
+  printf '%s\n' 'Make reasonable assumptions, state them in your final message, and finish the task; do not stop to ask questions or propose next steps.'
+  printf '%s\n' 'Never weaken, skip or special-case a test to make it pass; if a requirement cannot be met, say so in your final message.'
+  printf '\n## Task packet\n'
+  cat "$1"
+}
+printf 'implement thing\n' > "$WORK/grok-old.request"
+old_implement_prompt "$WORK/grok-old.request" "You have at most 250 agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message." > "$WORK/grok-old.prompt"
+cmp -s "$WORK/grok-old.prompt" "$WORK/grok.prompt" || fail 'Grok implement prompt is byte-identical to the pre-adjustments prompt'
 grok_mt "$WORK/mt-default.err" --mode implement
 exact_line "$WORK/grok.args" '150' 'implement default max turns is 150'
 grok_mt "$WORK/mt-301.err" --mode implement --max-turns 301
@@ -4600,6 +4616,140 @@ for invalid in 2 3; do
 done
 printf 'Outcome regressions: %s PASS, %s FAIL.\n' "$outcome_passes" "$outcome_failures"
 [ "$outcome_failures" -eq 0 ] || exit 1
+
+# --- friction-report.sh: recurring friction per provider/model/effort/role from both records ---
+FR="$WORK/friction"; mkdir -p "$FR"
+FRICTION="$PLUGIN_ROOT/scripts/friction-report.sh"
+fr_new="$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)"
+fr_mid="$(date -u -d '-3 days' +%Y-%m-%dT%H:%M:%SZ)"
+fr_old="$(date -u -d '-40 days' +%Y-%m-%dT%H:%M:%SZ)"
+fr_o() {  # fr_o TIME ROLE PROVIDER REQUESTED SERVED EFFORT EXIT
+  printf '%s\towner/app\tT2\t%s\t%s\t%s\t%s\t%s\t%s\t10\t\t\t\n' "$@"
+}
+fr_c() {  # fr_c TIME PROVIDER MODEL EFFORT CHECK DETAIL
+  printf '%s\towner/app\t1\t0\tT2\t%s\t%s\t%s\t%s\t%s\tabc\t1\t5\n' "$@"
+}
+{
+  printf 'utc_time\trepo\ttier\trole\tprovider\trequested_model\tserved_model\teffort\texit_code\tduration_seconds\ttokens\thead_sha\tverdict\n'
+  fr_o "$fr_mid" review grok grok-4.7 '' high 124
+  for rc in 124 124 0 7 6 5 75 77 127 2 129 42; do fr_o "$fr_new" review grok grok-4.7 '' high "$rc"; done
+  fr_o "$fr_old" review grok grok-4.7 '' high 124
+  fr_o "$fr_new" implement codex gpt-6.2-astra '' medium 1
+  fr_o "$fr_new" implement codex gpt-6.2-astra '' medium 1
+  fr_o "$fr_new" implement codex gpt-6.2-astra '' medium 0
+  fr_o "$fr_new" implement claude sonnet claude-sonnet-5-5 medium 78
+  fr_o "$fr_new" gate '' '' '' '' 6
+  fr_o "$fr_new" review '' '' '' '' 124
+} > "$FR/outcomes.tsv"
+{
+  printf 'utc_time\trepo\ttask\tcycle\ttier\tprovider\tmodel\teffort\tcheck\tdetail\thead_sha\tchanged_paths\tduration_seconds\n'
+  fr_c "$fr_new" grok grok-4.7 high scope src/x
+  fr_c "$fr_new" grok grok-4.7 high verify verify-exit=1
+  fr_c "$fr_new" grok grok-4.7 high no_change ''
+  fr_c "$fr_new" grok grok-4.7 high pass asks-to-continue
+  fr_c "$fr_new" grok grok-4.7 high pass ''
+  fr_c "$fr_old" grok grok-4.7 high scope src/y
+  fr_c "$fr_new" '' '' '' scope src/z
+} > "$FR/checks.tsv"
+fr_rc() {  # fr_rc WANT OUTFILE ARGS...
+  local want="$1" out="$2" got=0; shift 2
+  bash "$FRICTION" "$@" >"$out" 2>"$FR/err" || got=$?
+  [ "$got" -eq "$want" ] || fail "friction-report want $want got $got: $* -- $(cat "$FR/err")"
+}
+fr_header=$'provider\tmodel\teffort\trole\tkind\tcount\tlegs\trate_pct\tfirst_seen\tlast_seen\tflag'
+fr_rc 0 "$FR/all" --outcomes "$FR/outcomes.tsv" --checks "$FR/checks.tsv"
+[ "$(head -n 1 "$FR/all")" = "$fr_header" ] || fail 'friction report prints its header first'
+g=$'grok\tgrok-4.7\thigh'
+exact_line "$FR/all" "$g"$'\treview\ttimeout\t3\t8\t37.5\t'"$fr_mid"$'\t'"$fr_new"$'\tyes' 'timeouts in the window flag (count 3 of 8 runner exits; the 40-day-old row is out)'
+for kind in readonly_write no_verdict empty_output exit_42; do
+  exact_line "$FR/all" "$g"$'\treview\t'"$kind"$'\t1\t8\t12.5\t'"$fr_new"$'\t'"$fr_new"$'\tno' "friction kind $kind counted against runner exits"
+done
+for kind in unavailable auth cli_missing usage interrupted; do
+  exact_line "$FR/all" "$g"$'\treview\t'"$kind"$'\t1\t13\t7.7\t'"$fr_new"$'\t'"$fr_new"$'\tinfo' "availability/usage kind $kind is informational over all exits"
+done
+exact_line "$FR/all" $'codex\tgpt-6.2-astra\tmedium\timplement\tprovider_error\t2\t3\t66.7\t'"$fr_new"$'\t'"$fr_new"$'\tno' 'provider errors below --min-count do not flag'
+exact_line "$FR/all" $'claude\tclaude-sonnet-5-5\tmedium\timplement\tstep_cap\t1\t1\t100.0\t'"$fr_new"$'\t'"$fr_new"$'\tno' 'served model replaces the requested alias; 78 is a step cap'
+for kind in scope verify no_change asks-to-continue; do
+  exact_line "$FR/all" "$g"$'\timplement\t'"$kind"$'\t1\t5\t20.0\t'"$fr_new"$'\t'"$fr_new"$'\tno' "check kind $kind counted against the group's checks"
+done
+[ "$(wc -l < "$FR/all")" -eq 17 ] || fail "friction report row count $(wc -l < "$FR/all") want 17 (gate, provider-less and old rows left out)"
+absent "$FR/all" 'gate' 'gate rows are left out'
+awk -F '\t' 'NR > 2 && $8 + 0 > prev + 0 {exit 1} NR > 1 {prev = $8}' "$FR/all" || fail 'friction report sorts by rate descending'
+fr_rc 0 "$FR/flags" --flags-only --outcomes "$FR/outcomes.tsv" --checks "$FR/checks.tsv"
+[ "$(cat "$FR/flags")" = "$fr_header"$'\n'"$g"$'\treview\ttimeout\t3\t8\t37.5\t'"$fr_mid"$'\t'"$fr_new"$'\tyes' ] \
+  || fail '--flags-only keeps the header and the flagged row only'
+fr_rc 0 "$FR/low" --flags-only --min-count 1 --min-rate 20 --outcomes "$FR/outcomes.tsv" --checks "$FR/checks.tsv"
+[ "$(awk 'END {print NR}' "$FR/low")" -eq 8 ] || fail '--min-count 1 --min-rate 20 flags timeout, provider_error, step_cap and the four check kinds'
+contains "$FR/low" $'provider_error\t2\t3\t66.7' '--min-count 1 flags the provider errors'
+absent "$FR/low" 'readonly_write' '--min-rate 20 leaves a 12.5% kind unflagged'
+fr_rc 0 "$FR/high" --flags-only --min-rate 50 --outcomes "$FR/outcomes.tsv" --checks "$FR/checks.tsv"
+[ "$(cat "$FR/high")" = "$fr_header" ] || fail '--min-rate 50 leaves the 37.5% timeouts unflagged'
+fr_rc 0 "$FR/window" --days 2 --outcomes "$FR/outcomes.tsv" --checks "$FR/checks.tsv"
+exact_line "$FR/window" "$g"$'\treview\ttimeout\t2\t7\t28.6\t'"$fr_new"$'\t'"$fr_new"$'\tno' '--days 2 drops the 3-day-old row'
+fr_rc 0 "$FR/wide" --days 60 --outcomes "$FR/outcomes.tsv" --checks "$FR/checks.tsv"
+exact_line "$FR/wide" "$g"$'\treview\ttimeout\t4\t9\t44.4\t'"$fr_old"$'\t'"$fr_new"$'\tyes' '--days 60 keeps the 40-day-old row'
+exact_line "$FR/wide" "$g"$'\timplement\tscope\t2\t6\t33.3\t'"$fr_old"$'\t'"$fr_new"$'\tno' '--days 60 keeps the old check row'
+{ head -n 1 "$FR/outcomes.tsv"; fr_o "$fr_new" review grok grok-4.7 '' high 124; } > "$FR/outcomes-b.tsv"
+fr_rc 0 "$FR/combined" --outcomes "$FR/outcomes.tsv" --outcomes "$FR/outcomes-b.tsv" --outcomes "$FR/missing.tsv" --checks "$FR/checks.tsv" --checks "$FR/missing-checks.tsv"
+exact_line "$FR/combined" "$g"$'\treview\ttimeout\t4\t9\t44.4\t'"$fr_mid"$'\t'"$fr_new"$'\tyes' 'several outcome files combine; missing files are skipped'
+exact_line "$FR/combined" "$g"$'\timplement\tscope\t1\t5\t20.0\t'"$fr_new"$'\t'"$fr_new"$'\tno' 'check rows still counted once with a missing check file beside them'
+MMO_OUTCOMES_FILE="$FR/outcomes.tsv" MMO_LEG_CHECKS_FILE="$FR/checks.tsv" fr_rc 0 "$FR/env"
+cmp -s "$FR/all" "$FR/env" || fail 'friction report reads MMO_OUTCOMES_FILE and MMO_LEG_CHECKS_FILE by default'
+fr_rc 0 "$FR/empty" --outcomes "$FR/missing.tsv" --checks "$FR/missing-checks.tsv"
+[ "$(cat "$FR/empty")" = "$fr_header" ] || fail 'an empty report is the header alone, exit 0'
+for bad in '--days 0' '--days x' '--min-count 0' '--min-rate 101' '--min-rate -1' '--bogus' '--days' '--outcomes'; do
+  # shellcheck disable=SC2086
+  fr_rc 2 "$FR/usage" $bad
+  [ ! -s "$FR/usage" ] || fail "usage error $bad prints no report"
+done
+pass 'friction-report kinds, thresholds, window, combined inputs and usage errors'
+
+# --- harness-adjustments.tsv: provider prompt lines with evidence, matched by provider, model glob and mode ---
+mmo_adjustment_rows check 2>"$FR/adj.err" || fail "shipped harness-adjustments.tsv is malformed: $(cat "$FR/adj.err")"
+[ "$(grep -vc -E '^[[:space:]]*(#|$)' "$PLUGIN_ROOT/scripts/harness-adjustments.tsv")" -eq 1 ] \
+  || fail 'harness-adjustments.tsv holds exactly the seeded Grok row'
+for provider in claude codex grok muse agy opencode vibe qwen; do
+  for adj_mode in implement review research advise; do
+    out="$(mmo_adjustment_lines "$provider" any-model "$adj_mode")"
+    if [ "$provider/$adj_mode" = grok/implement ]; then
+      [ "$(max_turns=9 mmo_adjustment_lines grok grok-4.6 implement)" = 'You have at most 9 agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message.' ] \
+        || fail 'the shipped Grok row fills {max_turns}'
+    else
+      [ -z "$out" ] || fail "shipped table adds a line to $provider $adj_mode prompts: $out"
+    fi
+  done
+done
+printf '%s\n' '# comment' '' \
+  $'grok\tgrok-4.*\treview\tR1\thttps://example.invalid/1\t2026-11-01' \
+  $'grok\tgrok-4.7\timplement\tI1 {max_turns}\tdated observation 2026-11-01\t2026-11-01' \
+  $'codex\t*\t*\tALL\tfriction-report row codex * * timeout\t2026-11-01' \
+  $'claude\tclaude-opus-*\tadvise\tA1\tev\t2026-11-01' > "$FR/adj.tsv"
+adj() { MMO_HARNESS_ADJUSTMENTS="$FR/adj.tsv" max_turns=7 mmo_adjustment_lines "$@" 2>"$FR/adj.err"; }
+[ "$(adj grok grok-4.6 review)" = R1 ] || fail 'model glob grok-4.* matches grok-4.6'
+[ -z "$(adj grok grok-4.6 implement)" ] || fail 'an exact model id does not match another model'
+[ "$(adj grok grok-4.7 implement)" = 'I1 7' ] || fail 'exact model id and mode match; {max_turns} filled'
+[ -z "$(adj grok grok-4.7 advise)" ] || fail 'a mode-specific row does not match another mode'
+[ "$(adj codex gpt-6.2-astra research)" = ALL ] && [ "$(adj codex default implement)" = ALL ] || fail 'mode * matches every mode'
+[ "$(adj claude claude-opus-5-5 advise)" = A1 ] || fail 'claude glob row matches advise'
+[ -z "$(adj claude claude-sonnet-5-5 advise)" ] && [ -z "$(adj muse muse-spark-1.3 implement)" ] || fail 'no matching row adds no line'
+[ ! -s "$FR/adj.err" ] || fail "a valid table prints no warning: $(cat "$FR/adj.err")"
+[ "$(cd "$WORK" && mmo_outcome_provider=codex model=gpt-6.2-astra MMO_HARNESS_ADJUSTMENTS="$FR/adj.tsv" mmo_implement_prompt "$WORK/grok-old.request" | sed -n 3p)" = ALL ] \
+  || fail 'mmo_implement_prompt adds the matching rows after the scope line'
+for bad_row in $'grok\t*\timplement\tL\tev' $'grok\t*\tprobe\tL\tev\t2026-11-01' $'grok\t*\timplement\tL\t\t2026-11-01' \
+  $'grok\t*\timplement\tL\t \t2026-11-01' $'grok\t*\timplement\tL\tev\t2026-13-01' $'grok\t*\timplement\tL\tev\t11/20/2026' \
+  $'grok\t*\timplement\tL\tev\t2026-11-01\textra'; do
+  { cat "$FR/adj.tsv"; printf '%s\n' "$bad_row"; } > "$FR/adj-bad.tsv"
+  ! MMO_HARNESS_ADJUSTMENTS="$FR/adj-bad.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail "check accepts malformed row: ${bad_row//$'\t'/|}"
+  contains "$FR/adj.err" 'adj-bad.tsv:7:' "check names the malformed row's line: ${bad_row//$'\t'/|}"
+  [ "$(MMO_HARNESS_ADJUSTMENTS="$FR/adj-bad.tsv" max_turns=7 mmo_adjustment_lines grok grok-4.7 implement 2>"$FR/adj.err")" = 'I1 7' ] \
+    || fail "runtime skips the malformed row and keeps the valid ones: ${bad_row//$'\t'/|}"
+  contains "$FR/adj.err" 'adj-bad.tsv:7:' 'runtime warns about the skipped row'
+done
+contains "$FR/adj.err" 'want 6 tab-separated columns, got 7' 'column count is named'
+printf '%s\n' $'grok\t*\timplement\tL\t\t2026-11-01' > "$FR/adj-ev.tsv"
+! MMO_HARNESS_ADJUSTMENTS="$FR/adj-ev.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail 'missing evidence is rejected'
+contains "$FR/adj.err" 'missing evidence' 'missing evidence is named'
+pass 'harness adjustments: matching, {max_turns}, shipped table, malformed rows rejected'
 
 python3 "$PLUGIN_ROOT/tests/test-outcome-lifecycle.py" "$PLUGIN_ROOT/scripts" "$OUTCOMES/lifecycle" "$outcome_repo"
 python3 "$PLUGIN_ROOT/tests/test-stop-signals.py" "$PLUGIN_ROOT/scripts" "$WORK/stop-signals"

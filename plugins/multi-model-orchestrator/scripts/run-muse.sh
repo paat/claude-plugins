@@ -97,6 +97,7 @@ case "$mode" in
       printf '%s\n' 'You are an independent, read-only reviewer. Do not create or modify any file.'
       printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
       printf '%s\n' 'End with one terminal line: APPROVE or NEEDS_WORK.'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" review
       printf '\n## Task and acceptance\n'
       cat "$request_file"
       printf '\n## Unified diff from %s\n' "$base_ref"
@@ -107,6 +108,7 @@ case "$mode" in
     {
       printf '%s\n' 'You are a read-only adviser. Do not create or modify any file.'
       printf '%s\n' 'Return only constraints, risks, and the minimal file map needed for the question.'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" advise
       printf '\n## Question\n'
       cat "$request_file"
     } > "$prompt_file"
@@ -119,6 +121,7 @@ case "$mode" in
       printf '%s\n' 'Tag every load-bearing claim with an evidence tier: A = statute / official spec / vendor API reference quoted verbatim; B = official documentation page or technical spec; C = practitioner or third-party report.'
       printf '%s\n' 'Report any unknown that survives the search as UNKNOWN with a recommended default and its rationale; never silently guess.'
       printf '%s\n' 'End with the sources used (URL or citation per claim).'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" research
       printf '\n## Question\n'
       cat "$request_file"
     } > "$prompt_file"

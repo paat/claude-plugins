@@ -191,6 +191,29 @@ with the outcome file's header and failure rules: `utc_time`, `repo`, `task`, `c
 awk -F '\t' 'NR>1 && $3!="" {k=$2 FS $3; if (!(k in c) || $4+0<c[k]+0) {c[k]=$4; g[k]=$6 FS $7 FS $8; r[k]=$9}} END {for (k in g) {n[g[k]]++; ok[g[k]]+=(r[k]=="pass")} for (x in n) printf "%s\t%d/%d\t%.1f%%\n", x, ok[x], n[x], 100*ok[x]/n[x]}' "${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv}" | sort
 ```
 
+### Friction report and adjustments
+
+`scripts/friction-report.sh` turns both records into recurring friction per `provider`, `model`
+(served, else requested), `effort` and `role` (check rows: `implement`), over the last `--days`
+(30). Output columns: `provider model effort role kind count legs rate_pct first_seen last_seen
+flag`. Runner kinds: `timeout` (124), `empty_output` (5), `no_verdict` (6), `readonly_write` (7),
+`step_cap` (55/76/78), `provider_error` (1), `exit_N` otherwise, out of the group's runner exits.
+Check kinds: `scope`, `verify`, `no_change`, `asks-to-continue`, out of the group's checks.
+`unavailable` (75), `auth` (77), `cli_missing` (127), `usage` (2/3/4) and `interrupted`
+(129/130/143) are not model friction: flag `info`, left out of the other rates. `flag` is `yes` at
+`--min-count` (3) and `--min-rate` (30) percent; `--outcomes`/`--checks` repeat to combine hosts:
+
+```bash
+scripts/friction-report.sh --flags-only --outcomes host-a.tsv --outcomes host-b.tsv --checks host-a-checks.tsv
+```
+
+`scripts/harness-adjustments.tsv` (columns `provider model_glob mode line evidence as_of`) holds
+the provider-specific prompt lines: every runner adds the lines whose provider, model glob (bash
+pattern on the exact model id) and mode (`implement`, `review`, `research`, `advise`, `*`) match
+to that leg's prompt; `{max_turns}` becomes the runner's turn budget. Each row cites the friction
+it answers and an ISO date; the test suite rejects a malformed row and runners skip one with a
+warning. Probe prompts and the local Qwen review prompt take none.
+
 ## Meta orchestration
 
 `/multi-model-orchestrator:meta-orchestrate <mission brief>` runs the show over a queue of
@@ -387,7 +410,9 @@ catalog.
 | `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
 | `MMO_LEG_ENV` | empty | Space-separated variable names (or `PREFIX*` patterns) passed into the scrubbed leg environment, e.g. `DATABASE_URL` for a test database |
 | `MMO_ALLOW_ENV_FILES` | `0` | `1` lets legs run in a checkout holding untracked `.env*` files |
-| `MMO_LEG_CHECKS_FILE` | `${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv` | `leg-check.sh` record (one row per check) |
+| `MMO_LEG_CHECKS_FILE` | `${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv` | `leg-check.sh` record (one row per check); default `--checks` of `friction-report.sh` |
+| `MMO_OUTCOMES_FILE` | `${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/outcomes.tsv` | Runner outcome record; default `--outcomes` of `friction-report.sh` |
+| `MMO_HARNESS_ADJUSTMENTS` | `scripts/harness-adjustments.tsv` | Replacement harness-adjustments table, same format |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
 moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5-5`; versioned IDs older than the previous generation are
