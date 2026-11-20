@@ -15,7 +15,8 @@
 # open-pr.tsv (url, branch, fix cycles used, head the gates gave up on).
 # MODEL_REFRESH_REVIEWER replaces the review runner (tests).
 # Trust model: the authoring and fixing models run with this job's git and gh credentials, and
-# main has no branch protection, so the gates are enforced by this script, not by GitHub.
+# GitHub requires only a pull request and the plugin-checks status on main, so the review gate
+# is enforced by this script, not by GitHub.
 set -Eeuo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
