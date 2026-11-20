@@ -120,16 +120,31 @@ Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.m
 
 `scripts/refresh-model-versions.sh` snapshots the model catalogs of the installed
 `codex`, `grok`, and `agy` CLIs, plus the optional opencode Go catalog (skipped
-when the CLI is missing or v1). A new pool-vendor model, newly unmappable public
-name, or rank change with non-overlapping old/new CIs on a non-preliminary row
-wakes a headless `claude -p` session in a throwaway worktree. It proposes
-superseded pins and evidence-backed tier-order/retirement edits and opens a
-`chore/model-refresh-*` PR. It never merges, and it skips runs while such a PR is
-open. Other days exit before any model call. Create `~/.local/state/model-refresh/`
-once, then run it daily from cron:
+when the CLI is missing or v1), and the per-model effort levels the Codex model
+cache and `agy models` expose. It also runs the multi-model-orchestrator
+`friction-report.sh` over the local outcome records. A new pool-vendor model, a
+pool-vendor effort level added or removed, a friction key newly flagged or
+cleared, a newly unmappable public name, or a rank change with non-overlapping
+old/new CIs on a non-preliminary row wakes a headless `claude -p` session in a
+throwaway worktree. It proposes superseded pins, effort-list alignment,
+harness adjustments and evidence-backed tier-order/retirement edits and opens a
+`chore/model-refresh-*` PR. Other days exit before any model call.
+
+The job then merges its own PR, with a normal merge and never `--admin`, only
+when CI passed on the PR head and an independent Codex review
+(`run-codex.sh --mode review`) ended APPROVE. A failed gate gets at most two
+headless Claude fix cycles (verify each finding, fix the substantive ones,
+comment the rejections, push). A PR that still fails stays open with a blocker
+comment and the job exits non-zero; the next run resumes its gates rather than
+authoring again, and spends no model call while the PR head is unchanged. After
+a merge, each plugin whose version the PR changed is refreshed with
+`scripts/refresh-fleet-plugins.sh` in the containers named in
+`MODEL_REFRESH_FLEET_CONTAINERS` (space-separated; unset skips the step); a FAIL
+line exits non-zero but keeps the merge. Create `~/.local/state/model-refresh/`
+once, then run it daily from cron (it needs Docker access for the fleet step):
 
 ```
-15 5 * * * bash /mnt/data/ai/claude-plugins/scripts/refresh-model-versions.sh >> "$HOME/.local/state/model-refresh/cron.log" 2>&1
+15 5 * * * MODEL_REFRESH_FLEET_CONTAINERS="dev-a dev-b" bash /mnt/data/ai/claude-plugins/scripts/refresh-model-versions.sh >> "$HOME/.local/state/model-refresh/cron.log" 2>&1
 ```
 
 OpenRouter, Arena WebDev/Agent (CC-BY-4.0), and Terminal-Bench 4.0 feed one dated
@@ -143,7 +158,7 @@ an open PR or failed pass; repeated unchanged feeds add none. Run
 for an isolated live fetch/build with no model calls.
 The first run only seeds fresh state; triggers require a later run against the same state directory.
 
-State, the handled catalog, and the last run log live in `~/.local/state/model-refresh/`.
+State, the handled catalog, friction flags, the open PR being gated, and the last run log live in `~/.local/state/model-refresh/`.
 It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and the `codex`, `grok`, and `agy` CLIs (the opencode CLI is optional); it
 fails closed when any of the `codex`, `grok`, or `agy` catalogs comes back
 empty, and the first sight of the opencode section seeds it (codex/grok/agy are
