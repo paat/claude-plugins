@@ -48,7 +48,16 @@ class FeedTests(unittest.TestCase):
         self.pool.write_text(POOL)
 
     def parse(self, feed, data=None, catalog=CATALOG, success=True):
-        if data is None:
+        if feed == "bug-hunt":
+            csv_text = data if data is not None else (FIXTURES / "bug-hunt.csv").read_text()
+            csv_run = subprocess.run(
+                ["jq", "-Rs", "-c", "-f", str(SCRIPTS / "model-eval-csv.jq")],
+                input=csv_text, capture_output=True, text=True, timeout=10)
+            if csv_run.returncode != 0:
+                self.assertFalse(success, csv_run.stderr)
+                return csv_run
+            data = json.loads(csv_run.stdout)
+        elif data is None:
             data = fixture(feed)
         if feed.startswith("arena") and isinstance(data, dict):
             data = [entry["row"] for entry in data["rows"]]
@@ -89,6 +98,7 @@ eval_get() {
     *config=webdev*) name=arena-webdev ;;
     *config=agent*) name=arena-agent ;;
     */functions/v1/leaderboard-read) name=terminal ;;
+    */phuryn/bug-hunt-bench/main/results/runs.csv) name=bug-hunt ;;
     *) printf 'Unexpected URL: %s\n' "$url" >&2; return 99 ;;
   esac
   printf '%s\n' "$url" >> "$STATE/requests"
@@ -100,6 +110,7 @@ eval_get() {
       return
     fi
   fi
+  if [[ $name == bug-hunt ]]; then cat "$FIXTURES/bug-hunt.csv"; [[ -z ${FAIL_AFTER_BODY:-} ]] || return 22; return; fi
   cat "$FIXTURES/$name.json"
 }
 ''' + command
@@ -107,7 +118,8 @@ eval_get() {
             ["bash", "-c", program], capture_output=True, text=True, timeout=20,
             env={**os.environ, "REPO": str(ROOT), "STATE": str(self.state),
                  "FIXTURES": str(self.fixtures), "CATALOG": str(self.catalog),
-                 "POOL": str(self.pool), "FAIL_FEED": fail},
+                 "POOL": str(self.pool), "FAIL_FEED": fail,
+                 "FAIL_AFTER_BODY": "1" if fail == "bug-hunt-after-body" else ""},
         )
 
     def write_fixture(self, feed, data):
@@ -227,6 +239,133 @@ eval_get() {
         data["rows"][0]["row"]["preliminary"] = True
         data["rows"][1]["row"]["model_name"] = "Model Preview"
         self.assertEqual([r[10] for r in self.parse("arena-agent", data)], ["true", "true", "false"])
+
+    def bug_rows(self, text=None):
+        return self.parse("bug-hunt", text)
+
+    def test_bug_hunt_valid_fixture_parsed_and_means_runs(self):
+        rows = {(r[1], r[8]): r for r in self.bug_rows()}
+        self.assertEqual(len(rows), 4)
+        sol = rows[("GPT-6.1 Sol", "high")]
+        self.assertEqual(sol[0], "gpt-6.1-sol")
+        self.assertEqual(sol[2:5], ["openai", "fixed_of_105", "49.67"])
+        self.assertEqual(sol[5:8], ["", "", ""])
+        self.assertEqual(sol[9:11], ["Codex CLI", "false"])
+        self.assertEqual(sol[12:16], ["bug-hunt", "2026-11-19", "", "4.33"])
+
+    def test_bug_hunt_superseded_rows_ignored(self):
+        opus = [r for r in self.bug_rows() if r[0] == "claude-opus-5-5"]
+        self.assertEqual(len(opus), 1)
+        self.assertEqual(opus[0][4], "61")
+        self.assertEqual(opus[0][13], "2026-11-10")
+
+    def test_bug_hunt_quoted_comma_field_and_model_id_mapping(self):
+        rows = {r[1]: r for r in self.bug_rows()}
+        pro = rows["DeepSeek V4-Pro"]
+        self.assertEqual((pro[8], pro[4], pro[15]), ("default", "13", ""))
+        self.assertEqual(rows["Next Sol"][0], "gpt-6-astra")
+        self.assertEqual(rows["GPT-6.1 Sol"][0], "gpt-6.1-sol")
+
+    def test_bug_hunt_strict_validation_rejects(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        lines = good.splitlines()
+        cases = {
+            "header": good.replace("fixed_of_105", "fixed_of_104", 1),
+            "field count": good.replace(",live,GPT-6.1 Sol,OpenAI,", ",live,GPT-6.1 Sol,", 1),
+            "unquoted comma": good.replace('"note, with comma"', "note, with comma"),
+            "non-numeric score": good.replace(",high,2026-11-18,49,", ",high,2026-11-18,n/a,", 1),
+            "score above 105": good.replace(",high,2026-11-18,49,", ",high,2026-11-18,106,", 1),
+            "bad date": good.replace("2026-11-10", "10.11.2026", 1),
+            "bad status": good.replace(",superseded,", ",retired,", 1),
+            "stray quote": good.replace("Codex CLI,high,2026-11-18,52", 'Codex "CLI,high,2026-11-18,52', 1),
+            "header only": lines[0] + "\n",
+            "empty": "",
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                self.assertNotEqual(text, good)
+                self.parse("bug-hunt", text, success=False)
+
+    def test_bug_hunt_bad_feed_keeps_last_good(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        for name, text in (("header", good.replace("run,board_row", "id,board_row", 1)),
+                           ("field count", good.replace(",unknown,288,", ",unknown,", 1)),
+                           ("score", good.replace(",high,2026-11-18,49,", ",high,2026-11-18,x,", 1))):
+            with self.subTest(case=name):
+                self.state = self.temp / f"state-{name.replace(' ', '-')}"
+                self.state.mkdir()
+                (self.fixtures / "bug-hunt.csv").write_text(good)
+                before = self.seed_good()
+                (self.fixtures / "bug-hunt.csv").write_text(text)
+                self.assert_kept(before, self.shell())
+
+    def test_bug_hunt_leading_empty_field_cannot_hide_an_extra_field(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        self.parse("bug-hunt", good.replace("gpt61solhighnt,", ",extra,", 1), success=False)
+        self.parse("bug-hunt", good.replace("gpt61solhighnt,", ",", 1), success=False)
+
+    def test_bug_hunt_crlf_and_bom_are_accepted(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        expected = self.parse("bug-hunt", good)
+        for name, text in (("crlf", good.replace("\n", "\r\n")), ("bom", "\ufeff" + good)):
+            with self.subTest(case=name):
+                raw = text.encode("utf-8")
+                self.assertEqual(b"\r\n" in raw, name == "crlf")
+                result = subprocess.run(
+                    ["jq", "-Rs", "-c", "-f", str(SCRIPTS / "model-eval-csv.jq")],
+                    input=raw, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), json.loads(subprocess.run(
+                    ["jq", "-Rs", "-c", "-f", str(SCRIPTS / "model-eval-csv.jq")],
+                    input=good.encode(), capture_output=True, timeout=10).stdout))
+        self.assertTrue(expected)
+
+    def test_bug_hunt_duplicate_run_and_bad_calendar_date_rejected(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        cases = {
+            "duplicate run": good.replace("gpt61solhighntr2,", "gpt61solhighnt,", 1),
+            "empty run": good.replace("gpt61solhighntr2,", ",", 1),
+            "month 99": good.replace("2026-11-19", "2026-99-99", 1),
+            "day 32": good.replace("2026-11-19", "2026-11-32", 1),
+            "february 30": good.replace("2026-11-19", "2026-02-30", 1),
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                self.assertNotEqual(text, good)
+                self.parse("bug-hunt", text, success=False)
+
+    def test_bug_hunt_conflicting_model_ids_stay_separate_rows(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        text = good.replace("gpt-6.1-sol,codex-cli 0.166.0,\ngpt61solhighntr2", "gpt-6.1-sol-contributor,codex-cli 0.166.0,\ngpt61solhighntr2", 1)
+        self.assertNotEqual(text, good)
+        rows = [r for r in self.bug_rows(text) if r[1].startswith("GPT-6.1 Sol")]
+        self.assertEqual(sorted((r[1], r[4]) for r in rows),
+                         [("GPT-6.1 Sol (gpt-6.1-sol)", "50"), ("GPT-6.1 Sol (gpt-6.1-sol-contributor)", "49")])
+        self.assertEqual(len({tuple(r[i] for i in (1, 3, 8, 9, 12)) for r in rows}), 2)
+        self.assertEqual({r[1]: r[0] for r in rows},
+                         {"GPT-6.1 Sol (gpt-6.1-sol)": "gpt-6.1-sol", "GPT-6.1 Sol (gpt-6.1-sol-contributor)": ""})
+
+    def test_bug_hunt_transport_failure_after_valid_body_keeps_last_good(self):
+        before = self.seed_good()
+        self.assert_kept(before, self.shell(fail="bug-hunt-after-body"))
+
+    def test_bug_hunt_new_pool_vendor_model_triggers_like_other_feeds(self):
+        row = [r for r in self.bug_rows() if r[1] == "GPT-6.1 Sol"][0]
+        changes = self.changes([], [row])
+        self.assertEqual(len(changes), 1)
+        self.assertTrue(changes[0].startswith("new_model\t"))
+        unmapped = [r for r in self.bug_rows() if r[1] == "Next Sol"][0]
+        unmapped[0] = ""
+        self.assertTrue(self.changes([], [unmapped])[0].startswith("unmapped\t"))
+
+    def test_bug_hunt_rank_change_never_triggers(self):
+        old = [r for r in self.bug_rows() if r[1] == "GPT-6.1 Sol"][0]
+        new = old.copy()
+        new[4] = "20"
+        self.assertEqual(old[5:8], ["", "", ""])
+        self.assertEqual(self.changes([old], [new]), [])
+        new[7] = "3"
+        self.assertEqual(self.changes([old], [new]), [])
 
     def test_required_keys_rejected_for_each_feed(self):
         cases = [("openrouter", "canonical_slug"), ("arena-webdev", "rating_lower"),
@@ -430,10 +569,10 @@ eval_get() {
     def test_complete_first_build_seeds_one_table_without_pending(self):
         self.seed_good()
         lines = (self.state / "evals.tsv").read_text().splitlines()
-        self.assertEqual(len(lines), 13)
+        self.assertEqual(len(lines), 17)
         self.assertEqual(lines[0].split("\t"), HEADER)
         self.assertEqual({line.split("\t")[12] for line in lines[1:]},
-                         {"openrouter", "arena-webdev", "arena-agent", "terminal"})
+                         {"openrouter", "arena-webdev", "arena-agent", "terminal", "bug-hunt"})
         self.assertEqual(len(list(self.state.glob("*.tsv"))), 1)
         pending = (self.state / "eval-pending.txt").read_text().splitlines()
         self.assertEqual(pending, [])
@@ -524,7 +663,7 @@ eval_get() {
         self.paginated_arena()
         result = self.shell()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len((self.state / "evals.tsv").read_text().splitlines()), 13)
+        self.assertEqual(len((self.state / "evals.tsv").read_text().splitlines()), 17)
         self.assertIn("config=webdev&split=latest&offset=2", (self.state / "requests").read_text())
 
     def test_arena_publish_change_during_pagination_keeps_last_good(self):
@@ -563,10 +702,11 @@ case "$command" in
       *config=webdev*) name=arena-webdev ;;
       *config=agent*) name=arena-agent ;;
       */functions/v1/leaderboard-read) name=terminal ;;
+      */phuryn/bug-hunt-bench/main/results/runs.csv) name=bug-hunt ;;
       *) exit 99 ;;
     esac
     [[ $name != "$FAIL_FEED" ]] || exit 22
-    cat "$FIXTURES/$name.json"
+    if [[ $name == bug-hunt ]]; then cat "$FIXTURES/bug-hunt.csv"; else cat "$FIXTURES/$name.json"; fi
     ;;
   grok) printf '  - grok-4.7\n' ;;
   agy)
@@ -626,7 +766,7 @@ esac
         self.prepare_main()
         result, calls = self.main_script("--feeds-only")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(calls, ["curl"] * 4)
+        self.assertEqual(calls, ["curl"] * 5)
         self.assertIn("would trigger: no", result.stdout)
         self.assertIn("seeded", result.stdout)
         self.assertTrue((self.state / "evals.tsv").exists())
@@ -645,7 +785,7 @@ esac
         result, calls = self.main_script("--feeds-only")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("would trigger: no", result.stdout)
-        self.assertEqual(calls, ["curl"] * 4)
+        self.assertEqual(calls, ["curl"] * 5)
 
     def test_main_new_unmapped_pool_vendor_triggers(self):
         self.main_baseline()
@@ -654,7 +794,7 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("would trigger: yes", result.stdout)
         self.assertIn("unmapped\t", (self.state / "eval-pending.txt").read_text())
-        self.assertEqual(calls, ["curl"] * 4)
+        self.assertEqual(calls, ["curl"] * 5)
 
     def test_main_unmapped_openrouter_variant_does_not_trigger(self):
         self.main_baseline()
@@ -663,7 +803,7 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("would trigger: no", result.stdout)
         self.assertEqual((self.state / "eval-pending.txt").read_text(), "")
-        self.assertEqual(calls, ["curl"] * 4)
+        self.assertEqual(calls, ["curl"] * 5)
 
     def test_main_openrouter_canonical_slug_bump_does_not_trigger(self):
         self.main_baseline()
@@ -713,7 +853,7 @@ esac
         self.main_baseline()
         result, calls = self.main_script("--feeds-only")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(calls, ["curl"] * 4)
+        self.assertEqual(calls, ["curl"] * 5)
         self.assertIn("would trigger: no", result.stdout)
 
     def test_main_catalog_change_survives_feed_failure(self):

@@ -17,3 +17,8 @@ No observed row was marked preliminary; tests introduce that condition explicitl
   JSON `{"package":"terminal-bench/terminal-bench","name":"4-0-0"}`.
   Discovered from <https://www.tbench.ai/leaderboard/terminal-bench/4.0>.
   Undocumented endpoint; data licence **UNKNOWN**.
+- `bug-hunt.csv`: GET
+  <https://raw.githubusercontent.com/phuryn/bug-hunt-bench/main/results/runs.csv>
+  (MIT per the repo README; probed 2026-11-20). Hand-made seven-row extract with the real
+  header: repeated runs, a superseded row, a quoted-comma field, an empty cost, and a row
+  mapped through `model_id`.
