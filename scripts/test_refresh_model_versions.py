@@ -778,7 +778,7 @@ esac
         result, calls = self.main_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("seeded opencode catalog", result.stdout)
-        self.assertIn("new_cli_model\tglm-5.4", (self.state / "catalog-changes.txt").read_text())
+        self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
         self.assertEqual(calls.count("opencode"), 1)
 
     def test_main_carried_opencode_block_stops_at_next_header(self):
@@ -823,18 +823,6 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("seeded opencode catalog", result.stdout)
         self.assertIn("no material model change; zero model calls", result.stdout)
-
-    def test_main_new_opencode_go_model_triggers(self):
-        self.main_baseline()
-        (self.temp / "home/extra-opencode-models").write_text("opencode-go/glm-5.4\n")
-        result, calls = self.main_script()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("refresh PR still open", result.stdout)
-        self.assertIn("new_cli_model\tglm-5.4", (self.state / "catalog-changes.txt").read_text())
-        self.assertEqual(calls.count("opencode"), 1)
-        new_catalog = (self.state / "catalog.new").read_text()
-        self.assertIn("glm-5.4", new_catalog)
-        self.assertNotIn("claude-opus-5-5", new_catalog)
 
     def test_main_new_opencode_non_pool_model_does_not_trigger(self):
         self.main_baseline()

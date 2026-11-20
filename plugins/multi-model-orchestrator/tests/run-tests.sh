@@ -4243,25 +4243,10 @@ rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash \
 [ "$rc" -eq 75 ] || fail "pool exits 75 when every worker is unavailable (got $rc)"
 contains "$PL/err" 'every T2 worker was unavailable' 'pool names the exhausted tier'
 
-# OpenCode Go rows from the shipped table, then the stub is removed again.
+# The shipped table routes nothing to OpenCode, even with its CLI installed.
 cp "$OC/bin/opencode" "$PL/bin/opencode"
-ocpick() { "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --usage /dev/null "$@"; }
-out="$(ocpick --tier T2 --allow opencode 2>/dev/null)" || true
-[ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "opencode glm-5.3 high" ] || fail "shipped T2 table routes OpenCode GLM-5.3 high: $out"
-out="$(ocpick --tier T3 --allow opencode 2>/dev/null)" || true
-[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "opencode kimi-k3.1-pro high|opencode glm-5.3 max|" ] || fail "shipped T3 table routes OpenCode Kimi high, then GLM-5.3 max: $out"
-out="$(ocpick --tier T1 --allow opencode 2>/dev/null)" || true
-[ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "opencode glm-5.3-flash low" ] || fail "shipped T1 table routes OpenCode GLM: $out"
-rc=0; ocpick --tier T2 --allow opencode --mode review >/dev/null 2>"$PL/err" || rc=$?
-[ "$rc" -eq 75 ] || fail "opencode is skipped for review (got $rc)"
-contains "$PL/err" 'advisory reviewer' 'opencode is an advisory reviewer'
-out="$(ocpick --tier T2 --deny opencode 2>/dev/null)" || true
-case "$out" in *opencode*) fail "deny opencode still listed it: $out" ;; esac
-rm -rf "$PL/oc-calls"; mkdir -p "$PL/oc-calls"
-printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" STUB_OPENCODE_CALLS="$PL/oc-calls" \
-  bash "$POOL" run --tier T3 --allow opencode --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
-  || fail "pool run dispatches opencode: $(cat "$PL/err")"
-exact_line "$PL/oc-calls/call.0.args" 'opencode-go/kimi-k3.1-pro#high' 'pool run sends the T3 variant to OpenCode'
+rc=0; "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow opencode --usage /dev/null >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "shipped table has no OpenCode route (got $rc)"
 rm -f "$PL/bin/opencode"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/vibe"
 chmod +x "$PL/bin/vibe"

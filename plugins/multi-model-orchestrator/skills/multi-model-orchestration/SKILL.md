@@ -46,7 +46,7 @@ no re-reads, and verdicts rather than logs back from every leg.
    mode and usage snapshot unchanged from `pick`. It tries eligible workers in order and
    moves past unavailable ones (exit 75: local Qwen's one GPU slot busy, a plan limit, a transient
    error) and records the worker that ran. A pinned route calls `scripts/run-claude.sh`,
-   `run-codex.sh`, `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, `run-opencode.sh`, `run-vibe.sh`, or `run-qwen-local.sh` directly. Every runner pins
+   `run-codex.sh`, `run-grok.sh`, `run-muse.sh`, `run-agy.sh`, `run-vibe.sh`, or `run-qwen-local.sh` directly. Every runner pins
    a current model; supported efforts are pinned explicitly. A task-selected effort differing
    from the table uses the exact runner command recorded after the pool eligibility check.
 6. Never wait for the local GPU slot, and never retry the same task on it in the same pass.
