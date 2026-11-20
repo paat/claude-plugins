@@ -1002,21 +1002,31 @@ esac
 F="$HOME/fake"
 printf 'gh %s\n' "$*" >> "$F/log"
 printf 'gh\n' >> "$EXTERNAL_CALLS"
+# The job runs outside any checkout: run commands must name the repository and the PR branch.
+if [[ $1 == run ]]; then
+  [[ $* == *"-R acme/plugins"* ]] || { echo "no repository context" >&2; exit 1; }
+  [[ $2 != list || $* == *"--branch chore/model-refresh-"* ]] || exit 1
+fi
 case "$1 $2" in
   "pr list")
+    [[ $* == *"--author @me"* && $* == *"--base main"* ]] || exit 0
     if [[ $* == *--head* ]]; then [[ ! -f $F/pr-opened ]] || echo https://example.invalid/pr/1; exit 0; fi
     [[ ! -f $F/open-pr ]] || cat "$F/open-pr"
     ;;
   "pr view")
     remote="$(cat "$F/pr-head" 2>/dev/null || cat "$F/head")"
-    if [[ $* == *state,headRefOid* ]]; then printf '%s\t%s\n' "$(cat "$F/pr-state" 2>/dev/null || echo OPEN)" "$remote"
+    state="$(cat "$F/pr-state" 2>/dev/null || echo OPEN)"
+    if [[ $* == *state,headRefOid,baseRefName* ]]; then
+      printf '%s\t%s\t%s\n' "$state" "$remote" "$(cat "$F/pr-base" 2>/dev/null || echo main)"
     elif [[ $* == *headRefOid* ]]; then printf '%s\n' "$remote"
+    elif [[ $* == *mergeCommit* ]]; then echo merge1
+    elif [[ $* == *"--json state"* ]]; then printf '%s\n' "$state"
     else printf 'chore: model refresh\n\nPins follow the codex catalog.\n'; fi
     ;;
   "run list") echo 101 ;;
   "run watch") [[ ! -f $F/ci-fail ]] ;;
   "run view") echo "FAILED test_pins" ;;
-  "pr merge") printf '%s\n' "$*" >> "$F/merged" ;;
+  "pr merge") printf '%s\n' "$*" >> "$F/merged"; [[ -f $F/merge-noop ]] || echo MERGED > "$F/pr-state" ;;
   "pr comment") cat >> "$F/comments" ;;
   *) exit 99 ;;
 esac
@@ -1026,7 +1036,10 @@ F="$HOME/fake"
 printf 'git %s\n' "$*" >> "$F/log"
 printf 'git\n' >> "$EXTERNAL_CALLS"
 case "$*" in
-  *"worktree add"*) mkdir -p "$XDG_STATE_HOME/model-refresh/worktree" ;;
+  *"worktree add"*) [[ ! -f $F/worktree-fail ]] || exit 128; mkdir -p "$XDG_STATE_HOME/model-refresh/worktree" ;;
+  *"remote get-url origin"*) echo git@github.com:acme/plugins.git ;;
+  *"status --porcelain"*) cat "$F/dirty" 2>/dev/null || true ;;
+  *" show merge1^1:"*) echo '{"version":"0.1.0"}' ;;
   *"rev-parse HEAD"*) cat "$F/head" ;;
   *merge-base*) echo base0 ;;
   *"diff --name-only"*) cat "$F/changed" 2>/dev/null || true ;;
@@ -1043,12 +1056,14 @@ prompt="$(cat)"
 if [[ $prompt == *"A merge gate did not pass"* ]]; then
   n=$(( $(cat "$F/fixes" 2>/dev/null || echo 0) + 1 ))
   echo "$n" > "$F/fixes"
+  [[ -f $F/fix-noop ]] && exit 124
   echo "head$((n + 1))" > "$F/head"
   printf '%s' "$prompt" > "$F/fix-prompt"
   echo "fixed the pin; rejected nothing"
 else
   printf '%s' "$prompt" > "$F/author-prompt"
   if [[ -f $F/author-no-changes ]]; then echo NO_CHANGES; else touch "$F/pr-opened"; echo https://example.invalid/pr/1; fi
+  if [[ -f $F/lock-state ]]; then touch "$XDG_STATE_HOME/model-refresh/open-pr.tsv"; chmod 555 "$XDG_STATE_HOME/model-refresh"; fi
 fi
 '''
     REVIEWER_STUB = r'''#!/usr/bin/env bash
@@ -1060,6 +1075,7 @@ n=$(( $(cat "$F/reviews" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$F/reviews"
 verdict="$(sed -n "${n}p" "$F/verdicts")"
 [[ -n $verdict ]] || verdict="$(tail -n 1 "$F/verdicts")"
+if [[ -f $F/review-body ]]; then cat "$F/review-body"; exit 0; fi
 printf 'pool-tiers.tsv:3 wrong effort\n%s\n' "$verdict"
 '''
     # Runs the scripts sent to a container locally, with that container's own HOME and bin.
@@ -1133,8 +1149,10 @@ exec bash -s -- "$@"
         self.assertIn("merged https://example.invalid/pr/1 at head1 after CI and an independent review", result.stdout)
         self.assertEqual(self.fake_text("merged"), "pr merge https://example.invalid/pr/1 --merge --match-head-commit head1\n")
         log = self.fake_text("log")
-        self.assertIn("gh run list --commit head1", log)
-        self.assertIn("gh run watch 101 --exit-status", log)
+        self.assertRegex(log, r"gh run list -R acme/plugins --branch chore/model-refresh-\d+ --commit head1")
+        self.assertIn("gh run watch -R acme/plugins 101 --exit-status", log)
+        self.assertRegex(log, r"gh pr list --head chore/model-refresh-\d+ --base main --author @me")
+        self.assertIn("gh pr view https://example.invalid/pr/1 --json state -q .state", log)
         self.assertIn("reviewer --mode review --repo", log)
         self.assertIn("--base base0", log)
         self.assertLess(log.index("gh run watch"), log.index("reviewer --mode"))
@@ -1143,7 +1161,7 @@ exec bash -s -- "$@"
         self.assertNotIn("Do not merge.", self.fake_text("author-prompt"))
         self.assertIn("this job merges after CI and an independent review", self.fake_text("author-prompt"))
         self.assertIn("Pins follow the codex catalog", self.fake_text("review-prompt"))
-        self.assertTrue(self.fake_text("review-prompt").rstrip().endswith("on its own line."))
+        self.assertTrue(self.fake_text("review-prompt").rstrip().endswith("alone on the last line."))
         self.assertFalse((self.state / "open-pr.tsv").exists())
         self.assertIn("gpt-99-test", (self.state / "catalog.txt").read_text())
         self.assertIn("fleet refresh skipped: MODEL_REFRESH_FLEET_CONTAINERS is unset", result.stdout)
@@ -1161,7 +1179,7 @@ exec bash -s -- "$@"
         self.assertIn("gh pr comment https://example.invalid/pr/1", fix_prompt)
         self.assertIn("fixed the pin; rejected nothing", self.fake_text("review-prompt"))
         self.assertEqual(self.fake_text("merged"), "pr merge https://example.invalid/pr/1 --merge --match-head-commit head2\n")
-        self.assertIn("gh run list --commit head2", self.fake_text("log"))
+        self.assertIn("--commit head2", self.fake_text("log"))
         self.assertEqual(calls.count("reviewer"), 2)
         self.assertFalse((self.state / "open-pr.tsv").exists())
 
@@ -1224,7 +1242,7 @@ exec bash -s -- "$@"
         result, _ = self.run_triggered(verdicts=("looks fine",))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(self.fake_text("merged"), "")
-        self.assertIn("did not return a verdict", self.fake_text("comments"))
+        self.assertIn("did not end with an APPROVE or NEEDS_WORK line", self.fake_text("comments"))
         self.assertEqual(self.fake_text("fixes"), "")
 
     def test_resume_open_pr_from_state_on_unchanged_day(self):
@@ -1252,6 +1270,108 @@ exec bash -s -- "$@"
         self.assertIn("is CLOSED; nothing to resume", result.stdout)
         self.assertEqual(calls.count("claude"), 1)
         self.assertFalse((self.state / "open-pr.tsv").exists())
+
+    def test_gates_dirty_worktree_is_never_reviewed(self):
+        self.main_baseline()
+        self.add_codex_model()
+        self.prepare_gates()
+        (self.fake / "dirty").write_text("?? fix.py\n")
+        result, calls = self.main_script(env=self.gate_env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("reviewer", calls)
+        self.assertEqual(self.fake_text("merged"), "")
+        self.assertIn("uncommitted or untracked files at review time", self.fake_text("comments"))
+
+    def test_gates_verdict_must_be_the_last_line(self):
+        self.main_baseline()
+        self.add_codex_model()
+        self.prepare_gates()
+        (self.fake / "review-body").write_text("APPROVE\nI cannot approve this until the pin is fixed.\n\n")
+        result, _ = self.main_script(env=self.gate_env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(self.fake_text("merged"), "")
+        self.assertIn("did not end with an APPROVE or NEEDS_WORK line", self.fake_text("comments"))
+        (self.fake / "review-body").write_text("Looks right.\n  APPROVE  \n\n")
+        (self.state / "open-pr.tsv").write_text("https://example.invalid/pr/1\tchore/model-refresh-20261120\t0\t\n")
+        result, _ = self.main_script(env=self.gate_env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--match-head-commit head1", self.fake_text("merged"))
+
+    def test_gates_fix_cycle_without_new_head_blocks(self):
+        self.main_baseline()
+        self.add_codex_model()
+        self.prepare_gates(verdicts=("NEEDS_WORK",))
+        (self.fake / "fix-noop").write_text("")
+        result, calls = self.main_script(env=self.gate_env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(calls.count("reviewer"), 1)
+        self.assertEqual(self.fake_text("fixes"), "1\n")
+        self.assertIn("fix cycle 1 (claude exit 124) left the head at head1", self.fake_text("comments"))
+        fields = (self.state / "open-pr.tsv").read_text().rstrip("\n").split("\t")
+        self.assertEqual(fields[2:], ["1", "head1"])
+
+    def test_merge_must_read_merged_before_state_and_fleet(self):
+        self.main_baseline()
+        self.add_codex_model()
+        self.prepare_gates()
+        (self.fake / "merge-noop").write_text("")
+        result, calls = self.main_script(env={**self.gate_env, "MODEL_REFRESH_FLEET_CONTAINERS": "box-a"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("reads 'OPEN', not MERGED", self.fake_text("comments"))
+        self.assertTrue((self.state / "open-pr.tsv").exists())
+        self.assertNotIn("docker", calls)
+
+    def test_resume_merged_pr_refreshes_fleet(self):
+        self.main_baseline()
+        self.prepare_gates()
+        (self.fake / "pr-state").write_text("MERGED\n")
+        (self.fake / "changed").write_text("plugins/demo/.claude-plugin/plugin.json\n")
+        self.setup_fleet_container("box-a", claude_version="0.2.0")
+        (self.state / "open-pr.tsv").write_text("https://example.invalid/pr/7\tchore/model-refresh-20261101\t0\t\n")
+        result, calls = self.main_script(env={**self.gate_env, "MODEL_REFRESH_FLEET_CONTAINERS": "box-a"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("is MERGED; refreshing the fleet", result.stdout)
+        self.assertIn("git -C", self.fake_text("log"))
+        self.assertIn("diff --name-only merge1^1 merge1", self.fake_text("log"))
+        self.assertRegex(result.stdout, r"fleet demo 0\.2\.0: box-a +PASS")
+        self.assertFalse((self.state / "open-pr.tsv").exists())
+        self.assertFalse({"claude", "reviewer"} & set(calls))
+
+    def test_resume_requires_base_main(self):
+        self.main_baseline()
+        self.prepare_gates()
+        (self.fake / "pr-base").write_text("release\n")
+        (self.state / "open-pr.tsv").write_text("https://example.invalid/pr/7\tchore/model-refresh-20261101\t0\t\n")
+        result, calls = self.main_script(env=self.gate_env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("targets release, not main", self.fake_text("comments"))
+        self.assertEqual(self.fake_text("merged"), "")
+
+    def test_resume_failure_before_gates_still_comments(self):
+        self.main_baseline()
+        self.prepare_gates()
+        (self.fake / "worktree-fail").write_text("")
+        (self.state / "open-pr.tsv").write_text("https://example.invalid/pr/7\tchore/model-refresh-20261101\t1\t\n")
+        result, _ = self.main_script(env=self.gate_env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("the job failed at line", self.fake_text("comments"))
+        self.assertEqual((self.state / "open-pr.tsv").read_text(),
+                         "https://example.invalid/pr/7\tchore/model-refresh-20261101\t1\t\n")
+
+    def test_pr_state_is_saved_before_triggers_are_consumed(self):
+        self.main_baseline()
+        self.add_codex_model()
+        self.prepare_gates()
+        (self.fake / "lock-state").write_text("")  # authoring stub makes the state directory read-only
+        try:
+            result, _ = self.main_script(env=self.gate_env)
+        finally:
+            self.state.chmod(0o755)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual((self.state / "open-pr.tsv").read_text(),
+                         "https://example.invalid/pr/1\tchore/model-refresh-" + result.stdout.split("chore/model-refresh-")[1][:8] + "\t0\t\n")
+        self.assertIn("the job failed at line", self.fake_text("comments"))
+        self.assertNotIn("gpt-99-test", (self.state / "catalog.txt").read_text())
 
     def setup_fleet_container(self, name, claude_version=None):
         home = self.fleet_home / name
@@ -1406,7 +1526,8 @@ class FleetTests(unittest.TestCase):
         helper = self.temp / "helper.sh"
         helper.write_text('codex plugin add "$1"\n')
 
-    def container(self, name, claude=None, codex_status=None, codex_version="0.1.0", codex_after="0.2.0"):
+    def container(self, name, claude=None, codex_status=None, codex_version="0.1.0", codex_after="0.2.0",
+                  scope="user"):
         home = self.temp / name
         (home / "bin").mkdir(parents=True)
         log = home / "calls"
@@ -1416,14 +1537,14 @@ class FleetTests(unittest.TestCase):
             path.write_text(f"#!/usr/bin/env bash\nprintf '{tool_name} %s\\n' \"$*\" >> {log}\n{body}")
             path.chmod(0o755)
 
-        tool("claude", 'if [[ $1 == plugin && $2 == update ]]; then [[ ! -f "$HOME/after.json" ]] || '
-             'cp "$HOME/after.json" "$HOME/.claude/plugins/installed_plugins.json"; fi\n')
+        tool("claude", f'if [[ $1 == plugin && $2 == update && $* == *"--scope {scope}"* ]]; then '
+             '[[ ! -f "$HOME/after.json" ]] || cp "$HOME/after.json" "$HOME/.claude/plugins/installed_plugins.json"; fi\n')
         if claude:
             (home / ".claude/plugins").mkdir(parents=True)
             (home / ".claude/plugins/installed_plugins.json").write_text(json.dumps(
-                {"plugins": {"demo@mk": [{"scope": "user", "version": claude[0]}]}}))
+                {"plugins": {"demo@mk": [{"scope": scope, "version": claude[0]}]}}))
             (home / "after.json").write_text(json.dumps(
-                {"plugins": {"demo@mk": [{"scope": "user", "version": claude[1]}]}}))
+                {"plugins": {"demo@mk": [{"scope": scope, "version": claude[1]}]}}))
         if codex_status:
             (home / "list").write_text(
                 "PLUGIN       STATUS              VERSION  SOURCE\n"
@@ -1463,6 +1584,47 @@ class FleetTests(unittest.TestCase):
         result = self.run_fleet("a")
         self.assertEqual(result.returncode, 1)
         self.assertRegex(result.stdout, r"^a +FAIL ")
+
+    def test_project_scope_install_is_updated(self):
+        log = self.container("a", claude=("0.1.0", "0.2.0"), scope="project")
+        result = self.run_fleet("a")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r"^a +PASS claude=0\.2\.0 ")
+        self.assertIn("claude plugin update demo@mk --scope project", log.read_text())
+
+    def test_project_scope_install_left_behind_fails(self):
+        self.container("a", claude=("0.1.0", "0.1.0"), scope="project")
+        result = self.run_fleet("a")
+        self.assertEqual(result.returncode, 1)
+        self.assertRegex(result.stdout, r"^a +FAIL claude=0\.1\.0 ")
+
+    def test_malformed_claude_registry_fails(self):
+        self.container("a")
+        registry = self.temp / "a/.claude/plugins/installed_plugins.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text("{not json")
+        result = self.run_fleet("a")
+        self.assertEqual(result.returncode, 1)
+        self.assertRegex(result.stdout, r"^a +FAIL claude=registry-error ")
+
+    def test_failing_codex_list_fails(self):
+        self.container("a", codex_status="installed, enabled")
+        self.write_codex("a", 'exit 3\n')
+        result = self.run_fleet("a")
+        self.assertEqual(result.returncode, 1)
+        self.assertRegex(result.stdout, r"^a +FAIL .*codex=list-error")
+
+    def test_failing_codex_helper_fails(self):
+        self.container("a", codex_status="installed, enabled")
+        (self.temp / "helper.sh").write_text('codex plugin add "$1"\nexit 4\n')
+        result = self.run_fleet("a")
+        self.assertEqual(result.returncode, 1)
+        self.assertRegex(result.stdout, r"^a +FAIL .*codex=installed 0\.2\.0 helper: exit 4")
+
+    def write_codex(self, name, body):
+        path = self.temp / name / "bin/codex"
+        path.write_text("#!/usr/bin/env bash\n" + body)
+        path.chmod(0o755)
 
     def test_stopped_container_skips_and_bad_selector_is_usage(self):
         result = self.run_fleet("gone")
