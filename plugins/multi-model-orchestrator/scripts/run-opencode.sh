@@ -99,6 +99,7 @@ if [ "$mode" = review ]; then
     printf '%s\n' 'You are an independent, read-only reviewer. Do not create or modify any file.'
     printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
     printf '%s\n' 'End with one terminal line: APPROVE or NEEDS_WORK.'
+    mmo_adjustment_lines "$mmo_outcome_provider" "$model" review
     printf '\n## Task and acceptance\n'
     cat "$request_file"
     printf '\n## Unified diff from %s\n' "$base_ref"

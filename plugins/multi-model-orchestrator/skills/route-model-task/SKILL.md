@@ -78,9 +78,9 @@ pass the cards into its task ledger and dispatch only after its normal preflight
 
 ## Calibrate
 
-In the existing task ledger, record task family, actual served model (including local `default`),
-effort, runner/version, tools, acceptance result, elapsed time, repair/retry count, and cost if
-known. Separate provider/infra failures from task failures. Compare repeated representative
-tasks with the same repository state, inputs, harness and tests; include review/repair time.
-Vary effort while holding the model fixed. Change defaults only when that evidence improves
-successful delivery; vendor benchmarks are candidate-selection hints, not a leaderboard.
+Change a default only on evidence from `${CLAUDE_PLUGIN_ROOT}/scripts/friction-report.sh` (friction
+kinds per provider, model, effort and role; `--flags-only` keeps the recurring ones). When a kind is
+flagged for a harness/model, make the smallest change likely to help: a row in
+`scripts/harness-adjustments.tsv`, a runner default (timeout, step cap, effort), or pool order. Cite
+the report row. Remove an adjustment row once its friction is no longer flagged over a window with
+enough legs. Vendor benchmarks are candidate-selection hints, not a leaderboard.

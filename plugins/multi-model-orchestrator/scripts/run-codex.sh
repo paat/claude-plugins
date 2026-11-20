@@ -119,6 +119,7 @@ if [ "$mode" = review ]; then
   {
     printf '%s\n' 'You are an independent, semantically read-only reviewer. Do not modify files or commit.'
     printf '%s\n' 'End with APPROVE or NEEDS_WORK.'
+    mmo_adjustment_lines "$mmo_outcome_provider" "$model" review
     printf '\n'
     cat "$prompt_file"
     if [ "$base_set" -eq 1 ]; then
@@ -136,6 +137,7 @@ elif [ "$mode" = research ]; then
     printf '%s\n' 'Tag every load-bearing claim with an evidence tier: A = statute / official spec / vendor API reference quoted verbatim; B = official documentation page or technical spec; C = practitioner or third-party report.'
     printf '%s\n' 'Report any unknown that survives the search as UNKNOWN with a recommended default and its rationale; never silently guess.'
     printf '%s\n' 'End with the sources used (URL or citation per claim).'
+    mmo_adjustment_lines "$mmo_outcome_provider" "$model" research
     printf '\n'
     cat "$prompt_file"
   } > "$combined_file"

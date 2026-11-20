@@ -247,9 +247,11 @@ if [ "$mode" = review ]; then
   # Hand over the patch we just validated: re-diffing in the wrapper would be a
   # second source of truth that the size gate never saw.
   wrapper_args+=(--approval-mode plan --diff-file "$review_patch")
+  adjustments="$(mmo_adjustment_lines "$mmo_outcome_provider" "$model" review)"
   prompt_text="$prompt_text
 
-End with one terminal line: APPROVE or NEEDS_WORK."
+${adjustments:+$adjustments
+}End with one terminal line: APPROVE or NEEDS_WORK."
 else
   wrapper_args+=(--yolo)
   prompt_text="$(mmo_implement_prompt /dev/stdin <<< "$prompt_text")"
