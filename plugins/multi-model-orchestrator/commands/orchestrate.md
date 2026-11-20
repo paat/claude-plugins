@@ -58,9 +58,9 @@ request, the preflight, and the exact commands.
    ```
 
    The pool names the worker that ran on stderr; record it in the ledger. `8`/`9`/`10` (with
-   `check=` on its last line) mean scope, test, or no change failed: a fix cycle. Its own `75` means
-   nobody in the tier chain was available: report the blocker with the reset it printed. `55`
-   means the failing worker had already edited the tree: salvage or reset before redispatching;
+   `check=` on its last line) mean scope, test, or no change failed: a fix cycle; `11` means no
+   check ran, so nothing is accepted. Its own `75` means nobody in the tier chain was available:
+   report the blocker with the reset it printed. `55` means the failing worker had already edited the tree: salvage or reset before redispatching;
    `76` (a Grok turn cap or Muse step cap on an implement leg) is handled the same way. A pinned
    model calls its runner directly (`run-codex.sh` takes `--dir`); omit `--effort` for Claude
    Haiku 4.5. Local Qwen and agy review only with `--mode review --base <range>`. Never replace

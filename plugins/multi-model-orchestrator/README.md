@@ -38,7 +38,7 @@ Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fa
 Fable 5.1, Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
 `medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, Argon, Hydrogen, and Carbon support `low`, `medium`, and `high`; Muse catalog models support
-`minimal` through `max`. Vibe's `default` passes no `--thinking`; Mistral Large 4 (model `default` or `mistral-large-4`) takes only `low`, `medium`, `high` (`off`, `xhigh`, `max` exit 2: API 400, mistral-vibe#1439, 2026-11-05); other aliases pass the level as written.
+`minimal` through `max`. Vibe's `default` passes no `--thinking`; Mistral Large 4 (`mistral-large-4-0`, or `mistral-large-4`) takes only `low`, `medium`, `high` (`off`, `xhigh`, `max` exit 2: API 400, mistral-vibe#1439, 2026-11-05); `default` and other aliases pass the level as written.
 
 ## Routing policy
 
@@ -163,27 +163,36 @@ This measures execution success, not review approval; combined review verdicts a
 
 ### Leg checks
 
-`scripts/leg-check.sh --repo DIR --base REF [--allow-paths GLOBS] [--verify-cmd CMD]
-[--verify-pattern ERE] [--verify-timeout SECONDS] [--final FILE] [--out PATH]... [--task ID]
-[--cycle N] [--tier T] [--provider P] [--model M] [--effort E]` checks an implement leg's result
-against the commit it started from: committed, uncommitted and untracked changes, without the leg
-`--out` files. First failure wins: exit 10 `no_change`; exit 8 `scope` (a changed path matches no
+`scripts/leg-check.sh --repo DIR --base REF [--baseline FILE] [--allow-paths GLOBS]
+[--verify-cmd CMD] [--verify-pattern ERE] [--verify-timeout SECONDS] [--final FILE] [--out PATH]...
+[--task ID] [--cycle N] [--tier T] [--provider P] [--model M] [--effort E]` checks an implement
+leg's result against the commit it started from, without the leg `--out` files. Without
+`--baseline`, every committed, staged, unstaged or untracked change since REF counts (submodules
+included). `--snapshot FILE --repo DIR` records each dirty or untracked path's index and
+working-tree state before dispatch (the file itself never counts); with `--baseline FILE` only the leg's own changes count:
+commits since REF, new or differently changed dirty paths, and snapshot paths it changed or
+reverted. First failure wins: exit 10 `no_change`; exit 8 `scope` (a changed path matches no
 comma-separated glob, compared with bash `[[ path == glob ]]` so `*` crosses `/`; `dir/` allows
 that directory); exit 9 `verify` (`--verify-cmd` run with `bash -c` in the repository under
 `timeout`, default 900 s, failed or timed out, or its output missed `--verify-pattern`, so a runner
-that ran nothing fails); else exit 0 `pass`. A final message (`--final`) ending with an
-ask-to-continue phrase ("want me to", "would you like me to", "shall I", "should I
-continue/proceed", "let me know if you") adds `note=asks-to-continue` without changing the exit.
-Usage errors and an invalid REF exit 2. `pool.sh run --mode implement` takes `--allow-paths`,
-`--verify-cmd`, `--verify-pattern`, `--task` and `--cycle`, runs the check after a worker exit 0
-against the HEAD it captured before dispatch, exits with the check's code, and adds `check=` to its
-final line.
+that ran nothing fails); else exit 0 `pass`. After a passing verify the paths are enumerated and
+checked again, so a test that writes outside the allow-list fails `scope`. The verify command runs
+in the scrubbed leg environment: a test that needs a variable gets it through `MMO_LEG_ENV`, as a
+leg does. Exit 11 `error` means the check could not run (a git command failed, or `--baseline` is not a
+complete snapshot); it is never a
+pass. A final message (`--final`) ending with an ask-to-continue phrase ("want me to", "would you
+like me to", "shall I", "should I continue/proceed", "let me know if you") adds
+`note=asks-to-continue` without changing the exit. Usage errors and an invalid REF exit 2; `--validate` with the contract flags only validates them (exit 0 or 2).
+`pool.sh run --mode implement` takes `--allow-paths`, `--verify-cmd`, `--verify-pattern`, `--task`
+and `--cycle`, validates them before any worker runs, snapshots the tree and HEAD before dispatch,
+runs the check after a worker exit 0, exits with the check's code, and adds `check=` to its final
+line.
 
 Each check appends a row to
 `${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv}`
 with the outcome file's header and failure rules: `utc_time`, `repo`, `task`, `cycle`, `tier`,
 `provider`, `model`, `effort`, `check`, `detail` (first offending path, `verify-exit=N`,
-`verify-timeout`, `verify-pattern`, else the note), `head_sha` (HEAD at check time),
+`verify-timeout`, `verify-pattern`, the failed `git <command>` on error, else the note), `head_sha` (HEAD at check time),
 `changed_paths` (count), `duration_seconds`. First-pass rate per provider/model/effort (share of
 (repo, task) pairs whose lowest-cycle row is `pass`; rows without `--task` are left out):
 
@@ -399,7 +408,7 @@ catalog.
 | `MMO_OPENCODE_MODEL` | `glm-5.3` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
 | `MMO_OPENCODE_EFFORT` | `high` | OpenCode model variant (`default` passes none) |
 | `MMO_VIBE_MODEL` | `default` | Vibe model alias; `default` passes no `--model` |
-| `MMO_VIBE_EFFORT` | `default` | Vibe thinking level (`low`, `medium`, `high`; other aliases than Mistral Large 4 also `off`, `xhigh`, `max`); `default` passes no `--thinking` |
+| `MMO_VIBE_EFFORT` | `default` | Vibe thinking level (`off`, `low`, `medium`, `high`, `xhigh`, `max`; Mistral Large 4 only `low`–`high`); `default` passes no `--thinking` |
 | `MMO_VIBE_MAX_TURNS` | `50` | Vibe assistant-turn cap, from 1 to 200. A leg that uses its last turn exits 76 (implement: work may be partial) or 78 (any other mode: no report) |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/Vibe/local-Qwen review |
 | `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |

@@ -7,17 +7,6 @@
   },
   "plugins": [
     {
-      "name": "gemini-cli",
-      "description": "Integrate Google's Gemini (via Antigravity CLI) into Claude Code for second opinions, dual code reviews, and AI-assisted explanations",
-      "version": "0.3.2",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/gemini-cli",
-      "category": "development",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "reddit-fetch",
       "description": "Research any topic using Reddit via Antigravity CLI (agy) web search",
       "version": "0.3.1",
@@ -31,7 +20,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (read-only repo-walking), OpenCode Go, Grok, Muse, DeepSeek, Gemini and Qwen, at least two must succeed, with calling-context arbitration",
-      "version": "0.30.6",
+      "version": "0.30.7",
       "author": {
         "name": "Andre Paat"
       },
@@ -73,28 +62,6 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
-      "name": "comfyui",
-      "description": "Manage ComfyUI workflows, models, and API — build workflows from natural language, queue executions, monitor progress, and download models",
-      "version": "0.2.2",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/comfyui",
-      "category": "tools",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
-      "name": "video-guide",
-      "description": "Create professional video guides with TTS narration, screen recording, and YouTube upload",
-      "version": "0.2.1",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/video-guide",
-      "category": "tools",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "google-ads-strategist",
       "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
       "version": "0.7.7",
@@ -103,17 +70,6 @@
       },
       "source": "./plugins/google-ads-strategist",
       "category": "growth",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
-      "name": "emails-to-github-issues",
-      "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
-      "version": "0.3.1",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/emails-to-github-issues",
-      "category": "productivity",
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
@@ -161,28 +117,6 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
-      "name": "gh-issue-fetch",
-      "description": "Fetch GitHub issue details with auth-gated images downloaded locally, plus epic task-list resolution",
-      "version": "0.1.4",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/gh-issue-fetch",
-      "category": "development",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
-      "name": "codex-subagent",
-      "description": "Drive GPT-6 Astra as scoped subagents with task-routed low-xhigh effort and explicit max/ultra",
-      "version": "0.4.6",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/codex-subagent",
-      "category": "development",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "subagent-local-qwen3.8-27b",
       "description": "Drive local llama.cpp Qwen3.8-27B as a coding implementer/reviewer via Qwen Code CLI",
       "version": "0.5.2",
@@ -194,53 +128,9 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
-      "name": "session-preflight",
-      "description": "SessionStart hook running a fast read-only environment preflight — auth commands, expected tokens in shell env and known env files, required CLIs, and a host/user/repo/branch identity line — surfacing failures before the first tool call",
-      "version": "0.1.3",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/session-preflight",
-      "category": "productivity",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
-      "name": "safe-text-post",
-      "description": "File-based non-ASCII text posting with unicode lint and read-back verification — payloads travel via files, zero-width chars are rejected, and every post is fetched back and byte-compared before reporting done",
-      "version": "0.1.1",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/safe-text-post",
-      "category": "productivity",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
-      "name": "merge-guard",
-      "description": "Post-merge verification tail — flags junk files leaked by squash merges and unintended path changes, checks configurable grep-based business invariants, auto-opens a cleanup PR, and guides an adjacent-behavior regression spot-check",
-      "version": "0.1.2",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/merge-guard",
-      "category": "quality",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
-      "name": "fleet-propagate",
-      "description": "Idempotent fleet-wide config propagation — enumerates host, dev containers, init scripts, and creator skills from a per-host manifest, applies marker-delimited managed blocks (rerun-safe), verifies each target, and reports a per-target matrix",
-      "version": "0.1.1",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/fleet-propagate",
-      "category": "productivity",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "multi-model-orchestrator",
       "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
-      "version": "0.29.0",
+      "version": "0.29.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -261,8 +151,8 @@
     },
     {
       "name": "proton-bridge",
-      "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted, stored in Drafts and read back, never sent",
-      "version": "0.1.2",
+      "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted (stored in Drafts, never sent), and emails from named senders turned into deduplicated GitHub issues",
+      "version": "0.2.1",
       "author": {
         "name": "Andre Paat"
       },
