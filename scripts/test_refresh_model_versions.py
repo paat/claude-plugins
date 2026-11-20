@@ -282,8 +282,8 @@ eval_get() {
         }
         for name, text in cases.items():
             with self.subTest(case=name):
-                self.assertNotEqual(text, good) if name not in ("header only", "empty") else None
-                self.bug_rows(text) if False else self.parse("bug-hunt", text, success=False)
+                self.assertNotEqual(text, good)
+                self.parse("bug-hunt", text, success=False)
 
     def test_bug_hunt_bad_feed_keeps_last_good(self):
         good = (FIXTURES / "bug-hunt.csv").read_text()
