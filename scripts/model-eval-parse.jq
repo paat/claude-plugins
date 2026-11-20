@@ -69,12 +69,14 @@ def common:
         | [$columns, $f] | transpose | map({key: .[0], value: .[1]}) | from_entries
         | required((.row_status == "live" or .row_status == "superseded")
             and (.model|text) and (.harness|text) and (.effort|text)
-            and (.date|test("^\\d{4}-\\d{2}-\\d{2}$"))
+            and (.date|test("^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"))
             and (.fixed_of_105|test("^\\d{1,3}$")) and (.fixed_of_105|tonumber <= 105)
             and (.cost_usd|test("^(\\d+(\\.\\d+)?)?$")); "Bug Hunt row"))
+    | required((map(.run) | all(text) and length == (unique|length)); "Bug Hunt run ids")
     | map(select(.row_status == "live"))
     | required(length > 0; "Bug Hunt live rows")
     | group_by([.model, .effort, .harness])[]
+    | required(([.[].model_id | select(. != "")] | unique | length) <= 1; "Bug Hunt model_id")
     | . as $runs | ($runs | map(.cost_usd | select(. != "") | tonumber)) as $costs
     | ($runs[0].model | norm) as $own | (($alias[$own] // $own) | IN($ids[])) as $named
     | {name: $runs[0].model, vendor: $runs[0].vendor, metric: "fixed_of_105",

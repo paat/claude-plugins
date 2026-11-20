@@ -110,7 +110,7 @@ eval_get() {
       return
     fi
   fi
-  if [[ $name == bug-hunt ]]; then cat "$FIXTURES/bug-hunt.csv"; return; fi
+  if [[ $name == bug-hunt ]]; then cat "$FIXTURES/bug-hunt.csv"; [[ -z ${FAIL_AFTER_BODY:-} ]] || return 22; return; fi
   cat "$FIXTURES/$name.json"
 }
 ''' + command
@@ -118,7 +118,8 @@ eval_get() {
             ["bash", "-c", program], capture_output=True, text=True, timeout=20,
             env={**os.environ, "REPO": str(ROOT), "STATE": str(self.state),
                  "FIXTURES": str(self.fixtures), "CATALOG": str(self.catalog),
-                 "POOL": str(self.pool), "FAIL_FEED": fail},
+                 "POOL": str(self.pool), "FAIL_FEED": fail,
+                 "FAIL_AFTER_BODY": "1" if fail == "bug-hunt-after-body" else ""},
         )
 
     def write_fixture(self, feed, data):
@@ -297,6 +298,45 @@ eval_get() {
                 before = self.seed_good()
                 (self.fixtures / "bug-hunt.csv").write_text(text)
                 self.assert_kept(before, self.shell())
+
+    def test_bug_hunt_leading_empty_field_cannot_hide_an_extra_field(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        self.parse("bug-hunt", good.replace("gpt61solhighnt,", ",extra,", 1), success=False)
+        self.parse("bug-hunt", good.replace("gpt61solhighnt,", ",", 1), success=False)
+
+    def test_bug_hunt_crlf_and_bom_are_accepted(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        expected = self.parse("bug-hunt", good)
+        for name, text in (("crlf", good.replace("\n", "\r\n")), ("bom", "\ufeff" + good)):
+            with self.subTest(case=name):
+                raw = text.encode("utf-8")
+                self.assertEqual(b"\r\n" in raw, name == "crlf")
+                result = subprocess.run(
+                    ["jq", "-Rs", "-c", "-f", str(SCRIPTS / "model-eval-csv.jq")],
+                    input=raw, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), json.loads(subprocess.run(
+                    ["jq", "-Rs", "-c", "-f", str(SCRIPTS / "model-eval-csv.jq")],
+                    input=good.encode(), capture_output=True, timeout=10).stdout))
+        self.assertTrue(expected)
+
+    def test_bug_hunt_conflicting_model_id_duplicate_run_and_bad_calendar_date_rejected(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        cases = {
+            "model_id conflict": good.replace("gpt-6.1-sol,codex-cli 0.166.0,\ngpt61solhighntr2", "gpt-6.2-sol,codex-cli 0.166.0,\ngpt61solhighntr2", 1),
+            "duplicate run": good.replace("gpt61solhighntr2,", "gpt61solhighnt,", 1),
+            "empty run": good.replace("gpt61solhighntr2,", ",", 1),
+            "month 99": good.replace("2026-11-19", "2026-99-99", 1),
+            "day 32": good.replace("2026-11-19", "2026-11-32", 1),
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                self.assertNotEqual(text, good)
+                self.parse("bug-hunt", text, success=False)
+
+    def test_bug_hunt_transport_failure_after_valid_body_keeps_last_good(self):
+        before = self.seed_good()
+        self.assert_kept(before, self.shell(fail="bug-hunt-after-body"))
 
     def test_bug_hunt_new_pool_vendor_model_triggers_like_other_feeds(self):
         row = [r for r in self.bug_rows() if r[1] == "GPT-6.1 Sol"][0]
