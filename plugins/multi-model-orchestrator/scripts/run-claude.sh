@@ -167,6 +167,7 @@ case "$mode" in
       printf '%s\n' 'Review only the supplied task and diff. Return at most 10 actionable findings.'
       printf '%s\n' 'Each finding needs severity, file:line, realistic reachable failure, and a validating test.'
       printf '%s\n' 'End with APPROVE or NEEDS_WORK.'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" review "$max_turns"
       printf '\n## Task and acceptance\n'
       cat "$request_file"
       printf '\n## Unified diff from %s\n' "$base_ref"
@@ -178,6 +179,7 @@ case "$mode" in
       printf '%s\n' 'You are a semantically read-only adviser. Do not modify files.'
       printf '%s\n' 'Inspect only the repository context needed to answer. Return constraints, risks, and a minimal file map.'
       printf '%s\n' 'Do not implement, refactor, or broaden the request.'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" advise "$max_turns"
       printf '\n## Question\n'
       cat "$request_file"
     } > "$prompt_file"
@@ -190,13 +192,14 @@ case "$mode" in
       printf '%s\n' 'Tag every load-bearing claim with an evidence tier: A = statute / official spec / vendor API reference quoted verbatim; B = official documentation page or technical spec; C = practitioner or third-party report.'
       printf '%s\n' 'Report any unknown that survives the search as UNKNOWN with a recommended default and its rationale; never silently guess.'
       printf '%s\n' 'End with the sources used (URL or citation per claim).'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" research "$max_turns"
       printf '\n## Question\n'
       cat "$request_file"
     } > "$prompt_file"
     ;;
   probe) mmo_probe_prompt "$request_file" > "$prompt_file" ;;
   implement)
-    mmo_implement_prompt "$request_file" > "$prompt_file"
+    mmo_implement_prompt "$request_file" "$max_turns" > "$prompt_file"
     ;;
 esac
 

@@ -249,6 +249,7 @@ case "$mode" in
       printf 'You have at most %s agent turns: read the diff first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
       printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
       printf '%s\n' 'End with APPROVE or NEEDS_WORK.'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" review "$max_turns"
       printf '\n## Task and acceptance\n'
       cat "$request_file"
       printf '\n## Unified diff from %s\n' "$base_ref"
@@ -260,6 +261,7 @@ case "$mode" in
       printf '%s\n' 'You are a semantically read-only adviser. Do not modify files.'
       printf 'You have at most %s agent turns: read the diff or named files first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
       printf '%s\n' 'Return only constraints, risks, and the minimal file map needed for the question.'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" advise "$max_turns"
       printf '\n## Question\n'
       cat "$request_file"
     } > "$prompt_file"
@@ -272,6 +274,7 @@ case "$mode" in
       printf '%s\n' 'Tag every load-bearing claim with an evidence tier: A = statute / official spec / vendor API reference quoted verbatim; B = official documentation page or technical spec; C = practitioner or third-party report.'
       printf '%s\n' 'Report any unknown that survives the search as UNKNOWN with a recommended default and its rationale; never silently guess.'
       printf '%s\n' 'End with the sources used (URL or citation per claim).'
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" research "$max_turns"
       printf '\n## Question\n'
       cat "$request_file"
     } > "$prompt_file"
@@ -280,7 +283,7 @@ case "$mode" in
     mmo_probe_prompt "$request_file" "You have at most $max_turns agent turns: run the named probes first and write the report with turns to spare." > "$prompt_file"
     ;;
   implement)
-    mmo_implement_prompt "$request_file" "You have at most $max_turns agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message." > "$prompt_file"
+    mmo_implement_prompt "$request_file" "$max_turns" > "$prompt_file"
     ;;
 esac
 

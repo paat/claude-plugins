@@ -70,6 +70,7 @@ SUITES: table with exact counts
 | Local Qwen | `--mode review` | read-only; `--mode implement` would pass `--yolo` to a reviewer |
 | agy | `--mode review` | diff-only from an empty directory; the runner fails 7 if the repo changed |
 | Claude / Grok / Muse probe legs | `--mode probe` | shell kept to verify by execution; runner enforces the verdict and an unchanged repository |
+| Grok, any review leg | `--effort low` or `medium`, `--timeout` 600 or more | friction report 2026-11-20: `low` reviews took 150–300 s and 4 of 10 timed out under a tighter cap; both `high` reviews failed |
 
 ## Local Qwen review leg
 
