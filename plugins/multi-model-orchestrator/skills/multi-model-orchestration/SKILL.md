@@ -53,13 +53,15 @@ no re-reads, and verdicts rather than logs back from every leg.
 
 ## Implementation gates
 
-After each worker:
+Pass the contract to `pool.sh run` as `--allow-paths <globs> --verify-cmd <test> [--verify-pattern
+<ERE>] --task <id> --cycle <n>`. A pinned runner gets the same check: `scripts/leg-check.sh --snapshot
+FILE --repo DIR` before dispatch, then `leg-check.sh` with those flags, `--repo`, `--base <pre-dispatch
+HEAD>`, `--baseline FILE`, provider/model/effort. Exit 8 = edit outside the allow-list, 9 = test
+failed or ran nothing, 10 = no change, 11 = check could not run; none is accepted. Then after each worker:
 
-1. Compare changed paths with its allow-list.
-2. Inspect the actual diff for acceptance, regressions, duplication, and speculative spread.
-3. Run the named targeted test.
-4. Record PASS/FAIL and the effective model/effort in the ledger.
-5. Continue only when dependencies are satisfied.
+1. Inspect the actual diff for acceptance, regressions, duplication, and speculative spread.
+2. Record PASS/FAIL and the effective model/effort in the ledger.
+3. Continue only when dependencies are satisfied.
 
 After all workers, run the complete directly affected test set and inspect the whole diff from
 `BASE_SHA`. A diff over the review budget must be split or explicitly narrowed before review.

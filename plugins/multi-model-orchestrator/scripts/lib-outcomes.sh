@@ -127,48 +127,65 @@ mmo_run() {
   return "$rc"
 }
 
-mmo_outcome_exit() {
-  local exit_code="$1"
-  # Isolate append failures (including redirection errors) from status and output.
+# Print owner/name from DIR's origin remote, else DIR's basename. Never fails.
+mmo_repo_name() {  # mmo_repo_name DIR
+  local directory="$1" repo name owner
+  directory="$(cd -- "$directory" 2>/dev/null && pwd)" || directory="$1"
+  repo="$(git -C "$directory" remote get-url origin 2>/dev/null)" || repo=""
+  case "$repo" in
+    *://*) repo="${repo#*://}"; repo="${repo#*/}" ;;
+    *:*) repo="${repo#*:}" ;;
+    *) repo="" ;;
+  esac
+  repo="${repo%/}"
+  repo="${repo%.git}"
+  if [[ "$repo" == */* ]]; then
+    name="${repo##*/}"
+    owner="${repo%/*}"
+    printf '%s\n' "${owner##*/}/$name"
+  else
+    repo="${directory%/}"
+    printf '%s\n' "${repo##*/}"
+  fi
+}
+
+# Append one row of FIELDs (tabs and newlines become spaces) to FILE, first publishing a
+# complete HEADER line atomically so concurrent writers never see a partial header.
+# A write failure never changes the caller's status or output.
+mmo_tsv_append() {  # mmo_tsv_append FILE HEADER FIELD...
   (
     trap - EXIT
-    outcomes_file="${MMO_OUTCOMES_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/outcomes.tsv}"
-    directory="${repo_dir:-$PWD}"
-    directory="$(cd -- "$directory" && pwd)" || directory="${repo_dir:-$PWD}"
-    repo="$(git -C "$directory" remote get-url origin 2>/dev/null)" || repo=""
-    case "$repo" in
-      *://*) repo="${repo#*://}"; repo="${repo#*/}" ;;
-      *:*) repo="${repo#*:}" ;;
-      *) repo="" ;;
-    esac
-    repo="${repo%/}"
-    repo="${repo%.git}"
-    if [[ "$repo" == */* ]]; then
-      name="${repo##*/}"
-      owner="${repo%/*}"
-      repo="${owner##*/}/$name"
-    else
-      repo="${directory%/}"
-      repo="${repo##*/}"
-    fi
-    fields=("$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$repo" "${MMO_OUTCOME_TIER:-}"
-      "${mode:-}" "$mmo_outcome_provider" "${model:-}" "$mmo_outcome_served_model"
-      "${effective_effort:-${effort:-}}" "$exit_code" "$((SECONDS - mmo_outcome_started))"
-      "$mmo_outcome_tokens" "$mmo_outcome_head_sha" "$mmo_outcome_verdict")
+    file="$1" header="$2"
+    shift 2
+    fields=("$@")
     for i in "${!fields[@]}"; do
       fields[$i]="${fields[$i]//$'\t'/ }"
       fields[$i]="${fields[$i]//$'\n'/ }"
       fields[$i]="${fields[$i]//$'\r'/ }"
     done
-    mkdir -p -- "$(dirname -- "$outcomes_file")" || exit 0
-    if [ ! -e "$outcomes_file" ]; then
-      # Publish a complete header before any writer can append.
-      header_file="$(mktemp "${outcomes_file}.XXXXXX")" || exit 0
+    mkdir -p -- "$(dirname -- "$file")" || exit 0
+    if [ ! -e "$file" ]; then
+      header_file="$(mktemp "${file}.XXXXXX")" || exit 0
       trap 'rm -f -- "$header_file"' EXIT
-      printf 'utc_time\trepo\ttier\trole\tprovider\trequested_model\tserved_model\teffort\texit_code\tduration_seconds\ttokens\thead_sha\tverdict\n' > "$header_file" || exit 0
-      ln -- "$header_file" "$outcomes_file" || [ -f "$outcomes_file" ] || exit 0
+      printf '%s\n' "$header" > "$header_file" || exit 0
+      ln -- "$header_file" "$file" || [ -f "$file" ] || exit 0
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${fields[@]}" >> "$outcomes_file"
+    (IFS=$'\t'; printf '%s\n' "${fields[*]}") >> "$file"
+  ) >/dev/null 2>&1 || :
+  return 0
+}
+
+mmo_outcome_exit() {
+  local exit_code="$1"
+  # Isolate failures (including redirection errors) from status and output.
+  (
+    trap - EXIT
+    mmo_tsv_append "${MMO_OUTCOMES_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/outcomes.tsv}" \
+      $'utc_time\trepo\ttier\trole\tprovider\trequested_model\tserved_model\teffort\texit_code\tduration_seconds\ttokens\thead_sha\tverdict' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(mmo_repo_name "${repo_dir:-$PWD}")" "${MMO_OUTCOME_TIER:-}" \
+      "${mode:-}" "$mmo_outcome_provider" "${model:-}" "$mmo_outcome_served_model" \
+      "${effective_effort:-${effort:-}}" "$exit_code" "$((SECONDS - mmo_outcome_started))" \
+      "$mmo_outcome_tokens" "$mmo_outcome_head_sha" "$mmo_outcome_verdict"
   ) >/dev/null 2>&1 || :
   return 0
 }

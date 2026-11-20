@@ -280,14 +280,7 @@ case "$mode" in
     mmo_probe_prompt "$request_file" "You have at most $max_turns agent turns: run the named probes first and write the report with turns to spare." > "$prompt_file"
     ;;
   implement)
-    {
-      printf '%s\n' 'You are one fresh, bounded implementation worker.'
-      printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
-      printf 'You have at most %s agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message.\n' "$max_turns"
-      printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
-      printf '\n## Task packet\n'
-      cat "$request_file"
-    } > "$prompt_file"
+    mmo_implement_prompt "$request_file" "You have at most $max_turns agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message." > "$prompt_file"
     ;;
 esac
 

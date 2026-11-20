@@ -35,9 +35,10 @@ Already landed on the epic branch and relevant here: <PRs/commits or "nothing">.
 
 <explicit exclusions, or omit the section>
 
-## Verify (run, report honestly; exact numbers)
+## Contract (also passed to `pool.sh run` as `--allow-paths` and `--verify-cmd`)
 
-<explicit suite list: typecheck · lint · <named test suites> · <project gates>>
+Allowed paths: <comma-separated globs; a trailing / allows a directory>
+Verify (run, report honestly; exact numbers): <one command: typecheck · lint · <named suites> · <gates>>
 New regression tests: expected red before the fix — if one is green, report it prominently and
 carry on.
 

@@ -109,13 +109,7 @@ if [ "$mode" = review ]; then
   oc_args=(--agent plan)
   tree_before="$(mmo_tree_state "$repo_dir" "$output_file")"
 else
-  {
-    printf '%s\n' 'You are one fresh, bounded implementation worker.'
-    printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
-    printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
-    printf '\n## Task packet\n'
-    cat "$request_file"
-  } > "$prompt_file"
+  mmo_implement_prompt "$request_file" > "$prompt_file"
   work_dir="$repo_dir"
   oc_args=(--auto)
 fi

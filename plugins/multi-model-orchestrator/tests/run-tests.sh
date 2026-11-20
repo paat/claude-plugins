@@ -8,6 +8,7 @@ mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
 # Every runner test writes state inside the disposable fixture, including HOME overrides.
 export MMO_OUTCOMES_FILE="$WORK/outcomes.tsv"
+export MMO_LEG_CHECKS_FILE="$WORK/leg-checks.tsv"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
 unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
 # API regressions supply their own dummy key; legacy pool fixtures must not opt in via the host.
@@ -2337,13 +2338,13 @@ if [ "${1:-}" = "--print-base" ]; then
   exit 0
 fi
 printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
-cat > /dev/null
+cat > "$QL_WRAPPER_STDIN"
 printf '%s\n' 'APPROVE'
 printf '%s\n' "${QL_STUB_ERR:-}" >&2
 exit "${QL_STUB_EXIT:-0}"
 WRAP
 chmod +x "$WORK/bin/qwen-wrapper.sh"
-export QL_WRAPPER_ARGV="$WORK/qwen-argv.txt"
+export QL_WRAPPER_ARGV="$WORK/qwen-argv.txt" QL_WRAPPER_STDIN="$WORK/qwen-stdin.txt"
 
 cat > "$WORK/bin/curl" <<'IDLESTUB'
 #!/usr/bin/env bash
@@ -2390,6 +2391,22 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BAS
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 100 "task" >/dev/null 2>&1
 contains "$QL_WRAPPER_ARGV" '50s' 'small timeout reserves half for qwen wall time'
 pass 'run-qwen-local: timeout reserves a monotonic qwen wall-time margin'
+
+# Every runner's implement leg gets the one shared preamble, Codex and local Qwen included.
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "QWEN_TASK_MARKER" >/dev/null 2>&1 || :
+printf 'CODEX_TASK_MARKER\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" --timeout 5 >/dev/null 2>&1 || :
+for preamble_file in "$WORK/qwen-stdin.txt" "$WORK/codex.prompt"; do
+  exact_line "$preamble_file" 'You are one fresh, bounded implementation worker.' "shared preamble opens $preamble_file"
+  exact_line "$preamble_file" 'Make reasonable assumptions, state them in your final message, and finish the task; do not stop to ask questions or propose next steps.' "no-questions line reaches $preamble_file"
+  exact_line "$preamble_file" 'Never weaken, skip or special-case a test to make it pass; if a requirement cannot be met, say so in your final message.' "test-integrity line reaches $preamble_file"
+  exact_line "$preamble_file" '## Task packet' "task packet heading in $preamble_file"
+done
+contains "$WORK/qwen-stdin.txt" 'QWEN_TASK_MARKER' 'Qwen packet follows the preamble'
+contains "$WORK/codex.prompt" 'CODEX_TASK_MARKER' 'Codex packet follows the preamble'
+[ "$(grep -l 'fresh, bounded implementation worker' "$PLUGIN_ROOT"/scripts/run-*.sh | wc -l)" -eq 0 ] || fail 'runners call mmo_implement_prompt instead of copying the preamble'
+[ "$(grep -l 'mmo_implement_prompt' "$PLUGIN_ROOT"/scripts/run-*.sh | wc -l)" -eq 8 ] || fail 'all eight implement runners use mmo_implement_prompt'
+pass 'shared implement preamble reaches Codex and local Qwen'
 
 rc=0
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_STUB_EXIT=55 \
@@ -3900,6 +3917,15 @@ exact_line "$VB/calls/call.3.args" '0' 'vibe advise caps price at 0'
 absent "$VB/calls/call.3.args" '--auto-approve' 'vibe advise does not auto-approve'
 
 vibe_rc() { local want="$1"; shift; local r=0; printf 'x\n' | "${vibe_env[@]}" "$@" >"$VB/out" 2>"$VB/err" || r=$?; [ "$r" -eq "$want" ] || fail "run-vibe want $want got $r: $* -- $(cat "$VB/err")"; }
+# Mistral Large 4 (also the default model) answers off/xhigh/max with an API 400 (mistral-vibe#1439).
+for vibe_bad in "--model mistral-large-4-0 --effort max" "--model mistral-large-4-0 --effort off" "--model mistral-large-4 --effort xhigh"; do
+  # shellcheck disable=SC2086
+  vibe_rc 2 bash "$VIBE_RUN" --mode implement $vibe_bad --repo "$VR" --timeout 30
+  contains "$VB/err" 'is rejected by Mistral Large 4' "vibe names the Large 4 effort rejection: $vibe_bad"
+done
+vibe_rc 0 bash "$VIBE_RUN" --mode implement --model mistral-medium-3.5 --effort max --repo "$VR" --timeout 30
+# default passes no --model: the configured model decides, so the level passes through.
+vibe_rc 0 bash "$VIBE_RUN" --mode implement --effort off --repo "$VR" --timeout 30
 vibe_rc 6 STUB_VIBE_RESPONSE='looks fine' bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
 vibe_rc 7 STUB_VIBE_TOUCH="$VR/f.txt" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
 git -C "$VR" checkout -q -- f.txt; printf 'two\n' > "$VR/f.txt"
@@ -4275,6 +4301,216 @@ exact_line "$PL/vibe-calls/call.0.args" 'medium' 'pool run sends the T2 medium e
 exact_line "$PL/vibe-calls/call.0.args" '--max-price' 'pool run keeps the hard price cap'
 exact_line "$PL/vibe-calls/call.0.args" '0' 'pool run caps price at 0'
 pass 'pool.sh: tiers, headroom, allow/deny/prefer, advisory review skip, escalation, fall-through'
+
+# --- leg-check.sh: deterministic scope/verify/no-change checks, one TSV row per check ---
+LC="$WORK/leg-check"; LCR="$LC/repo"; mkdir -p "$LCR/src/lib"
+LEG_CHECK="$PLUGIN_ROOT/scripts/leg-check.sh"
+git -C "$LCR" init -q
+printf 'one\n' > "$LCR/f.txt"; printf 'lib\n' > "$LCR/src/lib/a.txt"
+git -C "$LCR" add . && git -C "$LCR" -c user.email=t@t -c user.name=t commit -qm base
+lc_base="$(git -C "$LCR" rev-parse HEAD)"
+lc_rc() {  # lc_rc WANT ARGS... (stderr in $LC/err)
+  local want="$1" got=0; shift
+  bash "$LEG_CHECK" "$@" >"$LC/out" 2>"$LC/err" || got=$?
+  [ "$got" -eq "$want" ] || fail "leg-check want $want got $got: $* -- $(cat "$LC/err")"
+}
+lc_row() { tail -n 1 "$MMO_LEG_CHECKS_FILE"; }
+lc_rc 10 --repo "$LCR" --base "$lc_base"
+contains "$LC/err" 'leg-check: exit=10 check=no_change paths=0' 'leg-check reports no_change'
+[ "$(head -n 1 "$MMO_LEG_CHECKS_FILE")" = $'utc_time\trepo\ttask\tcycle\ttier\tprovider\tmodel\teffort\tcheck\tdetail\thead_sha\tchanged_paths\tduration_seconds' ] \
+  || fail 'leg-check writes the TSV header once'
+printf 'two\n' > "$LCR/f.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt' --verify-cmd 'grep -q two f.txt && echo "1 passed"' \
+  --verify-pattern '[1-9][0-9]* passed' --task "T	7" --cycle 2 --tier T2 --provider codex --model gpt-5.6-terra --effort medium
+exact_line "$LC/err" 'leg-check: exit=0 check=pass paths=1' 'leg-check reports a pass'
+awk -F '\t' -v head="$lc_base" 'END {
+  if (NF != 13 || $2 != "repo" || $3 != "T 7" || $4 != "2" || $5 != "T2" || $6 != "codex" || $7 != "gpt-5.6-terra" ||
+      $8 != "medium" || $9 != "pass" || $10 != "" || $11 != head || $12 != "1" || $13 !~ /^[0-9]+$/) exit 1
+}' "$MMO_LEG_CHECKS_FILE" || fail "leg-check row fields: $(lc_row)"
+# Committed work counts as changed against the base, too.
+git -C "$LCR" -c user.email=t@t -c user.name=t commit -qam leg
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'src/'
+contains "$LC/err" 'changed outside --allow-paths: f.txt' 'leg-check names a committed edit outside the allow-list'
+[ "$(lc_row | cut -f9,10)" = $'scope\tf.txt' ] || fail "scope row names the first offending path: $(lc_row)"
+git -C "$LCR" reset -q --hard "$lc_base"
+printf 'new\n' > "$LCR/stray.txt"; printf 'more\n' >> "$LCR/src/lib/a.txt"
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'src/'
+contains "$LC/err" 'changed outside --allow-paths: stray.txt' 'leg-check catches an untracked file outside the allow-list'
+absent "$LC/err" 'src/lib/a.txt' 'a directory prefix allows nested paths'
+lc_rc 0 --repo "$LCR" --base "$lc_base" --allow-paths 'src/,*.txt'
+lc_rc 0 --repo "$LCR" --base "$lc_base" --allow-paths 'src/' --out "$LCR/stray.txt"
+contains "$LC/err" 'paths=1' 'a leg --out file is not a changed path'
+rm -f "$LCR/stray.txt"
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'echo VERIFY_TAIL_MARKER; exit 3'
+contains "$LC/err" 'VERIFY_TAIL_MARKER' 'a failed verify prints its output tail'
+[ "$(lc_row | cut -f9,10)" = $'verify\tverify-exit=3' ] || fail "verify failure row: $(lc_row)"
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'sleep 30' --verify-timeout 1
+[ "$(lc_row | cut -f10)" = verify-timeout ] || fail "verify timeout row: $(lc_row)"
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'echo "0 tests ran"' --verify-pattern '[1-9][0-9]* passed'
+[ "$(lc_row | cut -f10)" = verify-pattern ] || fail "verify pattern miss row: $(lc_row)"
+printf 'Done.\nWould you like me to add more tests?\n' > "$LC/final.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --final "$LC/final.txt"
+contains "$LC/err" 'check=pass paths=1 note=asks-to-continue' 'an ask-to-continue final message is advisory only'
+[ "$(lc_row | cut -f9,10)" = $'pass\tasks-to-continue' ] || fail "advisory note row: $(lc_row)"
+printf 'Done. Assumed UTC.\n' > "$LC/final.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --final "$LC/final.txt"
+absent "$LC/err" 'note=' 'a plain final message adds no note'
+rows_before="$(wc -l < "$MMO_LEG_CHECKS_FILE")"
+lc_rc 2 --repo "$LCR"
+lc_rc 2 --repo "$LCR" --base no-such-ref
+lc_rc 2 --repo "$LCR" --base "$lc_base" --verify-pattern x
+lc_rc 2 --repo "$LCR" --base "$lc_base" --verify-cmd true --verify-timeout 0
+lc_rc 2 --repo "$LCR" --base "$lc_base" --allow-paths ' , '
+lc_rc 2 --repo "$LCR" --base "$lc_base" --bogus x
+[ "$(wc -l < "$MMO_LEG_CHECKS_FILE")" -eq "$rows_before" ] || fail 'usage errors record no row'
+touch "$LC/not-a-dir"
+MMO_LEG_CHECKS_FILE="$LC/not-a-dir/leg.tsv" bash "$LEG_CHECK" --repo "$LCR" --base "$lc_base" 2>/dev/null \
+  || fail 'leg-check keeps its exit when the record cannot be written'
+git -C "$LCR" checkout -q -- src/lib/a.txt
+# Baseline: edits that predate the leg are not its work.
+printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+bash "$LEG_CHECK" --snapshot "$LC/snap" --repo "$LCR" || fail 'leg-check --snapshot succeeds'
+lc_rc 10 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'check=no_change paths=0' 'a no-op leg on a dirty tree is no_change'
+printf 'leg\n' >> "$LCR/f.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'check=pass paths=1' 'a pre-existing unrelated edit does not fail scope'
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt'
+git -C "$LCR" checkout -q -- src/lib/a.txt
+lc_rc 8 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'changed outside --allow-paths: src/lib/a.txt' 'reverting a pre-existing edit is a change'
+printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+# A staged out-of-scope change with the working copy restored is still a change.
+printf 'staged\n' > "$LCR/staged.txt"; git -C "$LCR" add staged.txt; rm "$LCR/staged.txt"
+lc_rc 8 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'changed outside --allow-paths: staged.txt' 'a staged-only change is enumerated'
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt,src/'
+contains "$LC/err" 'changed outside --allow-paths: staged.txt' 'a staged-only change is enumerated without a baseline'
+git -C "$LCR" rm -q --cached staged.txt
+# A verify that rewrites a disallowed tracked file cannot pass.
+lc_rc 8 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt' --verify-cmd 'printf x >> src/lib/a.txt'
+contains "$LC/err" 'changed outside --allow-paths: src/lib/a.txt' 'scope is re-checked after verify'
+[ "$(lc_row | cut -f9,12)" = $'scope\t2' ] || fail "post-verify scope row records the final path count: $(lc_row)"
+git -C "$LCR" checkout -q -- src/lib/a.txt; printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+# The verify command runs in the scrubbed leg environment; MMO_LEG_ENV passes a name through.
+LEG_SECRET=leak lc_rc 0 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --verify-cmd 'test "${LEG_SECRET-unset}" = unset'
+LEG_SECRET=leak MMO_LEG_ENV=LEG_SECRET lc_rc 0 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --verify-cmd 'test "$LEG_SECRET" = leak'
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'exit 124'
+[ "$(lc_row | cut -f10)" = verify-exit=124 ] || fail "a fast exit 124 is not a timeout: $(lc_row)"
+# A git failure while enumerating is exit 11, never a pass.
+mkdir -p "$LC/failgit"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" != "${FAIL_GIT_ON:-diff}" ] || { echo "fatal: injected" >&2; exit 128; }; done\nexec %s "$@"\n' "$(command -v git)" > "$LC/failgit/git"
+chmod +x "$LC/failgit/git"
+PATH="$LC/failgit:$PATH" lc_rc 11 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt'
+contains "$LC/err" 'check=error' 'a failed git diff reports check=error'
+[ "$(lc_row | cut -f9)" = error ] || fail "a failed enumeration records an error row: $(lc_row)"
+FAIL_GIT_ON=ls-files PATH="$LC/failgit:$PATH" lc_rc 11 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap"
+# Snapshot edge cases, in a fresh repository.
+LB="$LC/base-repo"; git init -q "$LB"
+printf 'a\n' > "$LB/a.txt"; printf 'd\n' > "$LB/d.txt"
+git -C "$LB" add . && git -C "$LB" -c user.email=t@t -c user.name=t commit -qm base
+lb_base="$(git -C "$LB" rev-parse HEAD)"
+lb_snap() { (cd "$LB" && bash "$LEG_CHECK" --snapshot ./before.snap --repo .) || fail 'leg-check --snapshot inside the worktree succeeds'; }
+lb_rc() {  # lb_rc WANT ARGS...: check from inside the worktree against ./before.snap
+  local want="$1" got=0; shift
+  (cd "$LB" && bash "$LEG_CHECK" --repo . --base "$lb_base" --baseline ./before.snap "$@") >"$LC/out" 2>"$LC/err" || got=$?
+  [ "$got" -eq "$want" ] || fail "baseline case want $want got $got: $* -- $(cat "$LC/err")"
+}
+lb_snap; lb_rc 10  # the snapshot file in the worktree is not worker output
+printf 'u\n' > "$LB/u.txt"; lb_snap; printf 'u.txt\n' > "$LB/.gitignore"
+lb_rc 0 --allow-paths .gitignore  # an untouched file the worker ignores does not count
+rm -f "$LB/.gitignore" "$LB/u.txt"
+rm "$LB/d.txt"; mkdir "$LB/d.txt"; lb_snap; printf 'x\n' >> "$LB/a.txt"
+lb_rc 0 --allow-paths a.txt  # a plain directory is not fingerprinted through the enclosing repository
+git -C "$LB" checkout -q -- a.txt; rmdir "$LB/d.txt"; git -C "$LB" checkout -q -- d.txt
+git init -q "$LB/sub"; printf 's\n' > "$LB/sub/s.txt"; git -C "$LB/sub" add s.txt
+git -C "$LB/sub" -c user.email=t@t -c user.name=t commit -qm s; printf 'm\n' >> "$LB/sub/s.txt"
+lb_snap; lb_rc 10; printf 'm2\n' >> "$LB/sub/s.txt"
+lb_rc 8 --allow-paths a.txt
+contains "$LC/err" 'changed outside --allow-paths: sub/' 'a further edit inside a dirty nested repository is a change'
+rm -rf "$LB/sub"
+lb_snap; head -c -1 "$LB/before.snap" > "$LC/trunc.snap"
+lc_rc 11 --repo "$LB" --base "$lb_base" --baseline "$LC/trunc.snap"
+lc_rc 11 --repo "$LB" --base "$lb_base" --baseline "$LC"
+# A previous leg's report at --out, rewritten by a no-op leg, is not a change.
+rm -f "$LB/before.snap"
+printf 'old report\n' > "$LB/worker-report.txt"; bash "$LEG_CHECK" --snapshot "$LC/out.snap" --repo "$LB" || fail 'snapshot with a leftover report'
+printf 'new report\n' > "$LB/worker-report.txt"
+lc_rc 10 --repo "$LB" --base "$lb_base" --baseline "$LC/out.snap" --out "$LB/worker-report.txt"
+rm -f "$LB/worker-report.txt"
+# An outcomes record configured inside the checkout is not worker output.
+MMO_OUTCOMES_FILE="$LB/outcomes.tsv" bash "$LEG_CHECK" --snapshot "$LC/rec.snap" --repo "$LB" || fail 'snapshot with an in-repo outcomes file'
+printf 'row\n' >> "$LB/outcomes.tsv"
+MMO_OUTCOMES_FILE="$LB/outcomes.tsv" lc_rc 10 --repo "$LB" --base "$lb_base" --baseline "$LC/rec.snap"
+rm -f "$LB/outcomes.tsv"
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" '`scripts/leg-check.sh --snapshot' 'a pinned runner takes a snapshot before dispatch'
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" '`--baseline FILE`' 'a pinned runner passes the baseline to the check'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" '`leg-check.sh --snapshot`/`--baseline`' 'meta direct routes wrap the runner in snapshot and baseline'
+# --validate checks the contract without a repository.
+lc_rc 0 --validate --allow-paths 'f.txt,src/' --verify-cmd true --verify-pattern 'ok' --task 1 --cycle 0
+lc_rc 2 --validate --verify-cmd true --verify-pattern '['
+lc_rc 2 --validate --allow-paths ','
+lc_rc 2 --validate --allow-paths $'f.txt\nsrc/'
+contains "$LC/err" 'must not contain a newline' 'a newline in --allow-paths is rejected'
+git -C "$LCR" checkout -q -- f.txt src/lib/a.txt
+pass 'leg-check.sh: pass, scope, verify, no_change, advisory note, rows, usage errors'
+
+# pool.sh run: contract flags run leg-check after a worker exit 0; without them nothing changes.
+rm -f "$PL/calls"/*
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/outside.txt" \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 \
+  --allow-paths 'f.txt' --task 9 --cycle 1 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 8 ] || fail "pool run exits 8 when the worker edits outside --allow-paths (got $rc): $(cat "$PL/err")"
+contains "$PL/err" 'pool: exit=8 worker=agy model=gemini-3.8-flash effort=low tier=T2 check=scope' 'pool final line carries check=scope'
+[ "$(lc_row | cut -f3-9)" = $'9\t1\tT2\tagy\tgemini-3.8-flash\tlow\tscope' ] || fail "pool passes the selected row to leg-check: $(lc_row)"
+rows_before="$(wc -l < "$MMO_LEG_CHECKS_FILE")"
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/outside.txt" \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 0 ] || fail "pool run without contract flags keeps the worker exit (got $rc)"
+tail -n 1 "$PL/err" | grep -Fxq 'pool: exit=0 worker=agy model=gemini-3.8-flash effort=low tier=T2' || fail "pool final line unchanged without contract flags: $(tail -n 1 "$PL/err")"
+[ "$(wc -l < "$MMO_LEG_CHECKS_FILE")" -eq "$rows_before" ] || fail 'pool run without contract flags runs no leg check'
+rm -f "$LCR/outside.txt"
+for bad in "pick --tier T2 --allow-paths f.txt" "run --tier T2 --mode review --base HEAD --verify-cmd true"; do
+  rc=0
+  # shellcheck disable=SC2086
+  printf 'task\n' | "${pool_env[@]}" bash "$POOL" $bad --usage "$PL/usage.txt" --repo "$LCR" >/dev/null 2>"$PL/err" || rc=$?
+  [ "$rc" -eq 2 ] || fail "pool rejects contract flags outside run --mode implement: $bad (got $rc)"
+  contains "$PL/err" 'apply to run --mode implement only' "pool names the contract-flag restriction: $bad"
+done
+rm -f "$PL/calls"/*
+for bad in "--verify-pattern passed" "--cycle one --allow-paths f.txt" "--allow-paths f.txt --task  " "--allow-paths ," "--verify-cmd true --verify-pattern ["; do
+  rc=0
+  # shellcheck disable=SC2086
+  printf 'task\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --deny claude $bad --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+  [ "$rc" -eq 2 ] || fail "pool rejects a malformed contract before dispatch: $bad (got $rc)"
+done
+[ -z "$(ls -A "$PL/calls" 2>/dev/null)" ] || fail 'a malformed contract must not reach a worker'
+# Dirty start: the pool snapshots the tree, so edits made before dispatch are not the leg's.
+printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+rc=0; printf 'task\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" \
+  --repo "$LCR" --timeout 30 --allow-paths 'f.txt' >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 10 ] || fail "a no-op worker on a dirty tree exits 10 (got $rc): $(cat "$PL/err")"
+contains "$PL/err" 'check=no_change' 'pool reports no_change on a dirty start'
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/f.txt" bash "$POOL" run --tier T2 --deny claude \
+  --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 --allow-paths 'f.txt' >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 0 ] || fail "a pre-existing unrelated edit does not fail the pool's scope check (got $rc): $(cat "$PL/err")"
+contains "$PL/err" 'check=pass' 'pool passes a leg on a dirty start'
+git -C "$LCR" checkout -q -- f.txt src/lib/a.txt
+# Cancelling the pool during a long verify stops the verify instead of waiting for its timeout.
+rm -f "$LC/verify.pid"
+lc_started=$SECONDS
+printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/f.txt" bash "$POOL" run --tier T2 --deny claude \
+  --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 --allow-paths 'f.txt' \
+  --verify-cmd "echo \$\$ > '$LC/verify.pid'; exec sleep 60" >/dev/null 2>"$PL/err" &
+pool_pid=$!
+timeout 20 bash -c "until [ -s '$LC/verify.pid' ]; do sleep 0.1; done" || fail 'the pool verify command started'
+kill -TERM "$pool_pid"
+rc=0; wait "$pool_pid" || rc=$?
+[ "$rc" -eq 143 ] || fail "a cancelled pool exits 143 during verify (got $rc): $(cat "$PL/err")"
+[ $((SECONDS - lc_started)) -lt 30 ] || fail 'a cancelled pool does not wait for the verify'
+! kill -0 "$(cat "$LC/verify.pid")" 2>/dev/null || fail 'cancelling the pool stops the verify command'
+git -C "$LCR" checkout -q -- f.txt
+pass 'pool.sh run: contract flags gate a worker exit 0 through leg-check'
 
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'pool.sh pick --tier' 'route-model-task picks through the pool'
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'never lifts a family exclusion' 'route-model-task keeps a family exclusion when a multi-family runner is allowed'
