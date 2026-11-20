@@ -1,14 +1,14 @@
 {
   "name": "proton-bridge",
-  "version": "0.1.2",
-  "description": "Proton Mail Bridge skills. First skill: reply drafts over IMAP that carry their reply context \u2014 reply-all recipients, a \"Re:\" subject and the original mail quoted under the text \u2014 stored in Drafts and read back, never sent. Documents what Bridge cannot link.",
+  "version": "0.2.1",
+  "description": "Proton Mail Bridge skills over local IMAP. reply-draft: reply drafts that carry their reply context \u2014 reply-all recipients, a \"Re:\" subject and the original mail quoted under the text \u2014 stored in Drafts and read back, never sent. emails-to-github-issues: turn emails from named senders into deduplicated GitHub issues with thread grouping, inline screenshots and scope confirmation before writes.",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Proton Bridge",
-    "shortDescription": "Proton Mail Bridge skills. First skill: reply drafts over IMAP that carry their reply context \u2014 reply-all recipients, a \"Re:\" subject and the original mail quoted under the text \u2014 stored in Drafts and read back, never sent. Documents what Bridge cannot link.",
-    "longDescription": "Proton Mail Bridge skills. First skill: reply drafts over IMAP that carry their reply context \u2014 reply-all recipients, a \"Re:\" subject and the original mail quoted under the text \u2014 stored in Drafts and read back, never sent. Documents what Bridge cannot link.",
+    "shortDescription": "Proton Mail Bridge skills over local IMAP. reply-draft: reply drafts that carry their reply context \u2014 reply-all recipients, a \"Re:\" subject and the original mail quoted under the text \u2014 stored in Drafts and read back, never sent. emails-to-github-issues: turn emails from named senders into deduplicated GitHub issues with thread grouping, inline screenshots and scope confirmation before writes.",
+    "longDescription": "Proton Mail Bridge skills over local IMAP. reply-draft: reply drafts that carry their reply context \u2014 reply-all recipients, a \"Re:\" subject and the original mail quoted under the text \u2014 stored in Drafts and read back, never sent. emails-to-github-issues: turn emails from named senders into deduplicated GitHub issues with thread grouping, inline screenshots and scope confirmation before writes.",
     "developerName": "Andre Paat",
     "category": "Productivity",
     "capabilities": [
@@ -28,7 +28,9 @@
     "email",
     "reply-draft",
     "reply-all",
-    "quote"
+    "quote",
+    "github-issues",
+    "customer-support"
   ],
   "skills": "./skills/"
 }

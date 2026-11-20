@@ -77,18 +77,6 @@
       "category": "Growth"
     },
     {
-      "name": "emails-to-github-issues",
-      "source": {
-        "source": "local",
-        "path": "./plugins/emails-to-github-issues"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    },
-    {
       "name": "silent-failure-scanner",
       "source": {
         "source": "local",
