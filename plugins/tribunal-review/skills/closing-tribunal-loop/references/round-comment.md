@@ -58,12 +58,5 @@ gh pr comment "$PR_NUMBER" --body-file "$ROUND_FILE"
 rm -f "$ROUND_FILE"
 ```
 
-If `safe-text-post` is available:
-
-```bash
-bash "${SAFE_TEXT_POST_ROOT}/scripts/safe-post.sh" post \
-  --via issue-comment --repo "$OWNER/$REPO" --number "$PR_NUMBER" --file "$ROUND_FILE"
-```
-
 Round 3 checkpoint and Round 5 ceiling notes go on the PR (same comment or a
 short follow-up with the same `tribunal-round:N` marker).
