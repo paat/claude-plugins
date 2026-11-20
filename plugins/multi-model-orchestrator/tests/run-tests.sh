@@ -4155,7 +4155,7 @@ for compat in gpt-5.6-luna; do
   out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T1 --allow "$compat" --usage /dev/null 2>/dev/null)" || true
   [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = "$compat" ] || fail "shipped table keeps an allowlisted prior-generation model routable: $compat ($out)"
 done
-if grep -qiE 'terra|claude-sonnet-5([^-]|$)' "$PLUGIN_ROOT/scripts/pool-tiers.tsv"; then fail 'shipped table has a terra or claude-sonnet-5 row'; fi
+if grep -qiE 'terra|claude-sonnet-5([^-]|$)|gpt-6-sol([^-]|$)' "$PLUGIN_ROOT/scripts/pool-tiers.tsv"; then fail 'shipped table has a terra, claude-sonnet-5 or gpt-6-sol row'; fi
 [ "$(awk -F'\t' '$1=="T2" {print $2}' "$PLUGIN_ROOT/scripts/pool-tiers.tsv" | tail -n1)" = vibe ] || fail 'shipped T2 table ends with Vibe'
 [ "$(awk -F'\t' '$1=="T2" && $2=="muse" {n=NR} $1=="T2" && $2=="vibe" {v=NR} END {exit !(n && v && n+1==v)}' "$PLUGIN_ROOT/scripts/pool-tiers.tsv"; echo $?)" = 0 ] || fail 'shipped T2 table puts Muse Spark just before Vibe'
 cp "$MU/bin/muse" "$PL/bin/muse"

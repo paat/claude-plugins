@@ -111,6 +111,7 @@ $(cat "$STATE/catalog-changes.txt" "$STATE/eval-pending.txt" 2>/dev/null)
 Act on public evidence when a change is more likely better than worse: two
 independent sources agreeing, or one harness-and-effort-matched benchmark with a
 clear margin. Local records in ${MMO_OUTCOMES_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/outcomes.tsv}
+and leg-checks.tsv beside it (plugins/multi-model-orchestrator/scripts/friction-report.sh summarises both)
 override public evidence when they exist and contradict it. Cite the evidence and
 trigger rows in the PR. Resolve new
 aliases in scripts/model-eval-aliases.tsv only against catalog IDs. Arena is
@@ -136,8 +137,8 @@ or a clear margin.
 4. Otherwise edit, update tests that assert the old IDs, bump each touched
    plugin's version and sync Codex metadata per CLAUDE.md, run each touched
    plugin's tests and the README "Development Checks", commit, push this branch,
-   and open a PR whose body lists pin/alias/tier changes, their catalog or local
-   outcome evidence, quoted trigger rows, and verification. Do not merge. Print the PR URL as the
+   and open a PR whose body lists pin/alias/tier changes, their catalog, public or
+   local evidence, quoted trigger rows, and verification. Do not merge. Print the PR URL as the
    final line.
 PROMPT
 
