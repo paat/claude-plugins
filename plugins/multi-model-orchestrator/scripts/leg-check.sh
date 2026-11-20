@@ -24,11 +24,12 @@
 #                       passing verify the paths are enumerated again and no_change/scope re-run,
 #                       so a test that writes outside the allow-list cannot pass.
 #   pass       exit 0
-#   error      exit 11  the check could not run (a git command failed); never a pass
+#   error      exit 11  the check could not run (a git command failed, or --baseline is not a
+#                       complete snapshot); never a pass
 # Advisory, never changes the exit: when the last 15 lines of --final (the worker's final message)
 # ask to continue ("want me to", "would you like me to", "shall I", "should I continue|proceed",
 # "let me know if you"; case-insensitive), the result line adds note=asks-to-continue.
-# Exit 2: usage error, invalid REF or unreadable --baseline (no row is recorded).
+# Exit 2: usage error or invalid REF (no row is recorded).
 #
 # Each check appends one row to ${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/
 # multi-model-orchestrator/leg-checks.tsv}; a write failure never changes the exit status.
@@ -128,7 +129,6 @@ fi
 if [ "$action" = check ]; then
   [ -n "$base_ref" ] || usage_error '--base is required'
   case "$base_ref" in -*) usage_error "--base must be a revision, not an option: $base_ref" ;; esac
-  [ -z "$baseline" ] || [ -r "$baseline" ] || usage_error "cannot read --baseline $baseline"
 fi
 for tool in git timeout cksum; do
   command -v "$tool" >/dev/null 2>&1 || { printf 'leg-check: %s not found\n' "$tool" >&2; exit 127; }
@@ -141,7 +141,7 @@ fi
 started=$SECONDS
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-mmo_out_spec "$repo_dir" ${outs[@]+"${outs[@]}"}
+mmo_out_spec "$repo_dir" ${outs[@]+"${outs[@]}"} "$snapshot" "$baseline"
 check=pass
 rc=0
 detail=""
@@ -205,10 +205,14 @@ path_state() {
   index="$(git -C "$repo_dir" ls-files -s -- ":(literal)$p" 2>> "$tmp/git.err")" || cannot_run "git ls-files $p"
   if [ -L "$full" ]; then
     tree="link:$(readlink -- "$full")"
-  elif [ -d "$full" ]; then
+  elif [ -d "$full" ] && [ -e "$full/.git" ]; then
+    # A submodule or nested repository: its HEAD plus the content of its dirty state.
     tree="$(git -C "$full" rev-parse -q --verify HEAD 2>/dev/null)" || tree=""
-    tree="dir:$tree:$(git -C "$full" status --porcelain=v1 --untracked-files=all 2>> "$tmp/git.err" | cksum)" \
-      || cannot_run "git status $p"
+    tree="repo:$tree:$( { git -C "$full" diff --no-ext-diff --binary --cached && git -C "$full" diff --no-ext-diff --binary &&
+      git -C "$full" ls-files -z --others --exclude-standard | (cd "$full" && xargs -0 -r cksum); } 2>> "$tmp/git.err" | cksum)" \
+      || cannot_run "git diff $p"
+  elif [ -d "$full" ]; then
+    tree=dir
   elif [ -f "$full" ]; then
     tree="file:$([ ! -x "$full" ] || printf x):$(cksum < "$full")" || cannot_run "cannot read $p"
   elif [ -e "$full" ]; then
@@ -226,13 +230,22 @@ if [ "$action" = snapshot ]; then
     path_state "$p"
     printf '%s\0%s\0' "$p" "$state" >> "$tmp/snapshot"
   done
+  printf '\0' >> "$tmp/snapshot"  # end marker: an empty path
   cp -- "$tmp/snapshot" "$snapshot" || { printf 'leg-check: cannot write snapshot %s\n' "$snapshot" >&2; exit 11; }
   exit 0
 fi
 
 declare -A base_state=()
 if [ -n "$baseline" ]; then
-  while IFS= read -r -d '' p && IFS= read -r -d '' s; do base_state[$p]="$s"; done < "$baseline"
+  complete=0
+  if [ -f "$baseline" ] && [ -r "$baseline" ]; then
+    while IFS= read -r -d '' p; do
+      [ -n "$p" ] || { complete=1; break; }
+      IFS= read -r -d '' s || break
+      base_state[$p]="$s"
+    done < "$baseline"
+  fi
+  [ "$complete" -eq 1 ] || cannot_run "invalid --baseline $baseline"
 fi
 
 # Changed paths for this leg -> array changed.
@@ -257,18 +270,14 @@ enumerate() {
   for p in ${zpaths[@]+"${zpaths[@]}"}; do
     [ -n "${seen[$p]+x}" ] || { seen[$p]=1; changed+=("$p"); }
   done
-  local -A dirty=()
   dirty_paths
-  for p in ${zpaths[@]+"${zpaths[@]}"}; do
-    dirty[$p]=1
+  # Dirty paths and snapshot paths (one that is clean now may have been reverted or committed)
+  # count when their state differs from the snapshot.
+  for p in ${zpaths[@]+"${zpaths[@]}"} "${!base_state[@]}"; do
+    [ -z "${seen[$p]+x}" ] || continue
+    seen[$p]=1
     path_state "$p"
-    [ -z "${base_state[$p]+x}" ] || [ "${base_state[$p]}" != "$state" ] || continue
-    [ -n "${seen[$p]+x}" ] || { seen[$p]=1; changed+=("$p"); }
-  done
-  # A snapshot path that is clean now was reverted or committed: its state changed.
-  for p in "${!base_state[@]}"; do
-    [ -z "${dirty[$p]+x}" ] || continue
-    [ -n "${seen[$p]+x}" ] || { seen[$p]=1; changed+=("$p"); }
+    [ -n "${base_state[$p]+x}" ] && [ "${base_state[$p]}" = "$state" ] || changed+=("$p")
   done
 }
 

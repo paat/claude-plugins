@@ -118,9 +118,9 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted read
    leg) vs. genuine judgment call (decide with the recommended default, attach research when a
    trigger fired else state why not, and record the choice).
 3. Fill `references/worker-prompt.md` with handoff rules-learned and any research memo for the item.
-   Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800` with `pick`'s
-   flags and `--allow-paths`/`--verify-cmd`/`--task`/`--cycle`. Direct routes: the recorded
-   eligible runner (`run-*.sh`), then `leg-check.sh`.
+   Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800` with `pick`'s,
+   contract, `--task`, `--cycle` flags. Direct routes wrap the recorded
+   eligible runner (`run-*.sh`) in `leg-check.sh --snapshot`/`--baseline`.
 4. Gate yourself: exits 8-11 reject; inspect the item-branch diff, verify the final-message
    contract. If the leg's contract barred committing, commit the gated result yourself —
    recording output or a memo is bookkeeping, not source editing.

@@ -169,7 +169,7 @@ This measures execution success, not review approval; combined review verdicts a
 leg's result against the commit it started from, without the leg `--out` files. Without
 `--baseline`, every committed, staged, unstaged or untracked change since REF counts (submodules
 included). `--snapshot FILE --repo DIR` records each dirty or untracked path's index and
-working-tree state before dispatch; with `--baseline FILE` only the leg's own changes count:
+working-tree state before dispatch (the file itself never counts); with `--baseline FILE` only the leg's own changes count:
 commits since REF, new or differently changed dirty paths, and snapshot paths it changed or
 reverted. First failure wins: exit 10 `no_change`; exit 8 `scope` (a changed path matches no
 comma-separated glob, compared with bash `[[ path == glob ]]` so `*` crosses `/`; `dir/` allows
@@ -178,11 +178,11 @@ that directory); exit 9 `verify` (`--verify-cmd` run with `bash -c` in the repos
 that ran nothing fails); else exit 0 `pass`. After a passing verify the paths are enumerated and
 checked again, so a test that writes outside the allow-list fails `scope`. The verify command runs
 in the scrubbed leg environment: a test that needs a variable gets it through `MMO_LEG_ENV`, as a
-leg does. Exit 11 `error` means the check could not run (a git command failed); it is never a
+leg does. Exit 11 `error` means the check could not run (a git command failed, or `--baseline` is not a
+complete snapshot); it is never a
 pass. A final message (`--final`) ending with an ask-to-continue phrase ("want me to", "would you
 like me to", "shall I", "should I continue/proceed", "let me know if you") adds
-`note=asks-to-continue` without changing the exit. Usage errors, an invalid REF and an unreadable
-baseline exit 2; `--validate` with the contract flags only validates them (exit 0 or 2).
+`note=asks-to-continue` without changing the exit. Usage errors and an invalid REF exit 2; `--validate` with the contract flags only validates them (exit 0 or 2).
 `pool.sh run --mode implement` takes `--allow-paths`, `--verify-cmd`, `--verify-pattern`, `--task`
 and `--cycle`, validates them before any worker runs, snapshots the tree and HEAD before dispatch,
 runs the check after a worker exit 0, exits with the check's code, and adds `check=` to its final

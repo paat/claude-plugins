@@ -4405,6 +4405,36 @@ PATH="$LC/failgit:$PATH" lc_rc 11 --repo "$LCR" --base "$lc_base" --allow-paths 
 contains "$LC/err" 'check=error' 'a failed git diff reports check=error'
 [ "$(lc_row | cut -f9)" = error ] || fail "a failed enumeration records an error row: $(lc_row)"
 FAIL_GIT_ON=ls-files PATH="$LC/failgit:$PATH" lc_rc 11 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap"
+# Snapshot edge cases, in a fresh repository.
+LB="$LC/base-repo"; git init -q "$LB"
+printf 'a\n' > "$LB/a.txt"; printf 'd\n' > "$LB/d.txt"
+git -C "$LB" add . && git -C "$LB" -c user.email=t@t -c user.name=t commit -qm base
+lb_base="$(git -C "$LB" rev-parse HEAD)"
+lb_snap() { (cd "$LB" && bash "$LEG_CHECK" --snapshot ./before.snap --repo .) || fail 'leg-check --snapshot inside the worktree succeeds'; }
+lb_rc() {  # lb_rc WANT ARGS...: check from inside the worktree against ./before.snap
+  local want="$1" got=0; shift
+  (cd "$LB" && bash "$LEG_CHECK" --repo . --base "$lb_base" --baseline ./before.snap "$@") >"$LC/out" 2>"$LC/err" || got=$?
+  [ "$got" -eq "$want" ] || fail "baseline case want $want got $got: $* -- $(cat "$LC/err")"
+}
+lb_snap; lb_rc 10  # the snapshot file in the worktree is not worker output
+printf 'u\n' > "$LB/u.txt"; lb_snap; printf 'u.txt\n' > "$LB/.gitignore"
+lb_rc 0 --allow-paths .gitignore  # an untouched file the worker ignores does not count
+rm -f "$LB/.gitignore" "$LB/u.txt"
+rm "$LB/d.txt"; mkdir "$LB/d.txt"; lb_snap; printf 'x\n' >> "$LB/a.txt"
+lb_rc 0 --allow-paths a.txt  # a plain directory is not fingerprinted through the enclosing repository
+git -C "$LB" checkout -q -- a.txt; rmdir "$LB/d.txt"; git -C "$LB" checkout -q -- d.txt
+git init -q "$LB/sub"; printf 's\n' > "$LB/sub/s.txt"; git -C "$LB/sub" add s.txt
+git -C "$LB/sub" -c user.email=t@t -c user.name=t commit -qm s; printf 'm\n' >> "$LB/sub/s.txt"
+lb_snap; lb_rc 10; printf 'm2\n' >> "$LB/sub/s.txt"
+lb_rc 8 --allow-paths a.txt
+contains "$LC/err" 'changed outside --allow-paths: sub/' 'a further edit inside a dirty nested repository is a change'
+rm -rf "$LB/sub"
+lb_snap; head -c -1 "$LB/before.snap" > "$LC/trunc.snap"
+lc_rc 11 --repo "$LB" --base "$lb_base" --baseline "$LC/trunc.snap"
+lc_rc 11 --repo "$LB" --base "$lb_base" --baseline "$LC"
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" '`scripts/leg-check.sh --snapshot' 'a pinned runner takes a snapshot before dispatch'
+contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" '`--baseline FILE`' 'a pinned runner passes the baseline to the check'
+contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" '`leg-check.sh --snapshot`/`--baseline`' 'meta direct routes wrap the runner in snapshot and baseline'
 # --validate checks the contract without a repository.
 lc_rc 0 --validate --allow-paths 'f.txt,src/' --verify-cmd true --verify-pattern 'ok' --task 1 --cycle 0
 lc_rc 2 --validate --verify-cmd true --verify-pattern '['
