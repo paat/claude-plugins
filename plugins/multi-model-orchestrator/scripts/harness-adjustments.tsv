@@ -1,8 +1,9 @@
 # Harness adjustments: provider-specific prompt lines, each answering recurring friction (tab-separated).
 # Runners add matching lines to implement, review, research and advise prompts; no match adds nothing.
 # model_glob is a bash pattern on the exact model id; mode is implement, review, research, advise or *.
-# {max_turns} in line becomes the runner's turn budget. evidence: friction-report row, issue URL or
-# dated observation. as_of: YYYY-MM-DD. Remove a row once friction-report.sh no longer flags its friction.
+# {budget} in line becomes the leg's turn or step cap (Grok, Muse, Vibe; Claude with --max-turns).
+# evidence: friction-report row, issue URL or dated observation. as_of: YYYY-MM-DD.
+# Remove a row once friction-report.sh no longer flags its friction.
 # Override the whole table with MMO_HARNESS_ADJUSTMENTS=<file> in the same format.
 # provider	model_glob	mode	line	evidence	as_of
-grok	*	implement	You have at most {max_turns} agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message.	https://github.com/paat/claude-plugins/issues/614: Grok implement legs stopped at the turn cap with work uncommitted, most turns spent on dev-server screenshots and file reads (line added in d95a236)	2026-10-06
+grok	*	implement	You have at most {budget} agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message.	https://github.com/paat/claude-plugins/issues/614: Grok implement legs stopped at the turn cap with work uncommitted, most turns spent on dev-server screenshots and file reads (line added in d95a236)	2026-10-06

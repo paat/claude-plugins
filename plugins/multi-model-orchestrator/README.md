@@ -205,12 +205,16 @@ awk -F '\t' 'NR>1 && $3!="" {k=$2 FS $3; if (!(k in c) || $4+0<c[k]+0) {c[k]=$4;
 `scripts/friction-report.sh` turns both records into recurring friction per `provider`, `model`
 (served, else requested), `effort` and `role` (check rows: `implement`), over the last `--days`
 (30). Output columns: `provider model effort role kind count legs rate_pct first_seen last_seen
-flag`. Runner kinds: `timeout` (124), `empty_output` (5), `no_verdict` (6), `readonly_write` (7),
-`step_cap` (55/76/78), `provider_error` (1), `exit_N` otherwise, out of the group's runner exits.
-Check kinds: `scope`, `verify`, `no_change`, `asks-to-continue`, out of the group's checks.
-`unavailable` (75), `auth` (77), `cli_missing` (127), `usage` (2/3/4) and `interrupted`
-(129/130/143) are not model friction: flag `info`, left out of the other rates. `flag` is `yes` at
-`--min-count` (3) and `--min-rate` (30) percent; `--outcomes`/`--checks` repeat to combine hosts:
+flag`. Runner kinds, out of the group's runner exits: `timeout` (124), `empty_output` (5),
+`no_verdict` (6), `guard_failed` (7: a read-only or probe leg changed the repository, Muse served
+another model, or Grok's tool allowlist was not proven enforced), `budget_exhausted` (55/76/78:
+turn or step cap, or local Qwen's wall-time or session-turn budget), `provider_error` (1), `exit_N`
+otherwise. Check kinds, out of the group's checks: `scope`, `verify`, `no_change`, and
+`asks-to-continue` (the note on a `pass` or `no_change` row). `unavailable` (75), `auth` (77),
+`cli_missing` (127), `usage` (2/3/4) and `interrupted` (129/130/143) are not model friction: flag
+`info`, left out of the other rates. Rows with a malformed or future timestamp and check rows with
+an unknown result are skipped. `flag` is `yes` when count >= `--min-count` (3) and 100 x count >=
+`--min-rate` (30) x legs; `--outcomes`/`--checks` repeat to combine hosts:
 
 ```bash
 scripts/friction-report.sh --flags-only --outcomes host-a.tsv --outcomes host-b.tsv --checks host-a-checks.tsv
@@ -219,9 +223,10 @@ scripts/friction-report.sh --flags-only --outcomes host-a.tsv --outcomes host-b.
 `scripts/harness-adjustments.tsv` (columns `provider model_glob mode line evidence as_of`) holds
 the provider-specific prompt lines: every runner adds the lines whose provider, model glob (bash
 pattern on the exact model id) and mode (`implement`, `review`, `research`, `advise`, `*`) match
-to that leg's prompt; `{max_turns}` becomes the runner's turn budget. Each row cites the friction
-it answers and an ISO date; the test suite rejects a malformed row and runners skip one with a
-warning. Probe prompts and the local Qwen review prompt take none.
+to that leg's prompt. `{budget}` becomes the leg's turn or step cap (Grok, Muse, Vibe; Claude only
+with `--max-turns`, else the line is skipped with a warning). Each row cites the friction it answers
+and a calendar date. The test suite rejects a malformed row, a mode its runner does not take, and
+`{budget}` for a runner without one; runners skip such a row with a warning. Probe prompts take none.
 
 ## Meta orchestration
 

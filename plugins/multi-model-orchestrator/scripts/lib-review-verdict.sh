@@ -48,7 +48,21 @@ mmo_adjustment_row_error() {  # mmo_adjustment_row_error ROW
     [[ "${f[$i]}" =~ [^[:space:]] ]] || { printf 'missing %s\n' "${names[$i]}"; return 0; }
   done
   case "${f[2]}" in implement|review|research|advise|'*') ;; *) printf 'bad mode %s\n' "${f[2]}"; return 0 ;; esac
-  [[ "${f[5]}" =~ ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$ ]] || printf 'as_of %s is not an ISO date\n' "${f[5]}"
+  # The runners and the modes they accept; a row outside them could never apply.
+  case "${f[0]}:${f[2]}" in
+    claude:*|grok:*|muse:*|codex:implement|codex:review|codex:research|codex:'*') ;;
+    vibe:implement|vibe:review|vibe:advise|vibe:'*') ;;
+    agy:implement|agy:review|agy:'*'|opencode:implement|opencode:review|opencode:'*'|qwen:implement|qwen:review|qwen:'*') ;;
+    *) printf 'no runner %s takes mode %s\n' "${f[0]}" "${f[2]}"; return 0 ;;
+  esac
+  # Only Grok, Muse and Vibe always have a turn or step budget (Claude with --max-turns).
+  if [[ "${f[3]}" == *'{budget}'* ]]; then
+    case "${f[0]}" in claude|grok|muse|vibe) ;; *) printf '%s has no turn or step budget for {budget}\n' "${f[0]}"; return 0 ;; esac
+  fi
+  [[ "${f[5]}" =~ ^([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$ ]] || { printf 'as_of %s is not an ISO date\n' "${f[5]}"; return 0; }
+  local y=$((10#${BASH_REMATCH[1]})) m=$((10#${BASH_REMATCH[2]})) d=$((10#${BASH_REMATCH[3]})) last=31
+  case "$m" in 4|6|9|11) last=30 ;; 2) last=$(( (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 ? 29 : 28 )) ;; esac
+  [ "$d" -le "$last" ] || printf 'as_of %s is not a calendar date\n' "${f[5]}"
 }
 
 # Rows of the harness-adjustments table (MMO_HARNESS_ADJUSTMENTS replaces the shipped file), skipping
@@ -74,22 +88,27 @@ mmo_adjustment_rows() {  # mmo_adjustment_rows [check]
 }
 
 # Prompt lines for PROVIDER, exact MODEL id and MODE, from the matching table rows in order.
-# A malformed row is reported on stderr and skipped; {max_turns} becomes the runner's max_turns.
-mmo_adjustment_lines() {  # mmo_adjustment_lines PROVIDER MODEL MODE
+# A malformed row is reported on stderr and skipped. {budget} becomes BUDGET, the leg's turn or step
+# cap; a {budget} row is skipped with a warning when the leg has none (Claude without --max-turns).
+mmo_adjustment_lines() {  # mmo_adjustment_lines PROVIDER MODEL MODE [BUDGET]
   local row f
   while IFS= read -r row; do
     IFS=$'\t' read -r -a f <<< "$row"
     [ "${f[0]}" = "$1" ] && [[ "$2" == ${f[1]} ]] || continue
     [ "${f[2]}" = '*' ] || [ "${f[2]}" = "$3" ] || continue
-    printf '%s\n' "${f[3]//\{max_turns\}/${max_turns:-}}"
+    if [[ "${f[3]}" == *'{budget}'* ]] && [ -z "${4:-}" ]; then
+      printf 'harness-adjustments: skipped a {budget} line: this %s %s leg has no turn or step budget\n' "$1" "$3" >&2
+      continue
+    fi
+    printf '%s\n' "${f[3]//\{budget\}/${4:-}}"
   done < <(mmo_adjustment_rows)
 }
 
 # Prompt of an implement leg, shared by every runner; adds the provider's harness adjustments.
-mmo_implement_prompt() {  # mmo_implement_prompt REQUEST_FILE
+mmo_implement_prompt() {  # mmo_implement_prompt REQUEST_FILE [BUDGET]
   printf '%s\n' 'You are one fresh, bounded implementation worker.'
   printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
-  mmo_adjustment_lines "${mmo_outcome_provider:-}" "${model:-}" implement
+  mmo_adjustment_lines "${mmo_outcome_provider:-}" "${model:-}" implement "${2:-}"
   printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
   printf '%s\n' 'Make reasonable assumptions, state them in your final message, and finish the task; do not stop to ask questions or propose next steps.'
   printf '%s\n' 'Never weaken, skip or special-case a test to make it pass; if a requirement cannot be met, say so in your final message.'
