@@ -4389,6 +4389,14 @@ for bad in "pick --tier T2 --allow-paths f.txt" "run --tier T2 --mode review --b
   [ "$rc" -eq 2 ] || fail "pool rejects contract flags outside run --mode implement: $bad (got $rc)"
   contains "$PL/err" 'apply to run --mode implement only' "pool names the contract-flag restriction: $bad"
 done
+rm -f "$PL/calls"/*
+for bad in "--verify-pattern passed" "--cycle one --allow-paths f.txt" "--allow-paths f.txt --task  "; do
+  rc=0
+  # shellcheck disable=SC2086
+  printf 'task\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --deny claude $bad --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+  [ "$rc" -eq 2 ] || fail "pool rejects a malformed contract before dispatch: $bad (got $rc)"
+done
+[ -z "$(ls -A "$PL/calls" 2>/dev/null)" ] || fail 'a malformed contract must not reach a worker'
 pass 'pool.sh run: contract flags gate a worker exit 0 through leg-check'
 
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'pool.sh pick --tier' 'route-model-task picks through the pool'

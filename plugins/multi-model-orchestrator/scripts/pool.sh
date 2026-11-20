@@ -80,6 +80,18 @@ if [ "${#contract[@]}" -gt 0 ] && { [ "$action" != run ] || [ "$mode" != impleme
   printf 'pool: --allow-paths, --verify-cmd, --verify-pattern, --task and --cycle apply to run --mode implement only\n' >&2
   exit 2
 fi
+# Reject a malformed contract before a worker spends a run on it.
+contract_cmd=0
+contract_pattern=0
+for ((i = 0; i < ${#contract[@]}; i += 2)); do
+  [ -n "${contract[i+1]//[[:space:]]/}" ] || { printf 'pool: %s is empty\n' "${contract[i]}" >&2; exit 2; }
+  case "${contract[i]}" in
+    --verify-cmd) contract_cmd=1 ;;
+    --verify-pattern) contract_pattern=1 ;;
+    --cycle) [[ "${contract[i+1]}" =~ ^[0-9]+$ ]] || { printf 'pool: --cycle must be a non-negative integer\n' >&2; exit 2; } ;;
+  esac
+done
+[ "$contract_pattern" -eq 0 ] || [ "$contract_cmd" -eq 1 ] || { printf 'pool: --verify-pattern needs --verify-cmd\n' >&2; exit 2; }
 tiers_file="${MMO_POOL_TIERS:-$SCRIPT_DIR/pool-tiers.tsv}"
 [ -r "$tiers_file" ] || { printf 'pool: cannot read tier table %s\n' "$tiers_file" >&2; exit 2; }
 
