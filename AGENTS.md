@@ -8,7 +8,7 @@ Agents turn real market demand into merged, production-quality SaaS improvements
 
 - Facts that change (model rankings, tool/API versions, laws and rates, standards) live in skills and knowledge stores that cite a public source and an as-of date, are loaded on demand, and are never frozen into prompts. Project conventions stay in the target project.
 - Scheduled jobs refresh that knowledge; a per-task decision such as model routing is a lookup, not a research run.
-- Global data shortlists; local gate results decide.
+- Act on public evidence when a change is more likely better than worse; local records override it when they contradict it.
 
 ## Commands
 

@@ -45,6 +45,31 @@ shows why more reasoning need not improve a short classification workload. Its s
 does not rank coding models. For local calibration, reuse the existing task ledger: freeze
 inputs, repository state, tools and acceptance tests; compare repeated completion and total
 time/cost including repairs, then vary effort on the same model. Unknown cost stays unknown.
-Keep provider/infra failures separate and require repeated comparable gains before changing
-default preference. No new training service, mandatory benchmark run or extra telemetry is
+Keep provider/infra failures separate. Change a default when public evidence makes it more likely
+better than worse (see the 2026-11-20 block); contradicting local records override it. No new training service, mandatory benchmark run or extra telemetry is
 required by this policy.
+
+## Public evidence behind the 2026-11-20 pool table (as of 2026-11-20)
+
+Public shortlisting sources applied under the owner's rule (2026-11-20): act when a change is more
+likely better than worse; local outcome and leg-check records override when they contradict it.
+Bug Hunt Bench is one bug-finding task, not a coding-quality ranking; it counts here only where a
+second source agrees or the margin is clear.
+
+- [Bug Hunt Bench](https://github.com/phuryn/bug-hunt-bench) `results/runs.csv` (fixes out of 105,
+  same harness per vendor): GPT-6.2 Sol medium 45.7, high 49.7 vs GPT-6.1 Sol medium 28-29, high
+  36.5-38; GPT-6.2 Astra high 59.6 vs GPT-6 Astra high 35; GPT-6.1 Terra medium 7.3, high 9.7;
+  GPT-6 Sol medium 14; Sonnet 5 high 9 vs Sonnet 5.5 medium 18-23; Gemini 4 Hydrogen medium 24.7
+  at about one fifth of Sonnet 5.5 medium's list cost, Gemini 3.8 Flash high 18-20; Muse Spark 1.3
+  medium 9-13; Mistral Large 4 high 15.
+- Terminal-Bench 4.x leaderboard (max-effort rows): Sonnet 5 12.4% vs Sonnet 5.5 61.8%; GPT-6 Sol
+  49.4% vs GPT-6.1 Sol 58.2%; GPT-5.6 Terra 21.5%; Muse Spark 1.3 (xhigh) 14.6%.
+- Terra: OpenAI's models page positions GPT-6.1 Terra for "visual reasoning, precise computer use,
+  and clear, natural writing", not coding; openai/codex#61538 and #60133 report it ending coding
+  turns early.
+- Hydrogen: Google's Antigravity models page positions it for "fast, everyday coding and
+  maintenance tasks".
+
+Result: 6.2 Sol/Astra lead the Codex rows with 6.1 Sol and 6 Astra behind them as fallbacks;
+`gpt-6-sol`, both Sonnet 5 rows and both Terra rows left the pool (still pinnable); Hydrogen
+`medium` enters T2 ahead of Flash `high`; Muse Spark moves to the end of T2 before Vibe.
