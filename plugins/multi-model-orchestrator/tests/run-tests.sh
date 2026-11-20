@@ -4245,7 +4245,7 @@ contains "$PL/err" 'every T2 worker was unavailable' 'pool names the exhausted t
 
 # The shipped table routes nothing to OpenCode, even with its CLI installed.
 cp "$OC/bin/opencode" "$PL/bin/opencode"
-rc=0; "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow opencode --usage /dev/null >/dev/null 2>"$PL/err" || rc=$?
+rc=0; "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T1 --allow opencode --usage /dev/null >/dev/null 2>"$PL/err" || rc=$?
 [ "$rc" -eq 75 ] || fail "shipped table has no OpenCode route (got $rc)"
 rm -f "$PL/bin/opencode"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/vibe"

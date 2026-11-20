@@ -779,6 +779,7 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("seeded opencode catalog", result.stdout)
         self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
+        self.assertIn("glm-5.4", (self.state / "catalog.txt").read_text())
         self.assertEqual(calls.count("opencode"), 1)
 
     def test_main_carried_opencode_block_stops_at_next_header(self):
