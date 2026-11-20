@@ -37,9 +37,12 @@ eval_build() {
   eval_get -H 'Content-Type: application/json' \
     --data '{"package":"terminal-bench/terminal-bench","name":"4-0-0"}' \
     https://ofhuhcpkvzjlejydnvyd.supabase.co/functions/v1/leaderboard-read >"$scratch/terminal.json" || return
+  # Bug Hunt Bench (MIT per its README): CSV, one task on two repos, blind-judged, per effort and harness.
+  eval_get https://raw.githubusercontent.com/phuryn/bug-hunt-bench/main/results/runs.csv |
+    jq -Rs -f "$REPO/scripts/model-eval-csv.jq" >"$scratch/bug-hunt.json" || return
   { cat "$catalog"; awk -F '\t' '!/^#/ && NF >= 3 {print $3}' "$pool"; } >"$scratch/ids" || return
   printf '%s\n' $'model\tname\tvendor\tmetric\tvalue\tci_low\tci_high\trank\teffort\tharness\tpreliminary\tcanonical_slug\tsource\tas_of\ttokens\tcost_usd' >"$scratch/evals.tsv" || return
-  for feed in openrouter arena-webdev arena-agent terminal; do
+  for feed in openrouter arena-webdev arena-agent terminal bug-hunt; do
     jq -er --arg feed "$feed" --arg as_of "$(date -u +%F)" \
       --rawfile aliases "$REPO/scripts/model-eval-aliases.tsv" --rawfile catalog "$scratch/ids" \
       -f "$REPO/scripts/model-eval-parse.jq" "$scratch/$feed.json" >"$scratch/$feed.tsv" || return

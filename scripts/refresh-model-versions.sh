@@ -3,6 +3,7 @@
 # Only material changes wake headless Claude to propose a PR; never merge.
 # Public data only shortlists: tier defaults need local outcomes.tsv evidence.
 # Terminal-Bench's read endpoint is undocumented; its data licence is UNKNOWN.
+# Bug Hunt Bench (CSV) has no CI: its rank changes never trigger.
 # --feeds-only builds the TSV and reports triggers, with no CLI/model/PR calls.
 set -Eeuo pipefail
 
@@ -60,7 +61,7 @@ elif grep -qF '## opencode (opencode models)' "$facts"; then
   section_block 'opencode (opencode models)' "$facts" >>"$STATE/catalog.new"
 fi
 stale_feeds=''
-refresh_feeds "$STATE/catalog.new" "$pool" || stale_feeds='openrouter, arena-webdev, arena-agent, terminal'
+refresh_feeds "$STATE/catalog.new" "$pool" || stale_feeds='openrouter, arena-webdev, arena-agent, terminal, bug-hunt'
 # A CLI addition must belong to a vendor family represented in the pool.
 : >"$STATE/catalog-changes.txt"
 while IFS= read -r id; do
@@ -113,6 +114,9 @@ supports them; cite the relevant outcomes and trigger rows in the PR. Without
 local evidence, leave tier defaults/order/retirements unchanged. Resolve new
 aliases in scripts/model-eval-aliases.tsv only against catalog IDs. Arena is
 preference, not agentic success. Terminal-Bench is undocumented, licence UNKNOWN.
+Bug Hunt Bench is one bug-finding task on two repositories, scored by a blind judge,
+per effort and harness (CSV, MIT); it shortlists and never justifies a tier change
+without local outcomes.
 
 1. Find model IDs pinned in plugins/ (defaults, routing tables, runner scripts,
    agent and command frontmatter, README or doc lines stating a current default)

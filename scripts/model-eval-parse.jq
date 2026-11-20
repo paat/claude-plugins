@@ -58,6 +58,39 @@ def common:
        rank: .rank, effort: (.metadata.reasoning_effort|ascii_downcase), harness: .metadata.agent_display.label,
        preliminary: (preliminary or .status != "display"), as_of: $as_of,
        tokens: .metrics.total_tokens, cost_usd: .metrics.total_cost_usd}
+  elif $feed == "bug-hunt" then
+    # Input: CSV as arrays (model-eval-csv.jq). Runs of one model/effort/harness are
+    # averaged into one row (the board's own "mean of N") so identities stay unique.
+    ["run","board_row","row_status","model","vendor","harness","effort","date","fixed_of_105","fixed_of_45",
+     "fixed_of_60","partial","claimed_only","extras","wall_min","cost_usd","cost_kind","turns","turns_repo1",
+     "turns_repo2","model_id","harness_version","note"] as $columns
+    | required(type == "array" and length > 1 and .[0] == $columns; "Bug Hunt header")
+    | .[1:] | map(required(length == ($columns|length); "Bug Hunt field count") | . as $f
+        | [$columns, $f] | transpose | map({key: .[0], value: .[1]}) | from_entries
+        | required((.row_status == "live" or .row_status == "superseded")
+            and (.model|text) and (.harness|text) and (.effort|text)
+            and (.date|test("^\\d{4}-\\d{2}-\\d{2}$"))
+            and (.date as $d | (try ($d | strptime("%Y-%m-%d") | mktime | strftime("%Y-%m-%d")) catch "") == $d)
+            and (.fixed_of_105|test("^\\d{1,3}$")) and (.fixed_of_105|tonumber <= 105)
+            and (.cost_usd|test("^(\\d+(\\.\\d+)?)?$")); "Bug Hunt row"))
+    | required((map(.run) | all(text) and length == (unique|length)); "Bug Hunt run ids")
+    | map(select(.row_status == "live"))
+    | required(length > 0; "Bug Hunt live rows")
+    | group_by([.model, .effort, .harness])[]
+    # Real data has runs of one configuration under different model_ids (a "-contributor"
+    # variant): never merge them; each id is its own row named "<model> (<model_id>)".
+    | ([.[].model_id | select(. != "")] | unique | length > 1) as $split
+    | (if $split then group_by(.model_id)[] else . end)
+    | . as $runs | ($runs | map(.cost_usd | select(. != "") | tonumber)) as $costs
+    | ($runs[0].model | norm) as $own | (($alias[$own] // $own) | IN($ids[])) as $named
+    | {name: (if $split and $runs[0].model_id != "" then $runs[0].model + " (" + $runs[0].model_id + ")" else $runs[0].model end), vendor: $runs[0].vendor, metric: "fixed_of_105",
+       value: ($runs | map(.fixed_of_105|tonumber) | add / length * 100 | round / 100),
+       effort: $runs[0].effort, harness: $runs[0].harness, preliminary: false,
+       as_of: ($runs | map(.date) | max),
+       lookup_name: (if $split and $runs[0].model_id != "" then $runs[0].model_id
+         elif $named then $runs[0].model
+         else ([$runs[].model_id | select(. != "")] | first // $runs[0].model) end),
+       cost_usd: (if $costs|length > 0 then ($costs | add / length * 100 | round / 100) else null end)}
   else error("unknown feed") end)
 | common
 | .vendor |= vendor
