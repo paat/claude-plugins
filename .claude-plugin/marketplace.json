@@ -73,17 +73,6 @@
       "homepage": "https://github.com/paat/claude-plugins"
     },
     {
-      "name": "emails-to-github-issues",
-      "description": "Turn emails from named senders into GitHub issues — IMAP fetch via Proton Bridge, HTML-body extraction, thread grouping that respects customer-side numbering, inline-screenshot handling, and scope confirmation before writes",
-      "version": "0.3.1",
-      "author": {
-        "name": "Andre Paat"
-      },
-      "source": "./plugins/emails-to-github-issues",
-      "category": "productivity",
-      "homepage": "https://github.com/paat/claude-plugins"
-    },
-    {
       "name": "silent-failure-scanner",
       "description": "Deterministic diff-time detector for swallowed errors & ghost transactions — flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook that hands findings to Claude to arbitrate",
       "version": "0.2.10",
@@ -162,8 +151,8 @@
     },
     {
       "name": "proton-bridge",
-      "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted, stored in Drafts and read back, never sent",
-      "version": "0.1.2",
+      "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted (stored in Drafts, never sent), and emails from named senders turned into deduplicated GitHub issues",
+      "version": "0.2.0",
       "author": {
         "name": "Andre Paat"
       },
