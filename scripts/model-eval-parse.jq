@@ -76,10 +76,13 @@ def common:
     | map(select(.row_status == "live"))
     | required(length > 0; "Bug Hunt live rows")
     | group_by([.model, .effort, .harness])[]
-    | required(([.[].model_id | select(. != "")] | unique | length) <= 1; "Bug Hunt model_id")
+    # Real data has runs of one configuration under different model_ids (a "-contributor"
+    # variant): never merge them; each id is its own row named "<model> (<model_id>)".
+    | ([.[].model_id | select(. != "")] | unique | length > 1) as $split
+    | (if $split then group_by(.model_id)[] else . end)
     | . as $runs | ($runs | map(.cost_usd | select(. != "") | tonumber)) as $costs
     | ($runs[0].model | norm) as $own | (($alias[$own] // $own) | IN($ids[])) as $named
-    | {name: $runs[0].model, vendor: $runs[0].vendor, metric: "fixed_of_105",
+    | {name: (if $split and $runs[0].model_id != "" then $runs[0].model + " (" + $runs[0].model_id + ")" else $runs[0].model end), vendor: $runs[0].vendor, metric: "fixed_of_105",
        value: ($runs | map(.fixed_of_105|tonumber) | add / length * 100 | round / 100),
        effort: $runs[0].effort, harness: $runs[0].harness, preliminary: false,
        as_of: ($runs | map(.date) | max),

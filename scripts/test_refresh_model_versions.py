@@ -320,10 +320,9 @@ eval_get() {
                     input=good.encode(), capture_output=True, timeout=10).stdout))
         self.assertTrue(expected)
 
-    def test_bug_hunt_conflicting_model_id_duplicate_run_and_bad_calendar_date_rejected(self):
+    def test_bug_hunt_duplicate_run_and_bad_calendar_date_rejected(self):
         good = (FIXTURES / "bug-hunt.csv").read_text()
         cases = {
-            "model_id conflict": good.replace("gpt-6.1-sol,codex-cli 0.166.0,\ngpt61solhighntr2", "gpt-6.2-sol,codex-cli 0.166.0,\ngpt61solhighntr2", 1),
             "duplicate run": good.replace("gpt61solhighntr2,", "gpt61solhighnt,", 1),
             "empty run": good.replace("gpt61solhighntr2,", ",", 1),
             "month 99": good.replace("2026-11-19", "2026-99-99", 1),
@@ -333,6 +332,15 @@ eval_get() {
             with self.subTest(case=name):
                 self.assertNotEqual(text, good)
                 self.parse("bug-hunt", text, success=False)
+
+    def test_bug_hunt_conflicting_model_ids_stay_separate_rows(self):
+        good = (FIXTURES / "bug-hunt.csv").read_text()
+        text = good.replace("gpt-6.1-sol,codex-cli 0.166.0,\ngpt61solhighntr2", "gpt-6.1-sol-contributor,codex-cli 0.166.0,\ngpt61solhighntr2", 1)
+        self.assertNotEqual(text, good)
+        rows = [r for r in self.bug_rows(text) if r[1].startswith("GPT-6.1 Sol")]
+        self.assertEqual(sorted((r[1], r[4]) for r in rows),
+                         [("GPT-6.1 Sol (gpt-6.1-sol)", "50"), ("GPT-6.1 Sol (gpt-6.1-sol-contributor)", "49")])
+        self.assertEqual(len({tuple(r[i] for i in (1, 3, 8, 9, 12)) for r in rows}), 2)
 
     def test_bug_hunt_transport_failure_after_valid_body_keeps_last_good(self):
         before = self.seed_good()
