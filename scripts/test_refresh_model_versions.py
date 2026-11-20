@@ -848,6 +848,8 @@ esac
             self.assertRegex(field, r"^[A-Za-z0-9._:/@+() -]*$")
             self.assertLessEqual(len(field), 120)
         self.assertEqual(prompt.count("</trigger_rows>"), 1)
+        self.assertIn("more likely better than worse", prompt)
+        self.assertNotIn("local outcome gate", prompt)
 
     def test_main_feeds_only_unchanged_reports_no_trigger(self):
         self.main_baseline()

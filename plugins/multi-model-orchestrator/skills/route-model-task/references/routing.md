@@ -8,20 +8,20 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Claude Code | `claude-haiku-5-5` | Fast, high-volume triage, file maps, simple checks | `n/a`; plugin policy runs Haiku without `--effort` |
 | Claude Code | `claude-haiku-4-5` | Prior-generation Haiku compatibility route | `n/a` |
 | Claude Code | `claude-sonnet-5-5` | Current Sonnet: ordinary coding, tool use, browser/visual work, cost-aware agents | `low`–`max` |
-| Claude Code | `claude-sonnet-5` | Prior-generation Sonnet compatibility route | `low`–`max` |
+| Claude Code | `claude-sonnet-5` | Directly pinnable only; not in the pool (weak public evidence) | `low`–`max` |
 | Claude Code | `claude-opus-5-5` | Current Opus: complex agentic coding, hard review, large refactors, vision-heavy work | `low`–`max` |
 | Claude Code | `claude-opus-5` | Prior-generation Opus compatibility route | `low`–`max` |
 | Claude Code | `claude-fable-5-2` | Current Fable: highest-capability, long-running or unusually hard coding and knowledge work | `low`–`max` |
 | Claude Code | `claude-fable-5-1` | Prior-generation Fable compatibility route | `low`–`max` |
 | Claude Code | `claude-fable-5` | Prior-generation Fable compatibility route | `low`–`max` |
 | Codex | `gpt-6-luna` | Fast mechanical edits, extraction, classification, narrow checks | `low`–`max` |
-| Codex | `gpt-6.2-sol` | Current Sol: balanced everyday implementation and bounded investigation. Added 2026-11-18 when the Codex CLI model catalog first listed it; no local outcomes yet | `low`–`max` |
-| Codex | `gpt-6.1-sol` | Prior-generation Sol; still the Sol row in `pool-tiers.tsv` until `gpt-6.2-sol` has local outcomes | `low`–`max` |
-| Codex | `gpt-6-sol` | Prior-generation Sol compatibility route | `low`–`max` |
-| Codex | `gpt-6.2-astra` | Hard technical implementation, debugging, adversarial review, security. Added 2026-11-18 when the Codex CLI model catalog first listed it; no local outcomes yet | `low`–`max`; `ultra` only as below |
-| Codex | `gpt-6-astra` | Prior-generation Astra; still the Astra row in `pool-tiers.tsv` until `gpt-6.2-astra` has local outcomes | `low`–`max`; `ultra` only as below |
-| Codex | `gpt-6.1-terra` | Current Terra route | `low`–`max` |
-| Codex | `gpt-5.6-luna`, `gpt-5.6-terra` | Prior-generation Codex compatibility routes | `low`–`max` |
+| Codex | `gpt-6.2-sol` | Current Sol: balanced everyday implementation and bounded investigation. Added 2026-11-18; the first Sol row in `pool-tiers.tsv` (public evidence, 2026-11-20) | `low`–`max` |
+| Codex | `gpt-6.1-sol` | Prior-generation Sol; fallback behind `gpt-6.2-sol` in `pool-tiers.tsv` | `low`–`max` |
+| Codex | `gpt-6-sol` | Directly pinnable only (runner accepts it); not in the pool | `low`–`max` |
+| Codex | `gpt-6.2-astra` | Hard technical implementation, debugging, adversarial review, security. Added 2026-11-18; the first Astra row in `pool-tiers.tsv` (public evidence, 2026-11-20) | `low`–`max`; `ultra` only as below |
+| Codex | `gpt-6-astra` | Prior-generation Astra; fallback behind `gpt-6.2-astra` in `pool-tiers.tsv` | `low`–`max`; `ultra` only as below |
+| Codex | `gpt-5.6-luna` | Prior-generation Luna; T1 fallback in `pool-tiers.tsv` | `low`–`max` |
+| Codex | `gpt-6.1-terra`, `gpt-5.6-terra` | Directly pinnable only (runner accepts them); not in the pool: weak coding evidence, see `evidence-2026-10.md` | `low`–`max` |
 | Grok Build | `grok-4.7` | Default Grok route: fast bounded agentic implementation, independent reproduction, extra review lens | `low`, `medium`, `high`, `xhigh` |
 | Grok Build | `grok-4.6` | Prior-generation Grok compatibility route | `low`, `medium`, `high`, `xhigh` |
 | Grok Build | `grok-4.5` | Older Grok compatibility route | `low`, `medium`, `high` |
@@ -31,7 +31,7 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Local Qwen | `default` | Runs whatever model the local endpoint serves (a pinned id must be served). Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
 | agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate; review remains advisory | `low`, `medium`, `high` |
-| agy (Antigravity) | `gemini-4-hydrogen` | Trial T3 candidate behind Argon, added 2026-11-14 when `agy models` first listed it; no local outcomes yet; review remains advisory | `low`, `medium`, `high` |
+| agy (Antigravity) | `gemini-4-hydrogen` | T2 `medium` worker ahead of Flash `high`, and T3 behind Argon; added 2026-11-14 when `agy models` first listed it; review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `gemini-4-carbon` | Available T3 candidate behind Hydrogen, not preferred. Gemini flagship, orchestrator-eligible (owner 2026-11-18 flagship rule), not the default agy model (owner correction 2026-11-19), source `agy models` 2026-11-20 (`gemini-4-carbon-low`/`medium`/`high`; no xhigh). Review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-sonnet-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
@@ -114,7 +114,7 @@ pinned model not served (or several served and none pinned), or no wrapper. Loca
 worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen,
 agy, and Vibe reviews remain advisory. Local implementation stays bounded and mechanical; agy
-Flash stays in T1/T2 and remains the default agy model. Argon, Hydrogen, and Carbon (behind Hydrogen, not preferred) are T3 implementation candidates. agy Sonnet 5.5 (T2) and Opus
+Flash stays in T1/T2 and remains the default agy model. Hydrogen is also a T2 `medium` worker; Argon, Hydrogen, and Carbon (behind Hydrogen, not preferred) are T3 implementation candidates. agy Sonnet 5.5 (T2) and Opus
 5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
 a plan leg returning `75` with `failure=limit` enables matching API overflow; transient
 failures fall through to agy. agy's three
@@ -129,5 +129,6 @@ For `claude-api` eligibility, authentication, identity, and credit policy, see [
 
 Task/effort recommendations and transport limits are in `task-fit.md`. The dated primary
 sources, availability checks and calibration caveats are in `evidence-2026-10.md` (checked
-2026-10-28). Vendor benchmarks nominate candidates; repeated local task evidence decides
-preference. Do not compare different harnesses or assume an upstream default is plugin policy.
+2026-10-28). Act on public evidence when a change is more likely better than worse: two independent sources
+agreeing, or one harness-and-effort-matched benchmark with a clear margin. Local outcome and
+leg-check records override it when they exist and contradict it. Cite the evidence. Do not compare different harnesses or assume an upstream default is plugin policy.

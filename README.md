@@ -134,8 +134,8 @@ once, then run it daily from cron:
 
 OpenRouter, Arena WebDev/Agent (CC-BY-4.0), and Terminal-Bench 4.0 feed one dated
 `evals.tsv`, joined to catalog IDs through `scripts/model-eval-aliases.tsv` (blank
-IDs remain unmapped). Public data only shortlists; tier defaults change only on
-local `outcomes.tsv` evidence (#676). Terminal-Bench's endpoint is undocumented
+IDs remain unmapped). Public evidence may change tier defaults when a change is more likely
+better than worse; local `outcomes.tsv` and `leg-checks.tsv` records override it. Terminal-Bench's endpoint is undocumented
 and its data licence is **UNKNOWN**. Failed/incomplete feeds preserve the whole
 last good table while catalog detection continues. Pending trigger rows survive
 an open PR or failed pass; repeated unchanged feeds add none. Run

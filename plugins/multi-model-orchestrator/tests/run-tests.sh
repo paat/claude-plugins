@@ -4151,10 +4151,13 @@ rm "$PL/bin/claude"
 out="$(pick --tier T2 --deny agy 2>"$PL/err")" || true
 contains "$PL/err" 'skip T2 claude/claude-sonnet-5: CLI not installed' 'pick skips a provider whose CLI is missing'
 printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/claude"; chmod +x "$PL/bin/claude"
-for compat in gpt-5.6-luna gpt-6-sol claude-sonnet-5 gpt-6.1-terra gpt-5.6-terra; do
+for compat in gpt-5.6-luna; do
   out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T1 --allow "$compat" --usage /dev/null 2>/dev/null)" || true
   [ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = "$compat" ] || fail "shipped table keeps an allowlisted prior-generation model routable: $compat ($out)"
 done
+if grep -qiE 'terra|claude-sonnet-5([^-]|$)|gpt-6-sol([^-]|$)' "$PLUGIN_ROOT/scripts/pool-tiers.tsv"; then fail 'shipped table has a terra, claude-sonnet-5 or gpt-6-sol row'; fi
+[ "$(awk -F'\t' '$1=="T2" {print $2}' "$PLUGIN_ROOT/scripts/pool-tiers.tsv" | tail -n1)" = vibe ] || fail 'shipped T2 table ends with Vibe'
+[ "$(awk -F'\t' '$1=="T2" && $2=="muse" {n=NR} $1=="T2" && $2=="vibe" {v=NR} END {exit !(n && v && n+1==v)}' "$PLUGIN_ROOT/scripts/pool-tiers.tsv"; echo $?)" = 0 ] || fail 'shipped T2 table puts Muse Spark just before Vibe'
 cp "$MU/bin/muse" "$PL/bin/muse"
 muse_tight_reset=$(( $(date +%s) + 3 * 86400 ))
 jq -cn --argjson reset_ms "$((muse_tight_reset * 1000))" --argjson as_of_ms "$(( $(date +%s) * 1000 ))" \
@@ -4169,18 +4172,18 @@ out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bas
 contains "$PL/err" 'skip T2 muse/muse-spark-1.3: plan window >= 90%' 'pick names the tight Muse weekly window'
 contains "$PL/err" 'skip T3 muse/muse-wonder-full-1.0: plan window >= 90%' 'a tight Muse window binds every Muse model'
 case "$out" in *muse*) fail "a tight Muse window still listed a Muse row: $out" ;; esac
-out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --prefer gpt-6-sol --usage /dev/null 2>/dev/null)"
-[ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = gpt-6-sol ] || fail "exact preference distinguishes models within one provider: $out"
+out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --prefer gpt-6.1-sol --usage /dev/null 2>/dev/null)"
+[ "$(printf '%s\n' "$out" | head -n1 | cut -f3)" = gpt-6.1-sol ] || fail "exact preference distinguishes models within one provider: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow muse --mode review --usage /dev/null 2>/dev/null)" || true
 [ "$(printf '%s\n' "$out" | head -n1 | cut -f2-4 | tr '\t' ' ')" = "muse muse-spark-1.3 medium" ] || fail "shipped T2 table routes Muse Spark, including review: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --usage /dev/null 2>/dev/null)" || true
-[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "codex gpt-6-astra high|claude claude-opus-5-5 high|agy claude-opus-5-5 high|muse muse-wonder-full-1.0 high|codex gpt-6.1-sol high|agy gemini-4-argon high|agy gemini-4-hydrogen high|agy gemini-4-carbon high|" ] \
+[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = "codex gpt-6.2-astra high|claude claude-opus-5-5 high|agy claude-opus-5-5 high|muse muse-wonder-full-1.0 high|codex gpt-6.2-sol high|agy gemini-4-argon high|agy gemini-4-hydrogen high|agy gemini-4-carbon high|codex gpt-6-astra high|codex gpt-6.1-sol high|" ] \
   || fail "shipped T3 table keeps Astra and Opus ahead of muse-wonder-full-1.0: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --allow muse-wonder-full-1.0 --usage /dev/null 2>/dev/null)" || true
 [ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ')" = "muse muse-wonder-full-1.0 high" ] || fail "allow muse-wonder-full-1.0 keeps only that T3 worker: $out"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --deny muse-wonder-full-1.0 --usage /dev/null 2>/dev/null)" || true
 case "$out" in *muse-wonder-full-1.0*) fail "deny muse-wonder-full-1.0 still listed it: $out" ;; esac
-[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6-astra claude-opus-5-5 claude-opus-5-5 gpt-6.1-sol gemini-4-argon gemini-4-hydrogen gemini-4-carbon " ] || fail "deny muse-wonder-full-1.0 keeps the other T3 workers: $out"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6.2-astra claude-opus-5-5 claude-opus-5-5 gpt-6.2-sol gemini-4-argon gemini-4-hydrogen gemini-4-carbon gpt-6-astra gpt-6.1-sol " ] || fail "deny muse-wonder-full-1.0 keeps the other T3 workers: $out"
 rm -rf "$PL/muse-calls"; mkdir -p "$PL/muse-calls"
 printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
   STUB_MUSE_CALLS="$PL/muse-calls" STUB_MUSE_SERVED=muse-wonder-full-1.0 \
@@ -4199,7 +4202,7 @@ printf 'fixture-api-key\n' > "$PL/api-key"
 printf 'claude 7d 95%% resets %s\n' "$(utc_min "$far")" > "$PL/claude-usage.txt"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" MMO_CLAUDE_API_KEY_FILE="$PL/api-key" \
   bash "$POOL" pick --tier T4 --usage "$PL/claude-usage.txt" 2>/dev/null)"
-[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ')" = 'codex gpt-6-astra xhigh' ] \
+[ "$(printf '%s\n' "$out" | cut -f2-4 | tr '\t' ' ' | tr '\n' '|')" = 'codex gpt-6.2-astra xhigh|codex gpt-6-astra xhigh|' ] \
   || fail "T4 with a tight Claude plan and key file keeps only Codex: $out"
 pass 'T4 never routes claude-api with a tight Claude plan and key file'
 argon_n="$(find "$PL/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
@@ -4212,20 +4215,20 @@ exact_line "$PL/calls/call.${argon_n}.args" 'gemini-4-argon-high' 'pool executio
 ship() { "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick "$@"; }
 printf 'agy 7d_flash 95%% resets %s\n' "$(utc_min "$far")" > "$PL/agy-usage.txt"
 out="$(ship --tier T1 --allow agy --usage "$PL/agy-usage.txt" 2>"$PL/err")"
-[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "claude-sonnet-5-5 claude-opus-5-5 gemini-4-argon gemini-4-hydrogen gemini-4-carbon " ] || fail "a spent agy Gemini pool skips only Flash: $out"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "claude-sonnet-5-5 gemini-4-hydrogen claude-opus-5-5 gemini-4-argon gemini-4-hydrogen gemini-4-carbon " ] || fail "a spent agy Gemini pool skips only Flash: $out"
 contains "$PL/err" 'skip T1 agy/gemini-3.8-flash: plan window >= 90%' 'pick names the spent Gemini pool'
 printf 'agy 5h_claude 95%% resets %s\n' "$(utc_min "$far")" > "$PL/agy-usage.txt"
 out="$(ship --tier T1 --allow agy --usage "$PL/agy-usage.txt" 2>/dev/null)"
-[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gemini-3.8-flash gemini-3.8-flash gemini-4-argon gemini-4-hydrogen gemini-4-carbon " ] || fail "a spent agy Claude 5h pool skips only agy Claude: $out"
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gemini-3.8-flash gemini-4-hydrogen gemini-3.8-flash gemini-4-argon gemini-4-hydrogen gemini-4-carbon " ] || fail "a spent agy Claude 5h pool skips only agy Claude: $out"
 printf 'claude 7d 95%% resets %s\n' "$(utc_min "$far")" > "$PL/agy-usage.txt"
 out="$(ship --tier T3 --usage "$PL/agy-usage.txt" 2>/dev/null)"
-[ "$(printf '%s\n' "$out" | cut -f2,3 | tr '\t\n' ':|')" = "codex:gpt-6-astra|agy:claude-opus-5-5|muse:muse-wonder-full-1.0|codex:gpt-6.1-sol|agy:gemini-4-argon|agy:gemini-4-hydrogen|agy:gemini-4-carbon|" ] \
+[ "$(printf '%s\n' "$out" | cut -f2,3 | tr '\t\n' ':|')" = "codex:gpt-6.2-astra|agy:claude-opus-5-5|muse:muse-wonder-full-1.0|codex:gpt-6.2-sol|agy:gemini-4-argon|agy:gemini-4-hydrogen|agy:gemini-4-carbon|codex:gpt-6-astra|codex:gpt-6.1-sol|" ] \
   || fail "a spent Claude plan moves Opus to agy in its table position: $out"
 out="$(ship --tier T2 --usage "$PL/agy-usage.txt" 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | head -n1 | cut -f2,3 | tr '\t' ':')" = "agy:claude-sonnet-5-5" ] || fail "a spent Claude plan moves Sonnet to agy first: $out"
 printf 'agy 7d_argon 10%% resets %s\n' "$(utc_min "$half")" > "$PL/agy-usage.txt"
 out="$(ship --tier T3 --usage "$PL/agy-usage.txt" 2>"$PL/err")"
-[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gemini-4-argon gpt-6-astra claude-opus-5-5 claude-opus-5-5 muse-wonder-full-1.0 gpt-6.1-sol gemini-4-hydrogen gemini-4-carbon " ] \
+[ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gemini-4-argon gpt-6.2-astra claude-opus-5-5 claude-opus-5-5 muse-wonder-full-1.0 gpt-6.2-sol gemini-4-hydrogen gemini-4-carbon gpt-6-astra gpt-6.1-sol " ] \
   || fail "a spare agy Argon pool promotes only Argon: $out"
 contains "$PL/err" 'use it or lose it: agy 7d_argon 10% used' 'pick names the spare per-pool window'
 out="$(ship --tier T1 --deny claude --usage /dev/null 2>/dev/null)"

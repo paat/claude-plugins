@@ -198,7 +198,7 @@ check 'each shipped T2/T3 Claude row has an adjacent API row with matching tier/
   awk -F '\t' '
     pending { if ($1 != tier || $2 != "claude-api" || $3 != model || $4 != effort) exit 1; pending=0; pairs++ }
     ($1 == "T2" || $1 == "T3") && $2 == "claude" { tier=$1; model=$3; effort=$4; pending=1 }
-    END { if (pending || pairs != 3) exit 1 }
+    END { if (pending || pairs != 2) exit 1 }
   ' "$scripts/pool-tiers.tsv"
 
 for tier in T2 T3; do
@@ -211,7 +211,7 @@ prepare spent-T4
 common+=(MMO_POOL_TIERS="$scripts/pool-tiers.tsv")
 pick --tier T4 --usage "$work/spent" --prefer claude-api
 check 'T4 tight plan with a key file keeps only Codex and never API' \
-  bash -c '[ "$1" -eq 0 ] && [ "$(cut -f2-4 "$2")" = "$(printf "codex\tgpt-6-astra\txhigh")" ]' _ "$rc" "$artifacts/pick"
+  bash -c '[ "$1" -eq 0 ] && [ "$(cut -f2-4 "$2")" = "$(printf "codex\tgpt-6.2-astra\txhigh\ncodex\tgpt-6-astra\txhigh")" ]' _ "$rc" "$artifacts/pick"
 pick --tier T4 --allow claude --usage "$work/spent"
 check 'T4 tight plan with Claude-only allowlist returns 75 without candidates' \
   bash -c '[ "$1" -eq 75 ] && [ ! -s "$2" ]' _ "$rc" "$artifacts/pick"

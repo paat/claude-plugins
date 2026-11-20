@@ -15,7 +15,7 @@ Example requests:
 
 > Use Codex only. Do not call Claude or Grok.
 
-> Do not use Claude. Use Grok for the bounded implementation and GPT-6 Astra for review.
+> Do not use Claude. Use Grok for the bounded implementation and GPT-6.2 Astra for review.
 
 Natural-language restrictions are hard constraints. The router never silently substitutes a
 denied provider, model, or unsupported effort.
@@ -27,11 +27,11 @@ Prior Claude generations (Opus 5, Sonnet 5, Fable 5.1, Fable 5, Haiku 4.5) are k
 | Provider | Models | Typical role |
 |---|---|---|
 | Claude Code | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-2`; prior-generation `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5-1`, `claude-fable-5` | Fast triage through highest-capability long-running work |
-| Codex | `gpt-6-luna`, `gpt-6.2-sol`, `gpt-6.2-astra`, `gpt-6.1-terra`; prior-generation `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, `gpt-5.6-luna`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
+| Codex | `gpt-6-luna`, `gpt-6.2-sol`, `gpt-6.2-astra`; fallbacks `gpt-6.1-sol`, `gpt-6-astra`, `gpt-5.6-luna`; directly pinnable only, not in the pool: `gpt-6-sol`, `gpt-6.1-terra`, `gpt-5.6-terra` | Mechanical work through hard technical implementation and review |
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
-| Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits (the default agy model); Argon for complex coding; Hydrogen as a T3 trial behind Argon; Carbon as an available T3 flagship behind Hydrogen, not preferred and not the default (owner correction 2026-11-19; `agy models` 2026-11-20 lists low/medium/high, no xhigh); Sonnet/Opus as small same-model overflow when the Claude plan window is spent; all advisory in review mode |
+| Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits (the default agy model); Argon for complex coding; Hydrogen as a T2 `medium` worker ahead of Flash `high` and a T3 route behind Argon; Carbon as an available T3 flagship behind Hydrogen, not preferred and not the default (owner correction 2026-11-19; `agy models` 2026-11-20 lists low/medium/high, no xhigh); Sonnet/Opus as small same-model overflow when the Claude plan window is spent; all advisory in review mode |
 | Mistral Vibe (`vibe`) | `mistral-large-4` (T2 `medium`, T3 `high`, lowest preference); `default` passes no `--model` | Worker-only. `run-vibe.sh` always passes `--max-price 0` and stops on the plan budget (2026-11-19, paat/ai-overlord#474). Review is advisory; vibe 3+ only |
 
 Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.2,
@@ -54,9 +54,9 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | Tier | Task evidence | Workers, in order |
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
-| T2 | Well-specified change with known tests | Sonnet 5.5 plan/API, Sonnet 5.5 via agy, Grok 4.7, Muse `muse-spark-1.3`, Gemini 3.8 Flash high, GPT-6.1 Sol, Mistral Large 4 (all medium unless noted) |
-| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.1 Sol, Gemini 4 Argon, Gemini 4 Hydrogen, Gemini 4 Carbon, Mistral Large 4 (all high unless noted) |
-| T4 | Security, payments, destructive migration, concurrency | GPT-6 Astra xhigh, Opus 5.5 plan xhigh |
+| T2 | Well-specified change with known tests | Sonnet 5.5 plan/API, Sonnet 5.5 via agy, GPT-6.2 Sol, Grok 4.7, Gemini 4 Hydrogen, Gemini 3.8 Flash high, GPT-6.1 Sol, Muse `muse-spark-1.3`, Mistral Large 4 (all medium unless noted) |
+| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6.2 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.2 Sol, Gemini 4 Argon, Gemini 4 Hydrogen, Gemini 4 Carbon, GPT-6 Astra, GPT-6.1 Sol, Mistral Large 4 (all high unless noted) |
+| T4 | Security, payments, destructive migration, concurrency | GPT-6.2 Astra xhigh, Opus 5.5 plan xhigh, GPT-6 Astra xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
 agy, OpenCode, Vibe), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
@@ -286,8 +286,8 @@ sources:
     list: "curl -s -H \"X-API-Key: $PLANE_API_KEY\" $PLANE_URL/.../issues/ | jq -r '...'"
     close: "curl -s -X PATCH ..."
 models:
-  allow: [gpt-6.1-sol, grok-4.7]
-  worker: "gpt-6.1-sol high"
+  allow: [gpt-6.2-sol, grok-4.7]
+  worker: "gpt-6.2-sol high"
 ---
 ```
 

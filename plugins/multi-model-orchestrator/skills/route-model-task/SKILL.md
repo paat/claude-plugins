@@ -78,9 +78,9 @@ pass the cards into its task ledger and dispatch only after its normal preflight
 
 ## Calibrate
 
-Change a default only on evidence from `${CLAUDE_PLUGIN_ROOT}/scripts/friction-report.sh` (friction
-kinds per provider, model, effort and role; `--flags-only` keeps the recurring ones). When a kind is
-flagged for a harness/model, make the smallest change likely to help: a row in
-`scripts/harness-adjustments.tsv`, a runner default (timeout, step cap, effort), or pool order. Cite
-the report row. Remove an adjustment row once its friction is no longer flagged over a window with
-enough legs. Vendor benchmarks are candidate-selection hints, not a leaderboard.
+Change a default when it is more likely better than worse: on public evidence (two sources agreeing,
+or one harness-and-effort-matched benchmark with a clear margin) unless local records contradict it, or
+on `${CLAUDE_PLUGIN_ROOT}/scripts/friction-report.sh` (`--flags-only` keeps recurring kinds). For a
+flagged kind make the smallest change likely to help: a row in `scripts/harness-adjustments.tsv`, a
+runner default (timeout, step cap, effort), or pool order. Cite the evidence. Remove an adjustment
+row once its friction is no longer flagged over a window with enough legs.
