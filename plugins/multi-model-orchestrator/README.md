@@ -38,7 +38,7 @@ Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fa
 Fable 5.1, Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
 `medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, Argon, Hydrogen, and Carbon support `low`, `medium`, and `high`; Muse catalog models support
-`minimal` through `max`. Vibe's `default` passes no `--thinking`; `off` through `max` are passed as written.
+`minimal` through `max`. Vibe's `default` passes no `--thinking`; Mistral Large 4 (model `default` or `mistral-large-4`) takes only `low`, `medium`, `high` (`off`, `xhigh`, `max` exit 2: API 400, mistral-vibe#1439, 2026-11-05); other aliases pass the level as written.
 
 ## Routing policy
 
@@ -160,6 +160,36 @@ awk -F '\t' 'NR>1 && $4!="gate" {k=$3 FS $5 FS $6 FS $8; n[k]++; ok[k]+=($9==0)}
 ```
 
 This measures execution success, not review approval; combined review verdicts are separate gate rows.
+
+### Leg checks
+
+`scripts/leg-check.sh --repo DIR --base REF [--allow-paths GLOBS] [--verify-cmd CMD]
+[--verify-pattern ERE] [--verify-timeout SECONDS] [--final FILE] [--out PATH]... [--task ID]
+[--cycle N] [--tier T] [--provider P] [--model M] [--effort E]` checks an implement leg's result
+against the commit it started from: committed, uncommitted and untracked changes, without the leg
+`--out` files. First failure wins: exit 10 `no_change`; exit 8 `scope` (a changed path matches no
+comma-separated glob, compared with bash `[[ path == glob ]]` so `*` crosses `/`; `dir/` allows
+that directory); exit 9 `verify` (`--verify-cmd` run with `bash -c` in the repository under
+`timeout`, default 900 s, failed or timed out, or its output missed `--verify-pattern`, so a runner
+that ran nothing fails); else exit 0 `pass`. A final message (`--final`) ending with an
+ask-to-continue phrase ("want me to", "would you like me to", "shall I", "should I
+continue/proceed", "let me know if you") adds `note=asks-to-continue` without changing the exit.
+Usage errors and an invalid REF exit 2. `pool.sh run --mode implement` takes `--allow-paths`,
+`--verify-cmd`, `--verify-pattern`, `--task` and `--cycle`, runs the check after a worker exit 0
+against the HEAD it captured before dispatch, exits with the check's code, and adds `check=` to its
+final line.
+
+Each check appends a row to
+`${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv}`
+with the outcome file's header and failure rules: `utc_time`, `repo`, `task`, `cycle`, `tier`,
+`provider`, `model`, `effort`, `check`, `detail` (first offending path, `verify-exit=N`,
+`verify-timeout`, `verify-pattern`, else the note), `head_sha` (HEAD at check time),
+`changed_paths` (count), `duration_seconds`. First-pass rate per provider/model/effort (share of
+(repo, task) pairs whose lowest-cycle row is `pass`; rows without `--task` are left out):
+
+```bash
+awk -F '\t' 'NR>1 && $3!="" {k=$2 FS $3; if (!(k in c) || $4+0<c[k]+0) {c[k]=$4; g[k]=$6 FS $7 FS $8; r[k]=$9}} END {for (k in g) {n[g[k]]++; ok[g[k]]+=(r[k]=="pass")} for (x in n) printf "%s\t%d/%d\t%.1f%%\n", x, ok[x], n[x], 100*ok[x]/n[x]}' "${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv}" | sort
+```
 
 ## Meta orchestration
 
@@ -346,7 +376,7 @@ catalog.
 | `MMO_OPENCODE_MODEL` | `glm-5.3` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
 | `MMO_OPENCODE_EFFORT` | `high` | OpenCode model variant (`default` passes none) |
 | `MMO_VIBE_MODEL` | `default` | Vibe model alias; `default` passes no `--model` |
-| `MMO_VIBE_EFFORT` | `default` | Vibe thinking level (`off`, `low`, `medium`, `high`, `xhigh`, `max`); `default` passes no `--thinking` |
+| `MMO_VIBE_EFFORT` | `default` | Vibe thinking level (`low`, `medium`, `high`; other aliases than Mistral Large 4 also `off`, `xhigh`, `max`); `default` passes no `--thinking` |
 | `MMO_VIBE_MAX_TURNS` | `50` | Vibe assistant-turn cap, from 1 to 200. A leg that uses its last turn exits 76 (implement: work may be partial) or 78 (any other mode: no report) |
 | `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/Vibe/local-Qwen review |
 | `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |
@@ -357,6 +387,7 @@ catalog.
 | `MMO_QWEN_LOCAL_RUN` | discovered | Path to the `subagent-local-qwen3.8-27b` wrapper when it is not on `PATH` or in a plugin cache |
 | `MMO_LEG_ENV` | empty | Space-separated variable names (or `PREFIX*` patterns) passed into the scrubbed leg environment, e.g. `DATABASE_URL` for a test database |
 | `MMO_ALLOW_ENV_FILES` | `0` | `1` lets legs run in a checkout holding untracked `.env*` files |
+| `MMO_LEG_CHECKS_FILE` | `${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv` | `leg-check.sh` record (one row per check) |
 
 `MMO_OPUS_MODEL` and `MMO_OPUS_EFFORT` remain compatibility variables for `run-opus.sh`. The old
 moving value `MMO_OPUS_MODEL=opus` maps explicitly to `claude-opus-5-5`; versioned IDs older than the previous generation are

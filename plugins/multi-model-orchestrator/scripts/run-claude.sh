@@ -196,13 +196,7 @@ case "$mode" in
     ;;
   probe) mmo_probe_prompt "$request_file" > "$prompt_file" ;;
   implement)
-    {
-      printf '%s\n' 'You are one fresh, bounded implementation worker.'
-      printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
-      printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
-      printf '\n## Task packet\n'
-      cat "$request_file"
-    } > "$prompt_file"
+    mmo_implement_prompt "$request_file" > "$prompt_file"
     ;;
 esac
 

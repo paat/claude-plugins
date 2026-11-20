@@ -140,6 +140,10 @@ elif [ "$mode" = research ]; then
     cat "$prompt_file"
   } > "$combined_file"
   mv "$combined_file" "$prompt_file"
+else
+  combined_file="$(mktemp)"
+  mmo_implement_prompt "$prompt_file" > "$combined_file"
+  mv "$combined_file" "$prompt_file"
 fi
 
 codex_args=(

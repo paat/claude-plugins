@@ -8,6 +8,7 @@ mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
 # Every runner test writes state inside the disposable fixture, including HOME overrides.
 export MMO_OUTCOMES_FILE="$WORK/outcomes.tsv"
+export MMO_LEG_CHECKS_FILE="$WORK/leg-checks.tsv"
 # Keep default model/effort pin assertions hermetic; explicit MMO_GROK_* overrides still work per-call.
 unset MMO_GROK_MODEL MMO_GROK_EFFORT MMO_GROK_MAX_TURNS MMO_GROK_CONTINUE_ON_MAX_TURNS
 # API regressions supply their own dummy key; legacy pool fixtures must not opt in via the host.
@@ -2337,7 +2338,7 @@ if [ "${1:-}" = "--print-base" ]; then
   exit 0
 fi
 printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
-cat > /dev/null
+cat > "${QL_WRAPPER_STDIN:-/dev/null}"
 printf '%s\n' 'APPROVE'
 printf '%s\n' "${QL_STUB_ERR:-}" >&2
 exit "${QL_STUB_EXIT:-0}"
@@ -2390,6 +2391,22 @@ PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BAS
   bash "$QL_RUN" --mode implement --repo "$qwen_repo" --timeout 100 "task" >/dev/null 2>&1
 contains "$QL_WRAPPER_ARGV" '50s' 'small timeout reserves half for qwen wall time'
 pass 'run-qwen-local: timeout reserves a monotonic qwen wall-time margin'
+
+# Every runner's implement leg gets the one shared preamble, Codex and local Qwen included.
+PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
+  QL_WRAPPER_STDIN="$WORK/qwen-stdin.txt" bash "$QL_RUN" --mode implement --repo "$qwen_repo" "QWEN_TASK_MARKER" >/dev/null 2>&1 || :
+printf 'CODEX_TASK_MARKER\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" --timeout 5 >/dev/null 2>&1 || :
+for preamble_file in "$WORK/qwen-stdin.txt" "$WORK/codex.prompt"; do
+  exact_line "$preamble_file" 'You are one fresh, bounded implementation worker.' "shared preamble opens $preamble_file"
+  exact_line "$preamble_file" 'Make reasonable assumptions, state them in your final message, and finish the task; do not stop to ask questions or propose next steps.' "no-questions line reaches $preamble_file"
+  exact_line "$preamble_file" 'Never weaken, skip or special-case a test to make it pass; if a requirement cannot be met, say so in your final message.' "test-integrity line reaches $preamble_file"
+  exact_line "$preamble_file" '## Task packet' "task packet heading in $preamble_file"
+done
+contains "$WORK/qwen-stdin.txt" 'QWEN_TASK_MARKER' 'Qwen packet follows the preamble'
+contains "$WORK/codex.prompt" 'CODEX_TASK_MARKER' 'Codex packet follows the preamble'
+[ "$(grep -l 'fresh, bounded implementation worker' "$PLUGIN_ROOT"/scripts/run-*.sh | wc -l)" -eq 0 ] || fail 'runners call mmo_implement_prompt instead of copying the preamble'
+[ "$(grep -l 'mmo_implement_prompt' "$PLUGIN_ROOT"/scripts/run-*.sh | wc -l)" -eq 8 ] || fail 'all eight implement runners use mmo_implement_prompt'
+pass 'shared implement preamble reaches Codex and local Qwen'
 
 rc=0
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" QL_STUB_EXIT=55 \
@@ -3900,6 +3917,13 @@ exact_line "$VB/calls/call.3.args" '0' 'vibe advise caps price at 0'
 absent "$VB/calls/call.3.args" '--auto-approve' 'vibe advise does not auto-approve'
 
 vibe_rc() { local want="$1"; shift; local r=0; printf 'x\n' | "${vibe_env[@]}" "$@" >"$VB/out" 2>"$VB/err" || r=$?; [ "$r" -eq "$want" ] || fail "run-vibe want $want got $r: $* -- $(cat "$VB/err")"; }
+# Mistral Large 4 (also the default model) answers off/xhigh/max with an API 400 (mistral-vibe#1439).
+for vibe_bad in "--effort max" "--effort off" "--model mistral-large-4 --effort xhigh"; do
+  # shellcheck disable=SC2086
+  vibe_rc 2 bash "$VIBE_RUN" --mode implement $vibe_bad --repo "$VR" --timeout 30
+  contains "$VB/err" 'is rejected by Mistral Large 4' "vibe names the Large 4 effort rejection: $vibe_bad"
+done
+vibe_rc 0 bash "$VIBE_RUN" --mode implement --model mistral-medium-3.5 --effort max --repo "$VR" --timeout 30
 vibe_rc 6 STUB_VIBE_RESPONSE='looks fine' bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
 vibe_rc 7 STUB_VIBE_TOUCH="$VR/f.txt" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
 git -C "$VR" checkout -q -- f.txt; printf 'two\n' > "$VR/f.txt"
@@ -4275,6 +4299,97 @@ exact_line "$PL/vibe-calls/call.0.args" 'medium' 'pool run sends the T2 medium e
 exact_line "$PL/vibe-calls/call.0.args" '--max-price' 'pool run keeps the hard price cap'
 exact_line "$PL/vibe-calls/call.0.args" '0' 'pool run caps price at 0'
 pass 'pool.sh: tiers, headroom, allow/deny/prefer, advisory review skip, escalation, fall-through'
+
+# --- leg-check.sh: deterministic scope/verify/no-change checks, one TSV row per check ---
+LC="$WORK/leg-check"; LCR="$LC/repo"; mkdir -p "$LCR/src/lib"
+LEG_CHECK="$PLUGIN_ROOT/scripts/leg-check.sh"
+git -C "$LCR" init -q
+printf 'one\n' > "$LCR/f.txt"; printf 'lib\n' > "$LCR/src/lib/a.txt"
+git -C "$LCR" add . && git -C "$LCR" -c user.email=t@t -c user.name=t commit -qm base
+lc_base="$(git -C "$LCR" rev-parse HEAD)"
+lc_rc() {  # lc_rc WANT ARGS... (stderr in $LC/err)
+  local want="$1" got=0; shift
+  bash "$LEG_CHECK" "$@" >"$LC/out" 2>"$LC/err" || got=$?
+  [ "$got" -eq "$want" ] || fail "leg-check want $want got $got: $* -- $(cat "$LC/err")"
+}
+lc_row() { tail -n 1 "$MMO_LEG_CHECKS_FILE"; }
+lc_rc 10 --repo "$LCR" --base "$lc_base"
+contains "$LC/err" 'leg-check: exit=10 check=no_change paths=0' 'leg-check reports no_change'
+[ "$(head -n 1 "$MMO_LEG_CHECKS_FILE")" = $'utc_time\trepo\ttask\tcycle\ttier\tprovider\tmodel\teffort\tcheck\tdetail\thead_sha\tchanged_paths\tduration_seconds' ] \
+  || fail 'leg-check writes the TSV header once'
+printf 'two\n' > "$LCR/f.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt' --verify-cmd 'grep -q two f.txt && echo "1 passed"' \
+  --verify-pattern '[1-9][0-9]* passed' --task "T	7" --cycle 2 --tier T2 --provider codex --model gpt-5.6-terra --effort medium
+exact_line "$LC/err" 'leg-check: exit=0 check=pass paths=1' 'leg-check reports a pass'
+awk -F '\t' -v head="$lc_base" 'END {
+  if (NF != 13 || $2 != "repo" || $3 != "T 7" || $4 != "2" || $5 != "T2" || $6 != "codex" || $7 != "gpt-5.6-terra" ||
+      $8 != "medium" || $9 != "pass" || $10 != "" || $11 != head || $12 != "1" || $13 !~ /^[0-9]+$/) exit 1
+}' "$MMO_LEG_CHECKS_FILE" || fail "leg-check row fields: $(lc_row)"
+# Committed work counts as changed against the base, too.
+git -C "$LCR" -c user.email=t@t -c user.name=t commit -qam leg
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'src/'
+contains "$LC/err" 'changed outside --allow-paths: f.txt' 'leg-check names a committed edit outside the allow-list'
+[ "$(lc_row | cut -f9,10)" = $'scope\tf.txt' ] || fail "scope row names the first offending path: $(lc_row)"
+git -C "$LCR" reset -q --hard "$lc_base"
+printf 'new\n' > "$LCR/stray.txt"; printf 'more\n' >> "$LCR/src/lib/a.txt"
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'src/'
+contains "$LC/err" 'changed outside --allow-paths: stray.txt' 'leg-check catches an untracked file outside the allow-list'
+absent "$LC/err" 'src/lib/a.txt' 'a directory prefix allows nested paths'
+lc_rc 0 --repo "$LCR" --base "$lc_base" --allow-paths 'src/,*.txt'
+lc_rc 0 --repo "$LCR" --base "$lc_base" --allow-paths 'src/' --out "$LCR/stray.txt"
+contains "$LC/err" 'paths=1' 'a leg --out file is not a changed path'
+rm -f "$LCR/stray.txt"
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'echo VERIFY_TAIL_MARKER; exit 3'
+contains "$LC/err" 'VERIFY_TAIL_MARKER' 'a failed verify prints its output tail'
+[ "$(lc_row | cut -f9,10)" = $'verify\tverify-exit=3' ] || fail "verify failure row: $(lc_row)"
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'sleep 30' --verify-timeout 1
+[ "$(lc_row | cut -f10)" = verify-timeout ] || fail "verify timeout row: $(lc_row)"
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'echo "0 tests ran"' --verify-pattern '[1-9][0-9]* passed'
+[ "$(lc_row | cut -f10)" = verify-pattern ] || fail "verify pattern miss row: $(lc_row)"
+printf 'Done.\nWould you like me to add more tests?\n' > "$LC/final.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --final "$LC/final.txt"
+contains "$LC/err" 'check=pass paths=1 note=asks-to-continue' 'an ask-to-continue final message is advisory only'
+[ "$(lc_row | cut -f9,10)" = $'pass\tasks-to-continue' ] || fail "advisory note row: $(lc_row)"
+printf 'Done. Assumed UTC.\n' > "$LC/final.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --final "$LC/final.txt"
+absent "$LC/err" 'note=' 'a plain final message adds no note'
+rows_before="$(wc -l < "$MMO_LEG_CHECKS_FILE")"
+lc_rc 2 --repo "$LCR"
+lc_rc 2 --repo "$LCR" --base no-such-ref
+lc_rc 2 --repo "$LCR" --base "$lc_base" --verify-pattern x
+lc_rc 2 --repo "$LCR" --base "$lc_base" --verify-cmd true --verify-timeout 0
+lc_rc 2 --repo "$LCR" --base "$lc_base" --allow-paths ' , '
+lc_rc 2 --repo "$LCR" --base "$lc_base" --bogus x
+[ "$(wc -l < "$MMO_LEG_CHECKS_FILE")" -eq "$rows_before" ] || fail 'usage errors record no row'
+touch "$LC/not-a-dir"
+MMO_LEG_CHECKS_FILE="$LC/not-a-dir/leg.tsv" bash "$LEG_CHECK" --repo "$LCR" --base "$lc_base" 2>/dev/null \
+  || fail 'leg-check keeps its exit when the record cannot be written'
+git -C "$LCR" checkout -q -- src/lib/a.txt
+pass 'leg-check.sh: pass, scope, verify, no_change, advisory note, rows, usage errors'
+
+# pool.sh run: contract flags run leg-check after a worker exit 0; without them nothing changes.
+rm -f "$PL/calls"/*
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/outside.txt" \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 \
+  --allow-paths 'f.txt' --task 9 --cycle 1 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 8 ] || fail "pool run exits 8 when the worker edits outside --allow-paths (got $rc): $(cat "$PL/err")"
+contains "$PL/err" 'pool: exit=8 worker=agy model=gemini-3.8-flash effort=low tier=T2 check=scope' 'pool final line carries check=scope'
+[ "$(lc_row | cut -f3-9)" = $'9\t1\tT2\tagy\tgemini-3.8-flash\tlow\tscope' ] || fail "pool passes the selected row to leg-check: $(lc_row)"
+rows_before="$(wc -l < "$MMO_LEG_CHECKS_FILE")"
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/outside.txt" \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 0 ] || fail "pool run without contract flags keeps the worker exit (got $rc)"
+tail -n 1 "$PL/err" | grep -Fxq 'pool: exit=0 worker=agy model=gemini-3.8-flash effort=low tier=T2' || fail "pool final line unchanged without contract flags: $(tail -n 1 "$PL/err")"
+[ "$(wc -l < "$MMO_LEG_CHECKS_FILE")" -eq "$rows_before" ] || fail 'pool run without contract flags runs no leg check'
+rm -f "$LCR/outside.txt"
+for bad in "pick --tier T2 --allow-paths f.txt" "run --tier T2 --mode review --base HEAD --verify-cmd true"; do
+  rc=0
+  # shellcheck disable=SC2086
+  printf 'task\n' | "${pool_env[@]}" bash "$POOL" $bad --usage "$PL/usage.txt" --repo "$LCR" >/dev/null 2>"$PL/err" || rc=$?
+  [ "$rc" -eq 2 ] || fail "pool rejects contract flags outside run --mode implement: $bad (got $rc)"
+  contains "$PL/err" 'apply to run --mode implement only' "pool names the contract-flag restriction: $bad"
+done
+pass 'pool.sh run: contract flags gate a worker exit 0 through leg-check'
 
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'pool.sh pick --tier' 'route-model-task picks through the pool'
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'never lifts a family exclusion' 'route-model-task keeps a family exclusion when a multi-family runner is allowed'

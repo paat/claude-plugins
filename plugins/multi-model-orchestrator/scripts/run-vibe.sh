@@ -9,6 +9,8 @@
 # repository exits 7.
 #
 # Unset passes neither --model nor --thinking, so the installed CLI selects both.
+# Model default or mistral-large-4 takes only effort default, low, medium or high
+# (mistralai/mistral-vibe#1439, 2026-11-05); other aliases pass any level through.
 # Every mode passes --max-price 0. A plan-funded call reports cost 0; once a call
 # has cost money the run stops. No flag or env var raises the cap (a plan budget
 # falls through to pay-as-you-go; paid usage is refused).
@@ -61,6 +63,12 @@ mmo_clear_out "$output_file"
 case "$mode" in advise|implement|review) ;; *) printf 'run-vibe: --mode must be advise, implement, or review\n' >&2; exit 2 ;; esac
 [[ "$model" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { printf 'run-vibe: unsupported model %s (expected default or a vibe model alias)\n' "$model" >&2; exit 2; }
 case "$effort" in default|off|low|medium|high|xhigh|max) ;; *) printf 'run-vibe: unsupported effort %s (expected default|off|low|medium|high|xhigh|max)\n' "$effort" >&2; exit 2 ;; esac
+# Mistral Large 4 (vibe's default model since 3.1.3) answers off/xhigh/max with an API 400.
+case "$model:$effort" in
+  default:default|default:low|default:medium|default:high) ;;
+  mistral-large-4:default|mistral-large-4:low|mistral-large-4:medium|mistral-large-4:high) ;;
+  default:*|mistral-large-4:*) printf 'run-vibe: effort %s is rejected by Mistral Large 4 (model %s); use default, low, medium or high\n' "$effort" "$model" >&2; exit 2 ;;
+esac
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-vibe: timeout must be a positive integer\n' >&2; exit 2; }
 [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le 200 ] || { printf 'run-vibe: max turns must be an integer from 1 to 200\n' >&2; exit 2; }
 case "$base_ref" in -*) printf 'run-vibe: --base must be a revision, not an option: %s\n' "$base_ref" >&2; exit 2 ;; esac
@@ -125,13 +133,7 @@ case "$mode" in
     } > "$prompt_file"
     ;;
   implement)
-    {
-      printf '%s\n' 'You are one fresh, bounded implementation worker.'
-      printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
-      printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
-      printf '\n## Task packet\n'
-      cat "$request_file"
-    } > "$prompt_file"
+    mmo_implement_prompt "$request_file" > "$prompt_file"
     ;;
 esac
 

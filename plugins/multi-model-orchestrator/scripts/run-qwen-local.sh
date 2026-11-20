@@ -252,6 +252,7 @@ if [ "$mode" = review ]; then
 End with one terminal line: APPROVE or NEEDS_WORK."
 else
   wrapper_args+=(--yolo)
+  prompt_text="$(mmo_implement_prompt /dev/stdin <<< "$prompt_text")"
 fi
 
 rc=0

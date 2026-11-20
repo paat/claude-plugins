@@ -47,16 +47,18 @@ request, the preflight, and the exact commands.
 
    ```bash
    # ROUTED_POOL_ARGS holds preference, restrictions and usage flags; never an eval string.
-   "${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh" run --tier "$ROUTED_TIER" "${ROUTED_POOL_ARGS[@]}" --mode implement --repo "$REPO_ROOT" --timeout 1200 <<'PROMPT'
+   "${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh" run --tier "$ROUTED_TIER" "${ROUTED_POOL_ARGS[@]}" --mode implement --repo "$REPO_ROOT" --timeout 1200 \
+     --allow-paths '<globs>' --verify-cmd '<exact test command>' --task '<id>' --cycle 1 <<'PROMPT'
    You are one bounded implementation worker. Implement only TASK <id>.
-   Acceptance: <observable result and exact test>.
-   Allowed files: <paths>. Do not edit any other path or commit.
+   Acceptance: <observable result>. Test: <the --verify-cmd command>.
+   Allowed files: <the --allow-paths globs>. Do not edit any other path or commit.
    Preserve unrelated behavior and existing user work. No speculative abstractions or refactors.
    Run the named test, inspect your diff, and stop when acceptance passes.
    PROMPT
    ```
 
-   The pool names the worker that ran on stderr; record it in the ledger. Its own `75` means
+   The pool names the worker that ran on stderr; record it in the ledger. `8`/`9`/`10` (with
+   `check=` on its last line) mean scope, test, or no change failed: a fix cycle. Its own `75` means
    nobody in the tier chain was available: report the blocker with the reset it printed. `55`
    means the failing worker had already edited the tree: salvage or reset before redispatching;
    `76` (a Grok turn cap or Muse step cap on an implement leg) is handled the same way. A pinned

@@ -56,8 +56,9 @@ run-codex.sh --mode implement --repo . --model gpt-6.1-sol --effort xhigh < task
   `xhigh` on 4.6/4.7 only when its extra latency is justified.
 - agy: `low` for simple edits, `medium` for ordinary engineering, `high` for subtle bugs and
   multi-file changes. Flash and Argon expose only those three levels here.
-- Vibe: `default` passes no `--thinking`, so the model's configured level applies. `off`–`max` are
-  passed as written and were not checked against Mistral's models (2026-11-18).
+- Vibe: `default` passes no `--thinking`, so the model's configured level applies. Mistral Large 4
+  (vibe's default model) takes only `low`–`high`; the runner rejects `off`, `xhigh`, `max` for it
+  (API 400, mistral-vibe#1439, 2026-11-05). Other aliases pass the level as written, unchecked.
 - Muse: use the plugin's `minimal`–`max` range. The CLI's higher/default settings and vendor
   `max` benchmark scores do not establish the cheapest successful setting for this task.
 - The strict catalog describes **this plugin's** supported surface: Haiku omits effort,

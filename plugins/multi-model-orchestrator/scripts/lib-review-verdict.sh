@@ -37,6 +37,18 @@ mmo_probe_prompt() {  # mmo_probe_prompt REQUEST_FILE [EXTRA_LINE]
   cat "$1"
 }
 
+# Prompt of an implement leg, shared by every runner.
+mmo_implement_prompt() {  # mmo_implement_prompt REQUEST_FILE [EXTRA_LINE]
+  printf '%s\n' 'You are one fresh, bounded implementation worker.'
+  printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
+  [ -z "${2:-}" ] || printf '%s\n' "$2"
+  printf '%s\n' 'Inspect your diff, run the named test, and stop when acceptance passes.'
+  printf '%s\n' 'Make reasonable assumptions, state them in your final message, and finish the task; do not stop to ask questions or propose next steps.'
+  printf '%s\n' 'Never weaken, skip or special-case a test to make it pass; if a requirement cannot be met, say so in your final message.'
+  printf '\n## Task packet\n'
+  cat "$1"
+}
+
 # Plain Grok output concatenates assistant messages with no separator, so a
 # terminal verdict can sit mid-line (`worktree.VERDICT: NEEDS_WORK` or
 # `worktree.**VERDICT: APPROVE**`). Split only when that trailing token,
