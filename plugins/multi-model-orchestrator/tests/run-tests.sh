@@ -2338,13 +2338,13 @@ if [ "${1:-}" = "--print-base" ]; then
   exit 0
 fi
 printf '%s\n' "$@" > "$QL_WRAPPER_ARGV"
-cat > "${QL_WRAPPER_STDIN:-/dev/null}"
+cat > "$QL_WRAPPER_STDIN"
 printf '%s\n' 'APPROVE'
 printf '%s\n' "${QL_STUB_ERR:-}" >&2
 exit "${QL_STUB_EXIT:-0}"
 WRAP
 chmod +x "$WORK/bin/qwen-wrapper.sh"
-export QL_WRAPPER_ARGV="$WORK/qwen-argv.txt"
+export QL_WRAPPER_ARGV="$WORK/qwen-argv.txt" QL_WRAPPER_STDIN="$WORK/qwen-stdin.txt"
 
 cat > "$WORK/bin/curl" <<'IDLESTUB'
 #!/usr/bin/env bash
@@ -2394,7 +2394,7 @@ pass 'run-qwen-local: timeout reserves a monotonic qwen wall-time margin'
 
 # Every runner's implement leg gets the one shared preamble, Codex and local Qwen included.
 PATH="$WORK/bin:$PATH" MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL="http://127.0.0.1:9/v1" \
-  QL_WRAPPER_STDIN="$WORK/qwen-stdin.txt" bash "$QL_RUN" --mode implement --repo "$qwen_repo" "QWEN_TASK_MARKER" >/dev/null 2>&1 || :
+  bash "$QL_RUN" --mode implement --repo "$qwen_repo" "QWEN_TASK_MARKER" >/dev/null 2>&1 || :
 printf 'CODEX_TASK_MARKER\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --dir "$WORK/repo" --timeout 5 >/dev/null 2>&1 || :
 for preamble_file in "$WORK/qwen-stdin.txt" "$WORK/codex.prompt"; do
   exact_line "$preamble_file" 'You are one fresh, bounded implementation worker.' "shared preamble opens $preamble_file"
@@ -3918,12 +3918,14 @@ absent "$VB/calls/call.3.args" '--auto-approve' 'vibe advise does not auto-appro
 
 vibe_rc() { local want="$1"; shift; local r=0; printf 'x\n' | "${vibe_env[@]}" "$@" >"$VB/out" 2>"$VB/err" || r=$?; [ "$r" -eq "$want" ] || fail "run-vibe want $want got $r: $* -- $(cat "$VB/err")"; }
 # Mistral Large 4 (also the default model) answers off/xhigh/max with an API 400 (mistral-vibe#1439).
-for vibe_bad in "--effort max" "--effort off" "--model mistral-large-4 --effort xhigh"; do
+for vibe_bad in "--model mistral-large-4-0 --effort max" "--model mistral-large-4-0 --effort off" "--model mistral-large-4 --effort xhigh"; do
   # shellcheck disable=SC2086
   vibe_rc 2 bash "$VIBE_RUN" --mode implement $vibe_bad --repo "$VR" --timeout 30
   contains "$VB/err" 'is rejected by Mistral Large 4' "vibe names the Large 4 effort rejection: $vibe_bad"
 done
 vibe_rc 0 bash "$VIBE_RUN" --mode implement --model mistral-medium-3.5 --effort max --repo "$VR" --timeout 30
+# default passes no --model: the configured model decides, so the level passes through.
+vibe_rc 0 bash "$VIBE_RUN" --mode implement --effort off --repo "$VR" --timeout 30
 vibe_rc 6 STUB_VIBE_RESPONSE='looks fine' bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
 vibe_rc 7 STUB_VIBE_TOUCH="$VR/f.txt" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30
 git -C "$VR" checkout -q -- f.txt; printf 'two\n' > "$VR/f.txt"
@@ -4365,6 +4367,51 @@ touch "$LC/not-a-dir"
 MMO_LEG_CHECKS_FILE="$LC/not-a-dir/leg.tsv" bash "$LEG_CHECK" --repo "$LCR" --base "$lc_base" 2>/dev/null \
   || fail 'leg-check keeps its exit when the record cannot be written'
 git -C "$LCR" checkout -q -- src/lib/a.txt
+# Baseline: edits that predate the leg are not its work.
+printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+bash "$LEG_CHECK" --snapshot "$LC/snap" --repo "$LCR" || fail 'leg-check --snapshot succeeds'
+lc_rc 10 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'check=no_change paths=0' 'a no-op leg on a dirty tree is no_change'
+printf 'leg\n' >> "$LCR/f.txt"
+lc_rc 0 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'check=pass paths=1' 'a pre-existing unrelated edit does not fail scope'
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt'
+git -C "$LCR" checkout -q -- src/lib/a.txt
+lc_rc 8 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'changed outside --allow-paths: src/lib/a.txt' 'reverting a pre-existing edit is a change'
+printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+# A staged out-of-scope change with the working copy restored is still a change.
+printf 'staged\n' > "$LCR/staged.txt"; git -C "$LCR" add staged.txt; rm "$LCR/staged.txt"
+lc_rc 8 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt'
+contains "$LC/err" 'changed outside --allow-paths: staged.txt' 'a staged-only change is enumerated'
+lc_rc 8 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt,src/'
+contains "$LC/err" 'changed outside --allow-paths: staged.txt' 'a staged-only change is enumerated without a baseline'
+git -C "$LCR" rm -q --cached staged.txt
+# A verify that rewrites a disallowed tracked file cannot pass.
+lc_rc 8 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --allow-paths 'f.txt' --verify-cmd 'printf x >> src/lib/a.txt'
+contains "$LC/err" 'changed outside --allow-paths: src/lib/a.txt' 'scope is re-checked after verify'
+[ "$(lc_row | cut -f9,12)" = $'scope\t2' ] || fail "post-verify scope row records the final path count: $(lc_row)"
+git -C "$LCR" checkout -q -- src/lib/a.txt; printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+# The verify command runs in the scrubbed leg environment; MMO_LEG_ENV passes a name through.
+LEG_SECRET=leak lc_rc 0 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --verify-cmd 'test "${LEG_SECRET-unset}" = unset'
+LEG_SECRET=leak MMO_LEG_ENV=LEG_SECRET lc_rc 0 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap" --verify-cmd 'test "$LEG_SECRET" = leak'
+lc_rc 9 --repo "$LCR" --base "$lc_base" --verify-cmd 'exit 124'
+[ "$(lc_row | cut -f10)" = verify-exit=124 ] || fail "a fast exit 124 is not a timeout: $(lc_row)"
+# A git failure while enumerating is exit 11, never a pass.
+mkdir -p "$LC/failgit"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" != "${FAIL_GIT_ON:-diff}" ] || { echo "fatal: injected" >&2; exit 128; }; done\nexec %s "$@"\n' "$(command -v git)" > "$LC/failgit/git"
+chmod +x "$LC/failgit/git"
+PATH="$LC/failgit:$PATH" lc_rc 11 --repo "$LCR" --base "$lc_base" --allow-paths 'f.txt'
+contains "$LC/err" 'check=error' 'a failed git diff reports check=error'
+[ "$(lc_row | cut -f9)" = error ] || fail "a failed enumeration records an error row: $(lc_row)"
+FAIL_GIT_ON=ls-files PATH="$LC/failgit:$PATH" lc_rc 11 --repo "$LCR" --base "$lc_base" --baseline "$LC/snap"
+# --validate checks the contract without a repository.
+lc_rc 0 --validate --allow-paths 'f.txt,src/' --verify-cmd true --verify-pattern 'ok' --task 1 --cycle 0
+lc_rc 2 --validate --verify-cmd true --verify-pattern '['
+lc_rc 2 --validate --allow-paths ','
+lc_rc 2 --validate --allow-paths $'f.txt\nsrc/'
+contains "$LC/err" 'must not contain a newline' 'a newline in --allow-paths is rejected'
+git -C "$LCR" checkout -q -- f.txt src/lib/a.txt
 pass 'leg-check.sh: pass, scope, verify, no_change, advisory note, rows, usage errors'
 
 # pool.sh run: contract flags run leg-check after a worker exit 0; without them nothing changes.
@@ -4390,13 +4437,38 @@ for bad in "pick --tier T2 --allow-paths f.txt" "run --tier T2 --mode review --b
   contains "$PL/err" 'apply to run --mode implement only' "pool names the contract-flag restriction: $bad"
 done
 rm -f "$PL/calls"/*
-for bad in "--verify-pattern passed" "--cycle one --allow-paths f.txt" "--allow-paths f.txt --task  "; do
+for bad in "--verify-pattern passed" "--cycle one --allow-paths f.txt" "--allow-paths f.txt --task  " "--allow-paths ," "--verify-cmd true --verify-pattern ["; do
   rc=0
   # shellcheck disable=SC2086
   printf 'task\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --deny claude $bad --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
   [ "$rc" -eq 2 ] || fail "pool rejects a malformed contract before dispatch: $bad (got $rc)"
 done
 [ -z "$(ls -A "$PL/calls" 2>/dev/null)" ] || fail 'a malformed contract must not reach a worker'
+# Dirty start: the pool snapshots the tree, so edits made before dispatch are not the leg's.
+printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
+rc=0; printf 'task\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" \
+  --repo "$LCR" --timeout 30 --allow-paths 'f.txt' >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 10 ] || fail "a no-op worker on a dirty tree exits 10 (got $rc): $(cat "$PL/err")"
+contains "$PL/err" 'check=no_change' 'pool reports no_change on a dirty start'
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/f.txt" bash "$POOL" run --tier T2 --deny claude \
+  --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 --allow-paths 'f.txt' >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 0 ] || fail "a pre-existing unrelated edit does not fail the pool's scope check (got $rc): $(cat "$PL/err")"
+contains "$PL/err" 'check=pass' 'pool passes a leg on a dirty start'
+git -C "$LCR" checkout -q -- f.txt src/lib/a.txt
+# Cancelling the pool during a long verify stops the verify instead of waiting for its timeout.
+rm -f "$LC/verify.pid"
+lc_started=$SECONDS
+printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/f.txt" bash "$POOL" run --tier T2 --deny claude \
+  --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 --allow-paths 'f.txt' \
+  --verify-cmd "echo \$\$ > '$LC/verify.pid'; exec sleep 60" >/dev/null 2>"$PL/err" &
+pool_pid=$!
+timeout 20 bash -c "until [ -s '$LC/verify.pid' ]; do sleep 0.1; done" || fail 'the pool verify command started'
+kill -TERM "$pool_pid"
+rc=0; wait "$pool_pid" || rc=$?
+[ "$rc" -eq 143 ] || fail "a cancelled pool exits 143 during verify (got $rc): $(cat "$PL/err")"
+[ $((SECONDS - lc_started)) -lt 30 ] || fail 'a cancelled pool does not wait for the verify'
+! kill -0 "$(cat "$LC/verify.pid")" 2>/dev/null || fail 'cancelling the pool stops the verify command'
+git -C "$LCR" checkout -q -- f.txt
 pass 'pool.sh run: contract flags gate a worker exit 0 through leg-check'
 
 contains "$PLUGIN_ROOT/skills/route-model-task/SKILL.md" 'pool.sh pick --tier' 'route-model-task picks through the pool'

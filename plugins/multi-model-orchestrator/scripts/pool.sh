@@ -22,9 +22,10 @@
 # worker, unless the leg changed the repository: then it exits 55 (partly edited — salvage
 # or reset before redispatch). Any other runner exit is the result.
 # Exit 75 when no worker is left; the reason and the earliest reset go to stderr.
-# Implement runs only: with any contract flag (--allow-paths ... --cycle), a worker exit of 0 is
-# followed by leg-check.sh against the HEAD captured before dispatch, and its exit (0, 8 scope,
-# 9 verify, 10 no change) is the result; the final line adds check=<result>.
+# Implement runs only: contract flags (--allow-paths ... --cycle) are validated by leg-check.sh
+# before any worker runs; the HEAD and a snapshot of the dirty tree are captured before dispatch,
+# and a worker exit of 0 is followed by leg-check.sh against them. Its exit (0, 8 scope, 9 verify,
+# 10 no change, 11 check could not run) is the result; the final line adds check=<result>.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,18 +81,10 @@ if [ "${#contract[@]}" -gt 0 ] && { [ "$action" != run ] || [ "$mode" != impleme
   printf 'pool: --allow-paths, --verify-cmd, --verify-pattern, --task and --cycle apply to run --mode implement only\n' >&2
   exit 2
 fi
-# Reject a malformed contract before a worker spends a run on it.
-contract_cmd=0
-contract_pattern=0
-for ((i = 0; i < ${#contract[@]}; i += 2)); do
-  [ -n "${contract[i+1]//[[:space:]]/}" ] || { printf 'pool: %s is empty\n' "${contract[i]}" >&2; exit 2; }
-  case "${contract[i]}" in
-    --verify-cmd) contract_cmd=1 ;;
-    --verify-pattern) contract_pattern=1 ;;
-    --cycle) [[ "${contract[i+1]}" =~ ^[0-9]+$ ]] || { printf 'pool: --cycle must be a non-negative integer\n' >&2; exit 2; } ;;
-  esac
-done
-[ "$contract_pattern" -eq 0 ] || [ "$contract_cmd" -eq 1 ] || { printf 'pool: --verify-pattern needs --verify-cmd\n' >&2; exit 2; }
+# Reject a malformed contract before a worker spends a run on it (leg-check owns the rules).
+if [ "${#contract[@]}" -gt 0 ]; then
+  "$SCRIPT_DIR/leg-check.sh" --validate "${contract[@]}" || exit 2
+fi
 tiers_file="${MMO_POOL_TIERS:-$SCRIPT_DIR/pool-tiers.tsv}"
 [ -r "$tiers_file" ] || { printf 'pool: cannot read tier table %s\n' "$tiers_file" >&2; exit 2; }
 
@@ -217,11 +210,20 @@ command -v git >/dev/null 2>&1 || { printf 'pool: git not found\n' >&2; exit 127
 repo_dir="$(git -C "$repo_dir" rev-parse --show-toplevel)" || exit 2
 prompt_file="$(mktemp)"
 runner_stderr=""
-trap 'rm -f "$prompt_file" "$runner_stderr"' EXIT
+snapshot_file=""
+trap 'rm -f "$prompt_file" "$runner_stderr" "$snapshot_file"' EXIT
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'pool: empty prompt\n' >&2; exit 2; }
 if [ "${#contract[@]}" -gt 0 ]; then
   leg_base="$(git -C "$repo_dir" rev-parse --verify -q HEAD)" || { printf 'pool: leg checks need a commit at HEAD\n' >&2; exit 2; }
+  # Edits already in the tree are not the leg's: the check compares against this snapshot.
+  snapshot_file="$(mktemp)"
+  snapshot_args=(--snapshot "$snapshot_file" --repo "$repo_dir")
+  [ -z "$output_file" ] || snapshot_args+=(--out "$output_file")
+  "$SCRIPT_DIR/leg-check.sh" "${snapshot_args[@]}" || {
+    printf 'pool: exit=11 check=error cannot snapshot the tree before dispatch\n' >&2
+    exit 11
+  }
 fi
 
 rc=75
@@ -281,13 +283,14 @@ if [ "$fell_through" -eq 1 ]; then
 fi
 check_note=""
 if [ "$rc" -eq 0 ] && [ "${#contract[@]}" -gt 0 ]; then
-  check_args=(--repo "$repo_dir" --base "$leg_base" "${contract[@]}"
+  check_args=(--repo "$repo_dir" --base "$leg_base" --baseline "$snapshot_file" "${contract[@]}"
     --tier "$r_tier" --provider "$r_provider" --model "$r_model" --effort "$r_effort")
   if [ -n "$output_file" ]; then
     check_args+=(--out "$output_file")
     case "$output_file" in /dev/*) ;; *) check_args+=(--final "$output_file") ;; esac
   fi
-  "$SCRIPT_DIR/leg-check.sh" "${check_args[@]}" || rc=$?
+  # Under the signal supervisor, like a worker: cancelling the pool stops a long verify.
+  mmo_run direct "" "" "$SCRIPT_DIR/leg-check.sh" "${check_args[@]}" || rc=$?
   case "$rc" in 0) check_note=" check=pass" ;; 8) check_note=" check=scope" ;; 9) check_note=" check=verify" ;; 10) check_note=" check=no_change" ;; *) check_note=" check=error" ;; esac
 fi
 printf 'pool: exit=%s worker=%s model=%s effort=%s tier=%s%s\n' "$rc" "$r_provider" "$r_model" "$r_effort" "$r_tier" "$check_note" >&2

@@ -121,7 +121,7 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted read
    Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800` with `pick`'s
    flags and `--allow-paths`/`--verify-cmd`/`--task`/`--cycle`. Direct routes: the recorded
    eligible runner (`run-*.sh`), then `leg-check.sh`.
-4. Gate yourself: exits 8/9/10 reject; inspect the item-branch diff, verify the final-message
+4. Gate yourself: exits 8-11 reject; inspect the item-branch diff, verify the final-message
    contract. If the leg's contract barred committing, commit the gated result yourself —
    recording output or a memo is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, using the prompts AND the
