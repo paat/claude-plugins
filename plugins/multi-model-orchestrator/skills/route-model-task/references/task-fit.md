@@ -56,8 +56,6 @@ run-codex.sh --mode implement --repo . --model gpt-6.1-sol --effort xhigh < task
   `xhigh` on 4.6/4.7 only when its extra latency is justified.
 - agy: `low` for simple edits, `medium` for ordinary engineering, `high` for subtle bugs and
   multi-file changes. Flash and Argon expose only those three levels here.
-- OpenCode Go: effort is the model variant (`low`, `high`, `max` on the routed models; no
-  `medium`). Each Go model has its own monthly allowance, so a spent model does not block another.
 - Vibe: `default` passes no `--thinking`, so the model's configured level applies. `off`–`max` are
   passed as written and were not checked against Mistral's models (2026-11-18).
 - Muse: use the plugin's `minimal`–`max` range. The CLI's higher/default settings and vendor
