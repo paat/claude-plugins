@@ -141,7 +141,12 @@ fi
 started=$SECONDS
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-mmo_out_spec "$repo_dir" ${outs[@]+"${outs[@]}"} "$snapshot" "$baseline"
+checks_file="${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv}"
+# Leg outputs, the snapshot, and the outcome and check records are never worker output.
+mmo_out_spec "$repo_dir" ${outs[@]+"${outs[@]}"} "$snapshot" "$baseline" "$checks_file" \
+  "${MMO_OUTCOMES_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/outcomes.tsv}"
+declare -A excluded=()
+for spec in "${mmo_spec[@]:1}"; do excluded[${spec#:(exclude,literal)}]=1; done
 check=pass
 rc=0
 detail=""
@@ -150,7 +155,7 @@ changed=()
 
 finish() {
   [ -n "$detail" ] || detail="$note"
-  mmo_tsv_append "${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv}" \
+  mmo_tsv_append "$checks_file" \
     $'utc_time\trepo\ttask\tcycle\ttier\tprovider\tmodel\teffort\tcheck\tdetail\thead_sha\tchanged_paths\tduration_seconds' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(mmo_repo_name "$repo_dir")" "$task" "$cycle" "$tier" "$provider" \
     "$model" "$effort" "$check" "$detail" "$(git -C "$repo_dir" rev-parse -q --verify HEAD 2>/dev/null || :)" \
@@ -274,7 +279,7 @@ enumerate() {
   # Dirty paths and snapshot paths (one that is clean now may have been reverted or committed)
   # count when their state differs from the snapshot.
   for p in ${zpaths[@]+"${zpaths[@]}"} "${!base_state[@]}"; do
-    [ -z "${seen[$p]+x}" ] || continue
+    [ -z "${seen[$p]+x}" ] && [ -z "${excluded[$p]+x}" ] || continue
     seen[$p]=1
     path_state "$p"
     [ -n "${base_state[$p]+x}" ] && [ "${base_state[$p]}" = "$state" ] || changed+=("$p")

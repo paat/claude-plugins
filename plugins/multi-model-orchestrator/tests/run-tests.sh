@@ -4432,6 +4432,17 @@ rm -rf "$LB/sub"
 lb_snap; head -c -1 "$LB/before.snap" > "$LC/trunc.snap"
 lc_rc 11 --repo "$LB" --base "$lb_base" --baseline "$LC/trunc.snap"
 lc_rc 11 --repo "$LB" --base "$lb_base" --baseline "$LC"
+# A previous leg's report at --out, rewritten by a no-op leg, is not a change.
+rm -f "$LB/before.snap"
+printf 'old report\n' > "$LB/worker-report.txt"; bash "$LEG_CHECK" --snapshot "$LC/out.snap" --repo "$LB" || fail 'snapshot with a leftover report'
+printf 'new report\n' > "$LB/worker-report.txt"
+lc_rc 10 --repo "$LB" --base "$lb_base" --baseline "$LC/out.snap" --out "$LB/worker-report.txt"
+rm -f "$LB/worker-report.txt"
+# An outcomes record configured inside the checkout is not worker output.
+MMO_OUTCOMES_FILE="$LB/outcomes.tsv" bash "$LEG_CHECK" --snapshot "$LC/rec.snap" --repo "$LB" || fail 'snapshot with an in-repo outcomes file'
+printf 'row\n' >> "$LB/outcomes.tsv"
+MMO_OUTCOMES_FILE="$LB/outcomes.tsv" lc_rc 10 --repo "$LB" --base "$lb_base" --baseline "$LC/rec.snap"
+rm -f "$LB/outcomes.tsv"
 contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" '`scripts/leg-check.sh --snapshot' 'a pinned runner takes a snapshot before dispatch'
 contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" '`--baseline FILE`' 'a pinned runner passes the baseline to the check'
 contains "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" '`leg-check.sh --snapshot`/`--baseline`' 'meta direct routes wrap the runner in snapshot and baseline'
