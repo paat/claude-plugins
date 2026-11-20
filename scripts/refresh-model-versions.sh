@@ -267,6 +267,7 @@ run_gates() { # merge $pr after CI passed on its head and the review said APPROV
       [[ -z $(git -C "$wt" status --porcelain) ]] || block "the worktree has uncommitted or untracked files at review time" "the next run resumes from the pushed PR head"
       remote="$(pr_head)" || block "could not read the PR head" "check gh auth; the next run resumes the gates"
       [[ $remote == "$head" ]] || block "the PR head $remote is not the reviewed head $head" "the next run resumes from the PR head"
+      [[ $(git -C "$wt" rev-parse HEAD) == "$head" ]] || block "the worktree HEAD moved off $head before the review" "the next run resumes from the PR head"
       rv=0; review_gate || rv=$?
       [[ $rv != 2 ]] || block "the independent review did not end with an APPROVE or NEEDS_WORK line ($(head -c 300 "$STATE/review.err"))" "check the review runner; the next run resumes the gates"
       if [[ $rv == 0 ]]; then
@@ -366,7 +367,7 @@ fi
 # Pending trigger rows wait while a refresh PR is open; its gates resume instead.
 if [[ ! -s $pr_state ]]; then
   found="$(cd "$REPO" && gh pr list --state open --author @me --base main --limit 200 --json headRefName,url \
-    -q '[.[] | select(.headRefName | startswith("chore/model-refresh-"))] | first | select(.) | .url + "\t" + .headRefName')"
+    -q '[.[] | select(.headRefName | test("^chore/model-refresh-[0-9]{8}$"))] | first | select(.) | .url + "\t" + .headRefName')"
   [[ -z $found ]] || printf '%s\t0\t\n' "$found" >"$pr_state"
 fi
 if [[ -s $pr_state ]]; then
