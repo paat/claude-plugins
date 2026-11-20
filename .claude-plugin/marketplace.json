@@ -152,7 +152,7 @@
     {
       "name": "proton-bridge",
       "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted (stored in Drafts, never sent), and emails from named senders turned into deduplicated GitHub issues",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "Andre Paat"
       },

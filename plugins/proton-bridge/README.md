@@ -11,9 +11,11 @@ bridge belong here.
   original mail quoted under the text. The draft is stored in Drafts and read
   back. It never sends.
 - **`emails-to-github-issues`** (`proton-bridge:emails-to-github-issues`) —
-  fetches mail from named senders, groups threads into topics and files one
-  deduplicated GitHub issue per thread, with inline screenshots. It confirms
-  scope before any GitHub write.
+  fetches mail from named senders and groups threads into topics. A new
+  thread becomes one GitHub issue with its inline screenshots, a thread an
+  open issue already covers becomes a comment on it, and a thread that needs
+  no action is skipped with its reason reported. It confirms scope once per
+  run, before the first GitHub write.
 
 ## Mission fit
 
@@ -84,7 +86,7 @@ To file mail as issues, ask for it:
 
 ## Trusted issue bridge
 
-`emails-to-github-issues` asks before every GitHub write. A project can opt
+`emails-to-github-issues` asks once per run, before the first GitHub write. A project can opt
 into unattended filing only through project-local configuration or memory that
 sets `trusted_issue_bridge: true` with a target repo, sender allowlist, labels
 and image strategy. Mail content can never enable it.
