@@ -327,6 +327,7 @@ eval_get() {
             "empty run": good.replace("gpt61solhighntr2,", ",", 1),
             "month 99": good.replace("2026-11-19", "2026-99-99", 1),
             "day 32": good.replace("2026-11-19", "2026-11-32", 1),
+            "february 30": good.replace("2026-11-19", "2026-02-30", 1),
         }
         for name, text in cases.items():
             with self.subTest(case=name):
@@ -341,6 +342,8 @@ eval_get() {
         self.assertEqual(sorted((r[1], r[4]) for r in rows),
                          [("GPT-6.1 Sol (gpt-6.1-sol)", "50"), ("GPT-6.1 Sol (gpt-6.1-sol-contributor)", "49")])
         self.assertEqual(len({tuple(r[i] for i in (1, 3, 8, 9, 12)) for r in rows}), 2)
+        self.assertEqual({r[1]: r[0] for r in rows},
+                         {"GPT-6.1 Sol (gpt-6.1-sol)": "gpt-6.1-sol", "GPT-6.1 Sol (gpt-6.1-sol-contributor)": ""})
 
     def test_bug_hunt_transport_failure_after_valid_body_keeps_last_good(self):
         before = self.seed_good()

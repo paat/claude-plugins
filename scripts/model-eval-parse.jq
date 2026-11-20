@@ -69,7 +69,8 @@ def common:
         | [$columns, $f] | transpose | map({key: .[0], value: .[1]}) | from_entries
         | required((.row_status == "live" or .row_status == "superseded")
             and (.model|text) and (.harness|text) and (.effort|text)
-            and (.date|test("^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"))
+            and (.date|test("^\\d{4}-\\d{2}-\\d{2}$"))
+            and (.date as $d | (try ($d | strptime("%Y-%m-%d") | mktime | strftime("%Y-%m-%d")) catch "") == $d)
             and (.fixed_of_105|test("^\\d{1,3}$")) and (.fixed_of_105|tonumber <= 105)
             and (.cost_usd|test("^(\\d+(\\.\\d+)?)?$")); "Bug Hunt row"))
     | required((map(.run) | all(text) and length == (unique|length)); "Bug Hunt run ids")
@@ -86,7 +87,8 @@ def common:
        value: ($runs | map(.fixed_of_105|tonumber) | add / length * 100 | round / 100),
        effort: $runs[0].effort, harness: $runs[0].harness, preliminary: false,
        as_of: ($runs | map(.date) | max),
-       lookup_name: (if $named then $runs[0].model
+       lookup_name: (if $split and $runs[0].model_id != "" then $runs[0].model_id
+         elif $named then $runs[0].model
          else ([$runs[].model_id | select(. != "")] | first // $runs[0].model) end),
        cost_usd: (if $costs|length > 0 then ($costs | add / length * 100 | round / 100) else null end)}
   else error("unknown feed") end)
