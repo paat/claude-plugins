@@ -446,7 +446,7 @@ case "$result_mode" in
   # Unlink --out while the runner's redirect FD is still open so the path is
   # missing after the subshell closes (shell > always creates the file first).
   missing) [ -n "${STUB_UNLINK_OUT:-}" ] && rm -f "$STUB_UNLINK_OUT"; exit 0 ;;
-  timeout) exit 124 ;;
+  timeout) printf '%s' "${STUB_GROK_PROGRESS:-}"; exit 124 ;;
   slow_cap)
     printf 'Inspection progress only.\n'
     printf 'Max turns reached\n' >&2
@@ -1597,10 +1597,10 @@ pass '#614: per-mode caps, exit 76, finishing resume bounded by N and tree chang
 # #716: review/advise turn budget, default .stream, read-only allowlist synthesis on cap, exit 78.
 mkdir -p "$WORK/716"
 : > "$STUB_GROK_CALLS"
-printf 'review budget check\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" \
+printf 'review budget check\n' | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --effort high --repo "$WORK/repo" \
   --base HEAD --out "$WORK/716/rev-default.out" >/dev/null 2> "$WORK/716/rev-default.err" \
   || fail '#716: default review run succeeds'
-exact_line "$WORK/grok.args" '60' '#716: review default max turns is 60'
+exact_line "$WORK/grok.args" '60' '#722: high-effort default-timeout review keeps 60 turns'
 contains "$WORK/grok.prompt" 'at most 60 agent turns' '#716: review prompt states default 60-turn budget'
 contains "$WORK/grok.prompt" 'read the diff first' '#716: review prompt instructs reading the diff first'
 contains "$WORK/grok.prompt" 'write the report with turns to spare' '#716: review prompt instructs writing report with turns to spare'
@@ -1789,22 +1789,22 @@ contains "$WORK/716/rev-timeout.err" 'truncated=timeout' '#722: empty hard timeo
 [ ! -s "$WORK/716/rev-timeout.out" ] || fail '#722: empty timeout must not fabricate a report'
 pass '#716: Grok review/advise turn budget, default .stream, read-only allowlist synthesis on cap, exit 78'
 
-# #722: shorten default inspection to leave time for synthesis in the same leg.
+# #722: neither short timeouts nor high effort cut the review turn budget.
+printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --effort high --timeout 120 --repo "$WORK/repo" \
+  >/dev/null 2>"$WORK/716/short.err" || fail '#722: short high-effort review succeeds'
+exact_line "$WORK/grok.args" '60' '#722: 120 s high-effort review keeps 60 turns'
 for mode in review advise; do
   : > "$STUB_GROK_CALLS"
-  out="$WORK/716/$mode-soft.out"
-  printf 'inspect the change\n' | STUB_GROK_RESULT=maxturns STUB_GROK_MAXTURNS_FIRST=1 \
-    STUB_GROK_RESUME_RESULT=verdict_approve "$PLUGIN_ROOT/scripts/run-grok.sh" \
-    --mode "$mode" --repo "$WORK/repo" --effort low --timeout 60 --out "$out" > "$out.stdout" 2> "$out.err" \
-    || fail "#722: $mode soft deadline produces a report"
-  [ "$(wc -l < "$STUB_GROK_CALLS")" -eq 2 ] || fail "#722: $mode soft cap resumes exactly once"
-  head -1 "$STUB_GROK_CALLS" | grep -q -- '--max-turns 3 ' || fail "#722: $mode inspection uses the timeout-derived cap"
-  contains "$out.err" 'truncated=timeout' "#722: $mode synthesized report is marked"
-  contains "$out" 'grok findings' "#722: $mode retains synthesized findings"
-  cmp -s "$out" "$out.stdout" || fail "#722: $mode emits the same report to stdout and --out"
-  if [ "$mode" = review ]; then
-    [ "$(tail -1 "$out")" = 'VERDICT: NEEDS_WORK' ] || fail '#722: partial inspection cannot approve'
-  fi
+  out="$WORK/716/$mode-timeout.out"
+  rc=0
+  printf x | STUB_GROK_RESULT=timeout STUB_GROK_PROGRESS='Inspection progress only.' \
+    "$PLUGIN_ROOT/scripts/run-grok.sh" --mode "$mode" --repo "$WORK/repo" --timeout 240 --out "$out" \
+    > "$out.stdout" 2> "$out.err" || rc=$?
+  [ "$rc" -eq 124 ] || fail "#722: $mode hard timeout rc=$rc want 124"
+  [ "$(wc -l < "$STUB_GROK_CALLS")" -eq 1 ] || fail "#722: $mode timeout ends inspection without a resume"
+  contains "$out.err" 'truncated=timeout' "#722: $mode timeout is marked"
+  contains "$out.stream" 'Inspection progress only.' "#722: $mode stream retains progress"
+  [ ! -s "$out.stdout" ] && [ ! -s "$out" ] || fail "#722: timed-out $mode has no report"
 done
 : > "$STUB_GROK_CALLS"
 rc=0
@@ -1825,7 +1825,7 @@ printf 'slow inspect\n' | STUB_GROK_RESULT=slow_cap "$PLUGIN_ROOT/scripts/run-gr
 contains "$WORK/716/hard.err" 'truncated=timeout' '#722: hard deadline is marked'
 contains "$WORK/716/hard.out.stream" 'Inspection progress only.' '#722: partial text survives SIGTERM'
 [ ! -s "$WORK/716/hard.stdout" ] || fail '#722: interrupted progress cannot pass as a review'
-pass '#722: timeout-derived review and advise budgets, marked synthesis and empty timeout'
+pass '#722: high-effort turn budgets and honest review/advise timeouts'
 
 # #621: --out /dev/stdout success path must exit 0 with the verdict on its own line.
 rc=0

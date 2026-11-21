@@ -74,6 +74,8 @@ SUITES: table with exact counts
 | Claude / Grok / Muse probe legs | `--mode probe` | shell kept to verify by execution; runner enforces the verdict and an unchanged repository |
 | Grok, any review leg | `--effort low` or `medium`, `--timeout` 600 or more | friction report 2026-11-20: `low` reviews took 150–300 s and 4 of 10 timed out under a tighter cap; both `high` reviews failed |
 
+Check the exit line for every Grok review or advise leg. On `truncated=timeout`, rerun with a larger `--timeout` or use another reviewer before acting on the report or starting a fix cycle.
+
 ## Local Qwen review leg
 
 `run-qwen-local.sh --mode review --base <range>` only. It is read-only in that mode; `--mode
