@@ -10,6 +10,8 @@ so execute-probe legs on those providers use `--mode probe` with the prompt cont
 leg keeps its shell, and the runner exits 6 without a verdict line and 7 when the repository
 changed. Every leg goes through
 `${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh --author <worker provider>` — never a hand-grep.
+For an agy worker pass the model-qualified label (`--author agy/<model>`, e.g.
+`agy/claude-opus-5-5`): a bare `--author agy` conflicts with any Claude-family reviewer leg.
 Its exit 0 is the merge signal. Omit `--author` only when the brief restricts the run to one provider.
 
 ## Adversarial review
@@ -80,8 +82,10 @@ has no shell and cannot run git itself, and it exits `75` when the one local slo
 substitute the card's allowed fallback at once rather than waiting.
 
 It reads the diff; it cannot run anything, and neither can an agy leg (`run-agy.sh --mode review
---base <range>`). Never hand either a template that requires verification by execution. Neither
+--base <range>`), except an `agy/claude-opus-5-5` leg, which counts as an independent reviewer.
+Never hand either a template that requires verification by execution. Otherwise neither
 may be the only reviewer, and that is enforced, not advisory: pass every leg
-through `scripts/review-gate.sh --leg <provider>=<final-message-file>`, which exits 3 on a set
+through `scripts/review-gate.sh --leg <provider>=<final-message-file>` (an agy Opus
+reviewer: `--leg agy/claude-opus-5-5=<final-message-file>`), which exits 3 on a set
 containing no independent provider. Use the local leg as an extra decorrelated lens beside a
 reviewer that can execute.

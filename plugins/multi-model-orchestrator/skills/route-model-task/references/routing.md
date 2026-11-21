@@ -34,8 +34,8 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | agy (Antigravity) | `gemini-4-hydrogen` | T2 `medium` worker ahead of Flash `high`, and T3 behind Argon; added 2026-11-14 when `agy models` first listed it; review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `gemini-4-carbon` | Available T3 candidate behind Hydrogen, not preferred. Gemini flagship, orchestrator-eligible (owner 2026-11-18 flagship rule), not the default agy model (owner correction 2026-11-19), source `agy models` 2026-11-20 (`gemini-4-carbon-low`/`medium`/`high`; no xhigh). Review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-sonnet-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
-| agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
-| Mistral Vibe | `mistral-large-4` | Worker-only, lowest preference: T2 `medium`, T3 `high`. Added 2026-11-19; alias in the `vibe` 3.1.3 catalog (paat/ai-overlord#474). `run-vibe.sh` always passes `--max-price 0` and stops when the plan budget is spent. Not an orchestrator; `default` still passes no `--model`. Review is advisory | `medium`, `high`; `default` passes no `--thinking` |
+| agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; eligible in review (paat/ai-overlord#474, 2026-11-18) | `low`, `medium`, `high` |
+| Mistral Vibe | `mistral-large-4` | Worker-only, lowest preference: T2 `medium`, T3 `high`. Added 2026-11-19; alias in the `vibe` 3.1.3 catalog (paat/ai-overlord#474). `run-vibe.sh` always passes `--max-price 0` and stops when the plan budget is spent. Not an orchestrator; `default` still passes no `--model`. Review is advisory | `default`, `off`, `low`, `medium`, `high`, `xhigh`, `max` (Mistral Large 4 takes only `default`, `low`, `medium`, `high`; `default` passes no `--thinking`) |
 
 Use `task-fit.md` to select model and effort from the task's acceptance criteria. A newer
 flagship does not retire cheaper tiers. Explicit model requests still take precedence.
@@ -111,9 +111,9 @@ silently; select a supported level or return an incompatibility.
 Every runner exits `75` when its worker cannot take the task now: a transient provider error or
 plan limit, or — for `scripts/run-qwen-local.sh` — the one GPU slot busy, the server down, a
 pinned model not served (or several served and none pinned), or no wrapper. Local Qwen is never queued. `pool.sh run` moves to the next
-worker on `75`, `77`, or `127`; if that leg changed the repository it exits `55` instead (salvage
+worker on `75`, `77`, or `127` (a provider/model that already exited `75` is not retried later in the run); if that leg changed the repository it exits `55` instead (salvage
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen,
-agy, and Vibe reviews remain advisory. Local implementation stays bounded and mechanical; agy
+agy, and Vibe reviews remain advisory except agy `claude-opus-5-5` (paat/ai-overlord#474, 2026-11-18). Local implementation stays bounded and mechanical; agy
 Flash stays in T1/T2 and remains the default agy model. Hydrogen is also a T2 `medium` worker; Argon, Hydrogen, and Carbon (behind Hydrogen, not preferred) are T3 implementation candidates. agy Sonnet 5.5 (T2) and Opus
 5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
 a plan leg returning `75` with `failure=limit` enables matching API overflow; transient
