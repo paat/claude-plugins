@@ -26,7 +26,7 @@
     },
     {
       "path": "scripts/review-panel.tsv",
-      "sha256": "05e75632c14f45334fa79886b376fcf0d17cdf06b89a63259b9c8d059b7b903e"
+      "sha256": "e320cbd32590498734c4c051977413d3f6ed6adb4954b7da230a9e7c4e27d4ca"
     },
     {
       "path": "scripts/run-claude-review.sh",

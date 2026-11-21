@@ -4874,8 +4874,9 @@ pass 'friction-report kinds, thresholds, window, combined inputs and usage error
 
 # --- harness-adjustments.tsv: provider prompt lines with evidence, matched by provider, model glob and mode ---
 mmo_adjustment_rows check 2>"$FR/adj.err" || fail "shipped harness-adjustments.tsv is malformed: $(cat "$FR/adj.err")"
-[ "$(grep -vc -E '^[[:space:]]*(#|$)' "$PLUGIN_ROOT/scripts/harness-adjustments.tsv")" -eq 1 ] \
-  || fail 'harness-adjustments.tsv holds exactly the seeded Grok row'
+[ "$(grep -vc -E '^[[:space:]]*(#|$)' "$PLUGIN_ROOT/scripts/harness-adjustments.tsv")" -eq 2 ] \
+  || fail 'harness-adjustments.tsv holds exactly the seeded Grok rows'
+case "$(mmo_adjustment_lines grok grok-4.7 review 9)" in 'Your wall-clock time is short:'*) ;; *) fail 'the shipped Grok 4.7 review row answers its timeout friction' ;; esac
 for provider in claude codex grok muse agy opencode vibe qwen; do
   for adj_mode in implement review research advise; do
     out="$(mmo_adjustment_lines "$provider" any-model "$adj_mode" 9)"
