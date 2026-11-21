@@ -1158,6 +1158,16 @@ EOF
   out="$(select_panel GEMINI_API_KEY=fixture)"
   tr_check "an empty OAuth token yields to a configured API key" jqe \
     '[.panel[].provider] == ["codex","claude","gemini"]' <<< "$out"
+  rm -f "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  mkdir -p "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  out="$(select_panel)"
+  tr_check "a directory at the OAuth token path is not a sign-in and Grok fills the third seat" jqe '
+    [.panel[].provider] == ["codex","claude","grok"]
+    and .toggles.gemini == "off"' <<< "$out"
+  out="$(select_panel GEMINI_API_KEY=fixture)"
+  tr_check "a directory at the OAuth token path yields to a configured API key" jqe \
+    '[.panel[].provider] == ["codex","claude","gemini"]' <<< "$out"
+  rm -rf "$home/.gemini/antigravity-cli/antigravity-oauth-token"
   printf 'token\n' > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
   out="$(select_panel TRIBUNAL_GEMINI=off)"
   tr_check "TRIBUNAL_GEMINI=off opts out even when signed in" jqe '
@@ -1229,6 +1239,21 @@ EOF
   tr_check "an empty token yields to a configured API key in auto mode" jq -e \
     '.provider=="gemini" and .summary.verdict=="APPROVE" and (has("error")|not)' \
     "$work/auto-empty-key.json"
+  rm -f "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  mkdir -p "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  (cd "$work" && env -u TRIBUNAL_GEMINI -u GEMINI_API_KEY PATH="$fake:/usr/bin:/bin" HOME="$home" \
+    TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-gemini-review.sh") > "$work/auto-dir.json" 2>/dev/null
+  tr_check "auto disables the leg for a directory at the token path without an error" jq -e \
+    '.provider=="gemini" and .status=="disabled"' \
+    "$work/auto-dir.json"
+  (cd "$work" && env -u TRIBUNAL_GEMINI PATH="$fake:/usr/bin:/bin" HOME="$home" \
+    GEMINI_API_KEY=key TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-gemini-review.sh") > "$work/auto-dir-key.json" 2>/dev/null
+  tr_check "a directory at the token path yields to a configured API key in auto mode" jq -e \
+    '.provider=="gemini" and .summary.verdict=="APPROVE" and (has("error")|not)' \
+    "$work/auto-dir-key.json"
+  rm -rf "$home/.gemini/antigravity-cli/antigravity-oauth-token"
   rm -rf "$work"
 }
 

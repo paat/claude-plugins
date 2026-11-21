@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "f6f0c3c0bcfa1ce27206a4b34ca378c6a03968b5fa8e0a1325a880bcec4026b6"
+      "sha256": "111f31fd75d9d0674572301ebf26bad87adbc1b8d05e75c9ccbc4b014012ec85"
     },
     {
       "path": "scripts/review-panel.tsv",

@@ -128,7 +128,7 @@ tribunal_deepseek_available() {
 # a configured GEMINI_API_KEY.
 tribunal_gemini_token_usable() {
   local token="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
-  [ -n "${HOME:-}" ] && [ ! -L "$token" ] && [ -s "$token" ]
+  [ -n "${HOME:-}" ] && [ ! -L "$token" ] && [ -f "$token" ] && [ -s "$token" ]
 }
 
 tribunal_gemini_available() {
