@@ -9,7 +9,8 @@ tribunal_deepseek_model() {
 }
 
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 2; otherwise an
-# integer in 2..8. A 1-leg APPROVE is never permitted.
+# integer in 2..7 (seven legs exist, so a floor of 8 could never pass).
+# A 1-leg APPROVE is never permitted.
 tribunal_min_ok_legs() {
   local raw="${TRIBUNAL_MIN_OK_LEGS:-}"
   if [ -z "$raw" ]; then
@@ -18,16 +19,17 @@ tribunal_min_ok_legs() {
   fi
   case "$raw" in
     1)
-      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..8)\n' >&2
+      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..7)\n' >&2
       return 1
       ;;
-    [2-8]) printf '%s\n' "$raw"; return 0 ;;
+    [2-7]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..8)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..7)\n' "$raw" >&2
   return 1
 }
 
-# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..8.
+# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..7
+# (seven legs exist, so a panel of 8 could never seat).
 tribunal_panel_size() {
   local raw="${TRIBUNAL_PANEL_SIZE:-}"
   if [ -z "$raw" ]; then
@@ -35,9 +37,9 @@ tribunal_panel_size() {
     return 0
   fi
   case "$raw" in
-    [2-8]) printf '%s\n' "$raw"; return 0 ;;
+    [2-7]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..8)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..7)\n' "$raw" >&2
   return 1
 }
 
@@ -62,7 +64,7 @@ tribunal_risk_effort() {
   case "$tier" in
     '') ;;
     T1) printf 'low\n' ;;
-    T2) if [ "${1:-}" = opencode ]; then printf 'high\n'; else printf 'medium\n'; fi ;;
+    T2) printf 'medium\n' ;;
     T3) if [ "${1:-}" = grok ]; then printf 'medium\n'; else printf 'high\n'; fi ;;
     T4) if [ "${1:-}" = codex ]; then printf 'xhigh\n'; else printf 'high\n'; fi ;;
   esac
@@ -90,8 +92,8 @@ tribunal_backup_legs() {
   IFS=, read -r -a legs <<< "$raw"
   for leg in ${legs[@]+"${legs[@]}"}; do
     case "$leg" in
-      codex|gemini|deepseek|qwen|grok|muse|opencode|claude) ;;
-      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want codex, gemini, deepseek, qwen, grok, muse, opencode, claude, or off)\n' "$leg" >&2; return 1 ;;
+      codex|gemini|deepseek|qwen|grok|muse|claude) ;;
+      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want codex, gemini, deepseek, qwen, grok, muse, claude, or off)\n' "$leg" >&2; return 1 ;;
     esac
     case "$seen" in *" $leg "*) printf 'duplicate TRIBUNAL_BACKUP_LEGS entry: %s\n' "$leg" >&2; return 1 ;; esac
     seen="$seen$leg "
@@ -120,24 +122,24 @@ tribunal_deepseek_available() {
   return 1
 }
 
-tribunal_opencode_available() {
-  local raw first major
-  command -v opencode >/dev/null 2>&1 || { printf 'OpenCode CLI not on PATH\n'; return 1; }
-  raw="$(timeout -k 1 10 opencode --version 2>/dev/null)" || {
-    printf 'OpenCode v2+ required (opencode --version failed)\n'
-    return 1
-  }
-  first="${raw%%$'\n'*}"
-  major="$(printf '%s\n' "$first" | sed -nE 's/^([^0-9]*[[:space:]])?v?([0-9]+)(\.[0-9]+.*)?$/\2/p')"
-  if [ -z "$major" ]; then
-    printf 'OpenCode v2+ required (unrecognized version: %s)\n' "${first:-empty}"
-    return 1
+# A zero-byte OAuth token is not a sign-in: real agy prints
+# "Authentication required" and waits for login. Selection and execution share
+# this check so an empty token never takes a reviewer seat and never shadows
+# a configured GEMINI_API_KEY.
+tribunal_gemini_token_usable() {
+  local token="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
+  [ -n "${HOME:-}" ] && [ ! -L "$token" ] && [ -f "$token" ] && [ -s "$token" ]
+}
+
+tribunal_gemini_available() {
+  if tribunal_gemini_token_usable; then
+    return 0
   fi
-  if [ "$major" -lt 2 ]; then
-    printf 'OpenCode v2+ required (found %s)\n' "$first"
-    return 1
+  if [ -n "${GEMINI_API_KEY:+present}" ]; then
+    return 0
   fi
-  return 0
+  printf 'agy is not signed in and GEMINI_API_KEY is unset\n'
+  return 1
 }
 
 tribunal_backup_installed() {
@@ -146,16 +148,15 @@ tribunal_backup_installed() {
     claude) command -v claude >/dev/null 2>&1 && tribunal_claude_authenticated ;;
     grok) command -v grok >/dev/null 2>&1 && tribunal_grok_authenticated ;;
     muse) command -v muse >/dev/null 2>&1 ;;
-    opencode) tribunal_opencode_available >/dev/null ;;
     deepseek) tribunal_deepseek_available >/dev/null ;;
-    gemini) command -v agy >/dev/null 2>&1 ;;
+    gemini) command -v agy >/dev/null 2>&1 && tribunal_gemini_available >/dev/null ;;
     qwen) command -v qwen >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }
 
 # Select the active review panel and backup order from review-panel.tsv for the
-# effective risk tier (default T2). Exports TRIBUNAL_<P>=on|off for all 8 providers
+# effective risk tier (default T2). Exports TRIBUNAL_<P>=on|off for all 7 providers
 # and TRIBUNAL_<P>_MODEL / TRIBUNAL_<P>_EFFORT for selected and backup rows unless
 # already set by the operator. Sets TRIBUNAL_SELECTED_PANEL_SIZE,
 # TRIBUNAL_SELECTED_PANEL_JSON, TRIBUNAL_SELECTED_BACKUPS, and TRIBUNAL_EXPLICIT_OFF.
@@ -176,16 +177,22 @@ tribunal_select_panel() {
     return 1
   fi
 
-  for p in codex gemini deepseek qwen grok muse opencode claude; do
+  for p in codex gemini deepseek qwen grok muse claude; do
     upper="${p^^}"
     toggle_var="TRIBUNAL_${upper}"
     toggle_val="${!toggle_var:-}"
     case "$toggle_val" in
       '') ;;
+      auto)
+        if [ "$p" != gemini ]; then
+          printf 'invalid %s value: auto (only TRIBUNAL_GEMINI accepts auto; want on or off)\n' "$toggle_var" >&2
+          return 1
+        fi
+        ;;
       on) forced_set="${forced_set}${p} " ;;
       off) explicit_off="${explicit_off}${p} " ;;
       *)
-        printf 'invalid %s value: %s (want on or off)\n' "$toggle_var" "$toggle_val" >&2
+        printf 'invalid %s value: %s (want on, off, or auto)\n' "$toggle_var" "$toggle_val" >&2
         return 1
         ;;
     esac
@@ -222,7 +229,7 @@ tribunal_select_panel() {
         ;;
     esac
     case "$row_provider" in
-      codex|gemini|deepseek|qwen|grok|muse|opencode|claude) ;;
+      codex|gemini|deepseek|qwen|grok|muse|claude) ;;
       *)
         printf 'invalid review panel row at %s:%d (bad provider: %s)\n' "$panel_file" "$lineno" "$row_provider" >&2
         return 1
@@ -252,7 +259,7 @@ tribunal_select_panel() {
   done
 
   local forced_count=0 remaining_seats=0
-  for p in codex gemini deepseek qwen grok muse opencode claude; do
+  for p in codex gemini deepseek qwen grok muse claude; do
     case "$forced_set" in *" $p "*) forced_count=$((forced_count + 1)) ;; esac
   done
   if [ "$panel_size" -gt "$forced_count" ]; then
@@ -280,7 +287,7 @@ tribunal_select_panel() {
     esac
   done
 
-  for p in codex gemini deepseek qwen grok muse opencode claude; do
+  for p in codex gemini deepseek qwen grok muse claude; do
     case "$forced_set" in
       *" $p "*)
         case "$selected_set" in
@@ -302,7 +309,7 @@ tribunal_select_panel() {
     active_or_backup="${active_or_backup}${p} "
   done
 
-  for p in codex gemini deepseek qwen grok muse opencode claude; do
+  for p in codex gemini deepseek qwen grok muse claude; do
     upper="${p^^}"
     case "$selected_set" in
       *" $p "*) export "TRIBUNAL_${upper}=on" ;;
@@ -806,8 +813,8 @@ tribunal_error_with_diagnostics() {
   [[ "$exit_code" =~ ^[0-9]+$ ]] || exit_code=255
   # The collector replaces a plan-limited leg with a backup leg (TRIBUNAL_BACKUP_LEGS).
   [ "$exit_code" != 153 ] || message="file size limit (SIGXFSZ): $message"
-  # DeepSeek and OpenCode classify their structured error causes in their runners.
-  if [ "$provider" != deepseek ] && [ "$provider" != opencode ] && [ "$phase" = execution ] && tribunal_plan_limited "$exit_code" "$stdout_file" "$stderr_file"; then
+  # DeepSeek classifies its structured error causes in its runner.
+  if [ "$provider" != deepseek ] && [ "$phase" = execution ] && tribunal_plan_limited "$exit_code" "$stdout_file" "$stderr_file"; then
     message="plan limit: $message"
   fi
   if [ -f "$stdout_file" ] && [ ! -L "$stdout_file" ]; then
@@ -1222,7 +1229,6 @@ tribunal_stamp_executed_model() {
   case "$provider" in
     grok) family='^grok([[:digit:]._-]|$)' ;;
     muse) family='^muse([[:digit:]._-]|$)' ;;
-    opencode) family='^opencode-go/[[:alnum:]_.-]+$' ;;
     qwen) family='^([[:alnum:]_.-]+/)?qwen([[:digit:]._-]|$)' ;;
     *) family='' ;;
   esac

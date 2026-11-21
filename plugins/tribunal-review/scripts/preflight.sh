@@ -92,7 +92,15 @@ disabled_note() {
 }
 
 if [ "${TRIBUNAL_CODEX:-off}" != "on" ]; then add_provider codex disabled "$(disabled_note codex)"; elif command -v codex >/dev/null 2>&1; then add_provider codex usable "CLI present; non-interactive invocation not probed"; else add_provider codex skipped "CLI not on PATH"; fi
-if [ "${TRIBUNAL_GEMINI:-off}" != "on" ]; then add_provider gemini disabled "$(disabled_note gemini)"; elif command -v agy >/dev/null 2>&1; then add_provider gemini usable "agy present; non-interactive invocation not probed"; else add_provider gemini skipped "agy not on PATH"; fi
+if [ "${TRIBUNAL_GEMINI:-off}" != "on" ]; then
+  add_provider gemini disabled "$(disabled_note gemini)"
+elif ! command -v agy >/dev/null 2>&1; then
+  add_provider gemini skipped "agy not on PATH"
+elif gemini_note="$(tribunal_gemini_available)"; then
+  add_provider gemini usable "agy signed in; non-interactive invocation not probed"
+else
+  add_provider gemini skipped "$gemini_note"
+fi
 if [ "${TRIBUNAL_QWEN:-off}" != "on" ]; then add_provider qwen disabled "$(disabled_note qwen)"; elif command -v qwen >/dev/null 2>&1; then add_provider qwen usable "CLI present; non-interactive invocation not probed"; else add_provider qwen skipped "CLI not on PATH"; fi
 if [ "${TRIBUNAL_GROK:-off}" != "on" ]; then
   add_provider grok disabled "$(disabled_note grok)"
@@ -105,13 +113,6 @@ else
   add_provider grok skipped "CLI not signed in (no usable auth.json / XAI_API_KEY)"
 fi
 if [ "${TRIBUNAL_MUSE:-off}" != "on" ]; then add_provider muse disabled "$(disabled_note muse)"; elif command -v muse >/dev/null 2>&1; then add_provider muse usable "CLI present; non-interactive invocation not probed"; else add_provider muse skipped "CLI not on PATH"; fi
-if [ "${TRIBUNAL_OPENCODE:-off}" != "on" ]; then
-  add_provider opencode disabled "$(disabled_note opencode)"
-elif opencode_note="$(tribunal_opencode_available)"; then
-  add_provider opencode usable "OpenCode v2 CLI present; non-interactive invocation not probed"
-else
-  add_provider opencode skipped "$opencode_note"
-fi
 if [ "${TRIBUNAL_CLAUDE:-off}" != "on" ]; then
   add_provider claude disabled "$(disabled_note claude)"
 elif ! command -v claude >/dev/null 2>&1; then
@@ -154,14 +155,6 @@ if [ "${TRIBUNAL_SMOKE_PROBE:-off}" = on ]; then
       set_provider_result claude usable "non-interactive smoke passed"
     else
       set_provider_result claude failed "$(smoke_failure_note claude "$smoke_output")"
-    fi
-  fi
-  if provider_usable opencode; then
-    smoke_output="$(TRIBUNAL_DIAGNOSTIC_TAILS=off bash "$SCRIPT_DIR/run-opencode-review.sh" --smoke 2>/dev/null || true)"
-    if printf '%s\n' "$smoke_output" | smoke_review_ok opencode; then
-      set_provider_result opencode usable "non-interactive smoke passed"
-    else
-      set_provider_result opencode failed "$(smoke_failure_note opencode "$smoke_output")"
     fi
   fi
   if provider_usable deepseek; then

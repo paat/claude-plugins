@@ -20,7 +20,6 @@ FILES=(
   scripts/run-gemini-review.sh
   scripts/run-grok-review.sh
   scripts/run-muse-review.sh
-  scripts/run-opencode-review.sh
   scripts/run-deepseek-review.sh
   scripts/run-qwen-review.sh
 )
