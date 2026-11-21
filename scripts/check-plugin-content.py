@@ -159,6 +159,11 @@ def lint_agents(plugin_dir: Path, errors: list[str]) -> None:
 
 
 def lint_hooks(plugin_dir: Path, errors: list[str]) -> None:
+    lint_claude_hooks(plugin_dir, errors)
+    lint_antigravity_hooks(plugin_dir, errors)
+
+
+def lint_claude_hooks(plugin_dir: Path, errors: list[str]) -> None:
     hook_path = plugin_dir / "hooks" / "hooks.json"
     if not hook_path.is_file():
         return
@@ -188,6 +193,66 @@ def lint_hooks(plugin_dir: Path, errors: list[str]) -> None:
             target_path = plugin_dir / target
             if not target_path.is_file():
                 errors.append(f"{rel(hook_path)}: hook resolver target is missing: {target}")
+        for target in re.findall(r"(?:^|[ \"'])(\./[A-Za-z0-9_./-]+)", command):
+            target_path = plugin_dir / target[2:]
+            if not target_path.is_file():
+                errors.append(f"{rel(hook_path)}: relative hook target is missing: {target}")
+
+
+AGY_GROUPED_EVENTS = frozenset({"PreToolUse", "PostToolUse"})
+AGY_FLAT_EVENTS = frozenset({"SessionStart", "PreInvocation", "PostInvocation", "Stop"})
+AGY_VALID_KEYS = AGY_GROUPED_EVENTS | AGY_FLAT_EVENTS | frozenset({"enabled"})
+
+
+def lint_antigravity_hooks(plugin_dir: Path, errors: list[str]) -> None:
+    hook_path = plugin_dir / "hooks.json"
+    if not hook_path.is_file():
+        return
+    try:
+        payload = json.loads(hook_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"{rel(hook_path)}: invalid JSON: {exc}")
+        return
+    if not isinstance(payload, dict) or not payload:
+        errors.append(f"{rel(hook_path)}: expected non-empty object mapping hook names to specs")
+        return
+
+    commands: list[str] = []
+    for hook_name, spec in payload.items():
+        if not isinstance(spec, dict):
+            errors.append(f"{rel(hook_path)}: hook {hook_name!r} must be an object")
+            continue
+        for key, value in spec.items():
+            if key not in AGY_VALID_KEYS:
+                errors.append(f"{rel(hook_path)}: hook {hook_name!r} has unknown key {key!r}")
+                continue
+            if key == "enabled":
+                if not isinstance(value, bool):
+                    errors.append(f"{rel(hook_path)}: hook {hook_name!r}.enabled must be boolean")
+                continue
+            if not isinstance(value, list):
+                errors.append(f"{rel(hook_path)}: hook {hook_name!r}.{key} must be an array")
+                continue
+            if key in AGY_GROUPED_EVENTS:
+                for entry in value:
+                    if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+                        errors.append(
+                            f"{rel(hook_path)}: hook {hook_name!r}.{key} entries must have a hooks array"
+                        )
+                        continue
+                    for handler in entry["hooks"]:
+                        if isinstance(handler, dict) and isinstance(handler.get("command"), str):
+                            commands.append(handler["command"])
+            else:
+                for handler in value:
+                    if not isinstance(handler, dict) or not isinstance(handler.get("command"), str):
+                        errors.append(
+                            f"{rel(hook_path)}: hook {hook_name!r}.{key} entries must be flat handler objects with command"
+                        )
+                        continue
+                    commands.append(handler["command"])
+
+    for command in commands:
         for target in re.findall(r"(?:^|[ \"'])(\./[A-Za-z0-9_./-]+)", command):
             target_path = plugin_dir / target[2:]
             if not target_path.is_file():

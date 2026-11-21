@@ -66,6 +66,12 @@ Add this marketplace, then install the plugin at the scope you want:
 - **Install for you, in this repo only** (local scope) — just you, just this repository, via
   `.claude/settings.local.json`.
 
+Other supported harnesses:
+- **Codex:** `codex plugin marketplace add paat/claude-plugins && codex plugin add irreversible-guard@paat-plugins`
+- **Antigravity (`agy`):** `agy plugin install ./plugins/irreversible-guard` (uses `.antigravity-plugin/plugin.json` and root `hooks.json`)
+- **Grok (`grok`):** `grok plugin install ./plugins/irreversible-guard --trust` (or via `grok plugin marketplace add`)
+- **Muse (`muse`):** `MUSE_EXPERIMENTAL_PLUGINS=1 muse plugins install ./plugins/irreversible-guard && MUSE_EXPERIMENTAL_PLUGINS=1 muse plugins approve irreversible-guard`
+
 ## Configuration (optional)
 
 Create `.claude/irreversible-guard.json` in a project to tune behavior:

@@ -679,13 +679,19 @@ tribunal_mutation_gate() {
   )
 }
 
-# Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT
-# are authoritative even when the schema is missing (so the runner can fail loud
+# Plugin root for schema/assets. Explicit TRIBUNAL_PLUGIN_ROOT or harness plugin-root
+# variables are authoritative even when the schema is missing (so the runner can fail loud
 # instead of silently loading another install — issue #378 / Codex review).
-# Fall back to SCRIPT_DIR/.. only when neither env root is set.
+# Fall back to SCRIPT_DIR/.. only when no env root is set.
 tribunal_plugin_root() {
   local candidate
-  for candidate in "${TRIBUNAL_PLUGIN_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}"; do
+  for candidate in \
+    "${TRIBUNAL_PLUGIN_ROOT:-}" \
+    "${CLAUDE_PLUGIN_ROOT:-}" \
+    "${CODEX_PLUGIN_ROOT:-}" \
+    "${PLUGIN_ROOT:-}" \
+    "${GROK_PLUGIN_ROOT:-}" \
+    "${MUSE_PLUGIN_ROOT:-}"; do
     if [ -n "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0

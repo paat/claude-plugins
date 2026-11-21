@@ -104,12 +104,44 @@ assert_allow "printf with '; git commit' inside a string"      "printf '%s' 'the
 echo "== quoted-empty ACK is still empty (does not bypass) =="
 assert_deny  "SILENT_FAILURE_ACK=\"\" does NOT bypass"         'SILENT_FAILURE_ACK="" git commit -m x' "$bad_repo" "swallowed-exception"
 
-echo "== hooks.json manifest smoke test =="
+echo "== multi-harness contracts (agy, grok, muse) =="
+AGY_HJ="$PLUGIN_ROOT/hooks.json"
+AGY_CMD="$(jq -r '."silent-failure-scanner".PreToolUse[0].hooks[0].command' "$AGY_HJ" 2>/dev/null)"
+OUT="$(cd "$PLUGIN_ROOT" && printf '{"hookEventName":"PreToolUse","toolCall":{"id":"1","name":"run_command","args":{"CommandLine":"git commit -m oops"}},"cwd":%s}' "$(jq -Rn --arg c "$bad_repo" '$c')" | bash -c "$AGY_CMD" 2>/dev/null)"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.decision=="deny" and (.reason | contains("swallowed-exception"))' >/dev/null 2>&1; then
+  echo "PASS: agy PreToolUse commit deny via root hooks.json"; PASS=$((PASS+1))
+else
+  echo "FAIL: agy PreToolUse commit deny — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
+fi
+OUT="$(cd "$PLUGIN_ROOT" && printf '{"hookEventName":"PreToolUse","toolCall":{"id":"2","name":"run_command","args":{"CommandLine":"ls -la"}},"cwd":%s}' "$(jq -Rn --arg c "$bad_repo" '$c')" | bash -c "$AGY_CMD" 2>/dev/null)"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.decision=="allow"' >/dev/null 2>&1; then
+  echo "PASS: agy PreToolUse non-commit allow via root hooks.json"; PASS=$((PASS+1))
+else
+  echo "FAIL: agy PreToolUse non-commit allow — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
+fi
 HJ="$PLUGIN_ROOT/hooks/hooks.json"
-if jq -e '.hooks.PreToolUse[0].matcher=="Bash"' "$HJ" >/dev/null 2>&1 \
+STD_CMD="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$HJ" 2>/dev/null)"
+OUT="$(env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u MUSE_PLUGIN_ROOT GROK_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  bash -c "$STD_CMD" <<<"$(printf '{"toolName":"run_terminal_command","toolInput":{"command":"git commit -m oops"},"cwd":%s}' "$(jq -Rn --arg c "$bad_repo" '$c')")" 2>/dev/null)"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.decision=="deny" and (.reason | contains("swallowed-exception"))' >/dev/null 2>&1; then
+  echo "PASS: grok camelCase + GROK_PLUGIN_ROOT emits top-level deny decision"; PASS=$((PASS+1))
+else
+  echo "FAIL: grok camelCase + GROK_PLUGIN_ROOT — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
+fi
+OUT="$(env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u GROK_PLUGIN_ROOT MUSE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  bash -c "$STD_CMD" <<<"$(printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m oops"},"cwd":%s}' "$(jq -Rn --arg c "$bad_repo" '$c')")" 2>/dev/null)"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1; then
+  echo "PASS: muse MUSE_PLUGIN_ROOT denies commit"; PASS=$((PASS+1))
+else
+  echo "FAIL: muse MUSE_PLUGIN_ROOT — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
+fi
+
+echo "== hooks.json manifest smoke test =="
+if jq -e '.hooks.PreToolUse[0].matcher | test("Bash") and test("run_command") and test("run_terminal_command")' "$HJ" >/dev/null 2>&1 \
    && jq -r '.hooks.PreToolUse[0].hooks[0].command' "$HJ" | grep -q 'pre-commit-gate.sh' \
+   && jq -e '."silent-failure-scanner".PreToolUse[0].matcher=="run_command"' "$AGY_HJ" >/dev/null 2>&1 \
    && [[ -x "$HOOK" ]]; then
-  echo "PASS: hooks.json wires PreToolUse:Bash -> pre-commit-gate.sh"; PASS=$((PASS+1))
+  echo "PASS: hooks/hooks.json and root hooks.json wire PreToolUse -> pre-commit-gate.sh"; PASS=$((PASS+1))
 else
   echo "FAIL: hooks.json manifest invalid or script not executable"; FAIL=$((FAIL+1))
 fi

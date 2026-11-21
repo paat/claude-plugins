@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "path": "plugins",
+      "include_only": [
+        "irreversible-guard",
+        "multi-model-orchestrator",
+        "silent-failure-scanner",
+        "tribunal-review"
+      ]
+    }
+  ]
+}

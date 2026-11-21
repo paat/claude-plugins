@@ -8,6 +8,9 @@ description: "Choose a worker (Claude Code, Codex, Grok Build, Muse Code, Antigr
 Choose one primary route per bounded task. Read `references/routing.md` and
 `references/task-fit.md` before assigning a model or effort. Read only the relevant evidence
 notes when explaining or revisiting a recommendation; do not re-research unchanged routes.
+Where commands below write `${CLAUDE_PLUGIN_ROOT}`, resolve it to the installed plugin root on your
+harness (`CLAUDE_PLUGIN_ROOT`, `CODEX_PLUGIN_ROOT`, `PLUGIN_ROOT`, `GROK_PLUGIN_ROOT`,
+`MUSE_PLUGIN_ROOT`, or two directories above this skill file).
 
 ## Route in this order
 

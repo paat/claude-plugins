@@ -213,5 +213,33 @@ class DuplicationAndBudgetTests(unittest.TestCase):
             self.assertEqual(errors, [])
 
 
+class AntigravityHooksLintTests(unittest.TestCase):
+    def test_accepts_valid_root_hooks_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = Path(directory) / "fixture"
+            (plugin / "hooks").mkdir(parents=True)
+            (plugin / "hooks" / "guard.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            (plugin / "hooks.json").write_text(
+                '{"fixture":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command","command":"bash ./hooks/guard.sh"}]}],'
+                '"SessionStart":[{"type":"command","command":"bash ./hooks/guard.sh"}]}}\n',
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            CHECKER.lint_hooks(plugin, errors)
+            self.assertEqual(errors, [])
+
+    def test_rejects_missing_target_and_nested_session_start(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = Path(directory) / "fixture"
+            plugin.mkdir(parents=True)
+            (plugin / "hooks.json").write_text(
+                '{"fixture":{"SessionStart":[{"matcher":"compact","hooks":[{"command":"./hooks/missing.sh"}]}]}}\n',
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            CHECKER.lint_hooks(plugin, errors)
+            self.assertTrue(any("flat handler objects" in err for err in errors))
+
+
 if __name__ == "__main__":
     unittest.main()

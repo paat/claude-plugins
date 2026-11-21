@@ -40,8 +40,27 @@ TEST_JUST_RE='^[[:space:]]*justified[[:space:]]*(—|–|-)[[:space:]]*[^[:space
 LIVE_SHA_RE='VERIFIED LIVE:.*\<[[:xdigit:]]{7,40}\>'
 LIVE_NONE_RE='Live-Recheck:[[:space:]]*no-live-surface[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
 
+IS_AGY=0
+[ "${HOOK_RUNTIME:-}" = agy ] && IS_AGY=1
+
+allow() {
+  if [ "$IS_AGY" -eq 1 ]; then
+    printf '{"decision":"allow"}\n'
+  fi
+  exit 0
+}
+
 block() {
   local reason="$1" esc
+  if [ "$IS_AGY" -eq 1 ]; then
+    if command -v jq >/dev/null 2>&1; then
+      jq -nc --arg r "ship-gates: $reason" '{decision:"deny",reason:$r}'
+    else
+      esc="$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+      printf '{"decision":"deny","reason":"ship-gates: %s"}\n' "$esc"
+    fi
+    exit 0
+  fi
   printf 'ship-gates: %s\n' "$reason" >&2
   esc="$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
   printf '{"systemMessage":"ship-gates: %s"}\n' "$esc" >&2
@@ -725,17 +744,20 @@ close_gate() { # close_gate INDEX
 }
 
 input="$(cat || true)"
+if [ "$IS_AGY" -eq 0 ] && printf '%s' "$input" | grep -q '"toolCall"'; then
+  IS_AGY=1
+fi
 case "$input" in
   *push*|*close*) ;;
-  *) exit 0 ;;
+  *) allow ;;
 esac
 if ! command -v jq >/dev/null 2>&1; then
   warn "jq not found; allowing"
-  exit 0
+  allow
 fi
-command="$(printf '%s' "$input" | jq -r '.tool_input.command // .command // empty' 2>/dev/null || true)"
-cwd="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true)"
-[ -n "$command" ] || exit 0
+command="$(printf '%s' "$input" | jq -r '.toolCall.args.CommandLine // .toolCall.args.command // .tool_input.command // .toolInput.command // .tool_input.cmd // .toolInput.cmd // .command // empty' 2>/dev/null || true)"
+cwd="$(printf '%s' "$input" | jq -r '.cwd // (.workspacePaths[0] // empty)' 2>/dev/null || true)"
+[ -n "$command" ] || allow
 
 kind=none
 kinds=()
@@ -748,7 +770,7 @@ issues=()
 comments=()
 gh_repos=()
 analyze_command "$command" "$cwd"
-[ "$kind" != ambiguous ] || exit 0
+[ "$kind" != ambiguous ] || allow
 
 if [ "${#kinds[@]}" -gt 0 ]; then
   for idx in "${!kinds[@]}"; do
@@ -758,4 +780,4 @@ if [ "${#kinds[@]}" -gt 0 ]; then
     esac
   done
 fi
-exit 0
+allow

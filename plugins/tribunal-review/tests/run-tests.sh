@@ -2485,6 +2485,7 @@ EOF
     set -e
     cd "$work"
     PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY -u TRIBUNAL_PLUGIN_ROOT \
+      -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u GROK_PLUGIN_ROOT -u MUSE_PLUGIN_ROOT \
       CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
       TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
       bash "$orphan/run-grok-review.sh" > "$work/out-g.json"
@@ -2496,6 +2497,26 @@ EOF
     FAILURES+=("grok schema resolves via CLAUDE_PLUGIN_ROOT")
     echo "    out: $(cat "$work/out-g.json" 2>/dev/null || true)" >&2
   fi
+
+  # Scenario G2: schema resolves via CODEX_PLUGIN_ROOT, PLUGIN_ROOT (agy), GROK_PLUGIN_ROOT, and MUSE_PLUGIN_ROOT.
+  for env_var in CODEX_PLUGIN_ROOT PLUGIN_ROOT GROK_PLUGIN_ROOT MUSE_PLUGIN_ROOT; do
+    if (
+      set -e
+      cd "$work"
+      PATH="$fake:$PATH" GROK_HOME="$host_grok" env -u XAI_API_KEY -u TRIBUNAL_PLUGIN_ROOT \
+        -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u GROK_PLUGIN_ROOT -u MUSE_PLUGIN_ROOT \
+        "${env_var}=$PLUGIN_ROOT" \
+        TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
+        bash "$orphan/run-grok-review.sh" > "$work/out-g2-${env_var}.json"
+    ) && jq -e '.provider=="grok" and .summary.verdict=="APPROVE" and (has("error")|not)' \
+        "$work/out-g2-${env_var}.json" >/dev/null; then
+      echo -e "  ${GREEN}PASS${NC} grok schema resolves via ${env_var}"; PASS=$((PASS+1))
+    else
+      echo -e "  ${RED}FAIL${NC} grok schema resolves via ${env_var}"; FAIL=$((FAIL+1))
+      FAILURES+=("grok schema resolves via ${env_var}")
+      echo "    out: $(cat "$work/out-g2-${env_var}.json" 2>/dev/null || true)" >&2
+    fi
+  done
 
   # Scenario H: missing schema file fails before provider run (no silent empty schema).
   local bare="$work/bare-plugin"
@@ -2514,7 +2535,7 @@ EOF
     set -e
     cd "$work"
     PATH="$fake:$PATH" GROK_HOME="$host_grok" GROK_RAN="$work/provider-ran-h" env -u XAI_API_KEY \
-      env -u CLAUDE_PLUGIN_ROOT -u TRIBUNAL_PLUGIN_ROOT \
+      -u CLAUDE_PLUGIN_ROOT -u TRIBUNAL_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u GROK_PLUGIN_ROOT -u MUSE_PLUGIN_ROOT \
       TRIBUNAL_GROK=on TRIBUNAL_BASE_REF=HEAD~1 \
       bash "$bare/scripts/run-grok-review.sh" > "$work/out-h.json"
   ) && jq -e '.provider=="grok" and (.error|test("schema missing|cannot load review schema"))' \

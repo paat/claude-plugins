@@ -21,12 +21,21 @@ set -uo pipefail
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCAN="$HOOK_DIR/../scripts/scan.sh"
+IS_AGY=0
+IS_GROK=0
+[[ "${HOOK_RUNTIME:-}" == "agy" ]] && IS_AGY=1
+[[ -n "${GROK_HOOK_EVENT:-}" ]] && IS_GROK=1
 
-allow() { exit 0; }   # no output ⇒ default-allow
+allow() {
+  if [[ "$IS_AGY" -eq 1 ]]; then
+    printf '{"decision":"allow"}\n'
+  fi
+  exit 0
+}   # no output ⇒ default-allow (Claude/Codex/Grok/Muse); explicit allow JSON (agy)
 
 # jq is a runtime dependency: without it the gate cannot parse tool input or emit a
 # deny, so it fails open. Warn once (per TMPDIR) so the silent no-op is at least loud —
-# this hook fires on every Bash call, so a per-invocation warning would spam.
+# this hook fires on every shell call, so a per-invocation warning would spam.
 if ! command -v jq >/dev/null 2>&1; then
   warn_marker="${TMPDIR:-/tmp}/.silent-failure-scanner-jq-missing"
   [[ -e "$warn_marker" ]] || {
@@ -110,8 +119,20 @@ process_segment() {
 }
 
 input="$(cat)"
-command="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)"
-cwd="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+if [[ "$IS_AGY" -eq 0 ]] && printf '%s' "$input" | jq -e 'type == "object" and has("toolCall")' >/dev/null 2>&1; then
+  IS_AGY=1
+elif [[ "$IS_AGY" -eq 0 && "$IS_GROK" -eq 0 ]] && printf '%s' "$input" | jq -e 'type == "object" and (has("toolName") or has("toolInput"))' >/dev/null 2>&1; then
+  IS_GROK=1
+fi
+tool_name="$(printf '%s' "$input" | jq -r '(.toolCall.name // .tool_name // .toolName // empty) | ascii_downcase' 2>/dev/null)"
+if [[ -n "$tool_name" ]]; then
+  case "$tool_name" in
+    bash|shell|run_command|run_terminal_command|execute_command|exec_command) ;;
+    *) allow ;;
+  esac
+fi
+command="$(printf '%s' "$input" | jq -r '.toolCall.args.CommandLine // .toolCall.args.command // .tool_input.command // .toolInput.command // .tool_input.cmd // .toolInput.cmd // empty' 2>/dev/null)"
+cwd="$(printf '%s' "$input" | jq -r '.cwd // (.workspacePaths[0] // empty)' 2>/dev/null)"
 [[ -z "$command" ]] && allow
 
 analyze_command "$command" "$cwd"
@@ -139,6 +160,11 @@ Arbitrate each finding before committing:
   • Genuinely benign → re-run the SAME commit prefixed with
     SILENT_FAILURE_ACK=\"<one-line reason>\" to record the justification and proceed.
 Do not bypass with --no-verify."
+
+if [[ "$IS_AGY" -eq 1 || "$IS_GROK" -eq 1 ]]; then
+  jq -nc --arg r "$reason" '{decision: "deny", reason: $r}'
+  exit 0
+fi
 
 jq -nc --arg r "$reason" '{
   hookSpecificOutput: {

@@ -152,9 +152,9 @@ Before declaring **DONE — ready to merge / hand off**, evaluate CI for the exa
 
 ```bash
 OWNER_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-}}}}}}"
 if [ -z "$PLUGIN_ROOT" ]; then
-  echo "TRIBUNAL_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT required" >&2
+  echo "TRIBUNAL_PLUGIN_ROOT or a harness plugin-root env var (or ../.. from this skill dir) required" >&2
   exit 1
 fi
 CI_EC=0

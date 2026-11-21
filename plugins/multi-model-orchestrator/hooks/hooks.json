@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/reanchor.sh\" ]; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/reanchor.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/reanchor.sh\" ]; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/reanchor.sh\"; fi; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/reanchor.sh\" >&2; exit 0'",
+            "command": "bash -c 'for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"${PLUGIN_ROOT:-}\" \"${GROK_PLUGIN_ROOT:-}\" \"${MUSE_PLUGIN_ROOT:-}\"; do if [ -n \"$r\" ] && [ -f \"$r/hooks/reanchor.sh\" ]; then exec bash \"$r/hooks/reanchor.sh\"; fi; done; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/reanchor.sh\" >&2; exit 0'",
             "timeout": 10
           }
         ]
@@ -14,11 +14,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|bash|shell|exec_command|run_command|run_terminal_command",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/ship-gates.sh\" ]; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/ship-gates.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/ship-gates.sh\" ]; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/ship-gates.sh\"; fi; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/ship-gates.sh\" >&2; exit 0'",
+            "command": "bash -c 'for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"${PLUGIN_ROOT:-}\" \"${GROK_PLUGIN_ROOT:-}\" \"${MUSE_PLUGIN_ROOT:-}\"; do if [ -n \"$r\" ] && [ -f \"$r/hooks/ship-gates.sh\" ]; then exec bash \"$r/hooks/ship-gates.sh\"; fi; done; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/ship-gates.sh\" >&2; exit 0'",
             "timeout": 300
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/context-watch.sh\" ]; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/context-watch.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/context-watch.sh\" ]; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/context-watch.sh\"; fi; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/context-watch.sh\" >&2; exit 0'",
+            "command": "bash -c 'for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"${PLUGIN_ROOT:-}\" \"${GROK_PLUGIN_ROOT:-}\" \"${MUSE_PLUGIN_ROOT:-}\"; do if [ -n \"$r\" ] && [ -f \"$r/hooks/context-watch.sh\" ]; then exec bash \"$r/hooks/context-watch.sh\"; fi; done; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/context-watch.sh\" >&2; exit 0'",
             "timeout": 10
           }
         ]

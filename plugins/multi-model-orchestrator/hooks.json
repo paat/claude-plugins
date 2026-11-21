@@ -1,0 +1,30 @@
+{
+  "multi-model-orchestrator": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "HOOK_RUNTIME=agy bash ./hooks/reanchor.sh",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK_RUNTIME=agy bash ./hooks/ship-gates.sh",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "HOOK_RUNTIME=agy bash ./hooks/context-watch.sh",
+        "timeout": 10
+      }
+    ]
+  }
+}

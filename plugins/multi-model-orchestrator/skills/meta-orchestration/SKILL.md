@@ -143,8 +143,8 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal.
 - You never edit source while any worker is live. `git checkout` is a write. Never
   `gh pr merge --delete-branch` under a live worker.
 - Start every turn by reading any unread dispatched-leg output, then resume at the gate.
-- Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
-  Claude Code, use Bash `run_in_background: true` for its `<task-notification>`; never use bare shell `&`.
+- Dispatch legs via a host mechanism whose completion re-invokes the orchestrator (Claude:
+  `run_in_background: true`; agy: `WaitMsBeforeAsync`; Codex/Grok/Muse async); never use bare shell `&`.
 - Ending a turn with an unarranged live leg is a defect, not a wait. Follow Preflight's handoff
   write — announcing a dispatch without that written handoff is a defect.
 - Workers never push. You own push and PR creation.

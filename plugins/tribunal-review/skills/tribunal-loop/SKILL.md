@@ -34,7 +34,7 @@ verdict it carries (issue #487).
 Set the plugin root and a per-run scratch dir for the provider JSON, then run preflight:
 
 ```bash
-TRIBUNAL_PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}" # this plugin's root
+TRIBUNAL_PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-}}}}}}" # or ../.. from this skill dir
 RUN_DIR="$(mktemp -d)"                          # collects one JSON file per leg
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/preflight.sh"
 ```

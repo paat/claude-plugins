@@ -153,27 +153,32 @@ def check_manifest_versions(
 ) -> None:
     version = manifest.get("version")
     marketplace_version = marketplace_entry.get("version")
-    codex_manifest_path = manifest_path.parent.parent / ".codex-plugin" / "plugin.json"
-    if codex_manifest_path.is_file():
-        codex_manifest = load_json(codex_manifest_path, errors)
-        if not isinstance(codex_manifest, dict):
-            if codex_manifest is not None:
-                errors.append(f"{rel(codex_manifest_path)}: manifest must be an object")
+    plugin_root = manifest_path.parent.parent
+    extra_manifests: list[tuple[Path, Any]] = []
+    for rel_manifest in (
+        Path(".codex-plugin") / "plugin.json",
+        Path(".antigravity-plugin") / "plugin.json",
+    ):
+        extra_path = plugin_root / rel_manifest
+        if not extra_path.is_file():
+            continue
+        extra = load_json(extra_path, errors)
+        if not isinstance(extra, dict):
+            if extra is not None:
+                errors.append(f"{rel(extra_path)}: manifest must be an object")
             return
-        codex_version = codex_manifest.get("version")
-        if version != marketplace_version or version != codex_version:
-            errors.append(
-                f"{plugin_name}: version mismatch: {rel(manifest_path)}={version!r}, "
-                f"{rel(marketplace_path)}={marketplace_version!r}, "
-                f"{rel(codex_manifest_path)}={codex_version!r}"
-            )
-        return
+        extra_manifests.append((extra_path, extra.get("version")))
 
-    if version != marketplace_version:
-        errors.append(
-            f"{plugin_name}: version mismatch: {rel(manifest_path)}={version!r}, "
-            f"{rel(marketplace_path)}={marketplace_version!r}"
-        )
+    mismatched = version != marketplace_version or any(
+        extra_version != version for _, extra_version in extra_manifests
+    )
+    if mismatched:
+        parts = [
+            f"{rel(manifest_path)}={version!r}",
+            f"{rel(marketplace_path)}={marketplace_version!r}",
+        ]
+        parts.extend(f"{rel(path)}={ver!r}" for path, ver in extra_manifests)
+        errors.append(f"{plugin_name}: version mismatch: {', '.join(parts)}")
 
 
 def check_installation_section(plugin_name: str, readme_path: Path, errors: list[str]) -> None:

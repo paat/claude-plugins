@@ -1,8 +1,8 @@
 ---
 name: gemini-reviewer
 description: Invokes Gemini via Antigravity CLI (agy) for independent code review with a large context window and web/CVE search. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
-tools: Bash
-model: haiku
+tools: [Bash]
+model: inherit
 color: blue
 ---
 

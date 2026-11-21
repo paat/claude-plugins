@@ -46,7 +46,7 @@ assert_hook_command_fails_open_without_plugin_root() {
   }
 
   (
-    unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT
+    unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT PLUGIN_ROOT GROK_PLUGIN_ROOT MUSE_PLUGIN_ROOT
     cd "$tmpdir" || exit 1
     bash -c "$HOOK_COMMAND" </dev/null >"$tmpdir/out" 2>"$tmpdir/err"
   )
@@ -71,7 +71,7 @@ assert_guard_wrapper_runs_without_plugin_root() {
   payload="$(payload_for "echo hi")"
 
   (
-    unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT
+    unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT PLUGIN_ROOT GROK_PLUGIN_ROOT MUSE_PLUGIN_ROOT
     printf '%s' "$payload" | bash "$HOOK" >"$tmpdir/out" 2>"$tmpdir/err"
   )
   code=$?
@@ -98,6 +98,50 @@ while IFS=$'\t' read -r cmd expected; do
   else actual=PASS; fi
   record_check "$cmd" "$actual" "$expected"
 done < "$HERE/cases.tsv"
+
+# Multi-harness contract tests: agy (protojson + root hooks.json), Grok (camelCase + GROK_PLUGIN_ROOT), Muse (MUSE_PLUGIN_ROOT)
+assert_agy_contracts() {
+  local agy_hooks="$PLUGIN_ROOT/hooks.json" agy_cmd out code
+  agy_cmd="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["irreversible-guard"]["PreToolUse"][0]["hooks"][0]["command"])' "$agy_hooks")"
+  out="$(cd "$PLUGIN_ROOT" && printf '{"hookEventName":"PreToolUse","toolCall":{"id":"1","name":"run_command","args":{"CommandLine":"rm -rf /"}},"cwd":"%s"}' "$PWD" | bash -c "$agy_cmd" 2>/dev/null)"; code=$?
+  if [[ $code -eq 0 ]] && printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("decision")=="deny" and "BLOCKED" in d.get("reason","")'; then
+    record_check "agy PreToolUse block via root hooks.json" "PASS" "PASS"
+  else
+    record_check "agy PreToolUse block via root hooks.json" "EXIT_${code}:${out}" "PASS"
+  fi
+  out="$(cd "$PLUGIN_ROOT" && printf '{"hookEventName":"PreToolUse","toolCall":{"id":"2","name":"run_command","args":{"CommandLine":"echo hi"}},"cwd":"%s"}' "$PWD" | bash -c "$agy_cmd" 2>/dev/null)"; code=$?
+  if [[ $code -eq 0 ]] && printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("decision")=="allow"'; then
+    record_check "agy PreToolUse allow via root hooks.json" "PASS" "PASS"
+  else
+    record_check "agy PreToolUse allow via root hooks.json" "EXIT_${code}:${out}" "PASS"
+  fi
+  out="$(cd "$PLUGIN_ROOT" && printf '{"hookEventName":"PreToolUse","toolCall":{"id":"3","name":"run_command","args":{"CommandLine":"git reset --hard HEAD~1"}},"cwd":"%s"}' "$PWD" | bash -c "$agy_cmd" 2>/dev/null)"; code=$?
+  if [[ $code -eq 0 ]] && printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("decision")=="allow" and "CAUTION" in d.get("reason","")'; then
+    record_check "agy PreToolUse warn via root hooks.json" "PASS" "PASS"
+  else
+    record_check "agy PreToolUse warn via root hooks.json" "EXIT_${code}:${out}" "PASS"
+  fi
+}
+
+assert_grok_and_muse_contracts() {
+  local root="$PLUGIN_ROOT" code
+  (
+    unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT PLUGIN_ROOT MUSE_PLUGIN_ROOT
+    export GROK_PLUGIN_ROOT="$root"
+    printf '{"toolName":"run_terminal_command","toolInput":{"command":"rm -rf /"},"cwd":"%s"}' "$PWD" | bash -c "$HOOK_COMMAND" >/dev/null 2>&1
+  ); code=$?
+  record_check "grok camelCase + GROK_PLUGIN_ROOT blocks" "$code" "2"
+
+  (
+    unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT PLUGIN_ROOT GROK_PLUGIN_ROOT
+    export MUSE_PLUGIN_ROOT="$root"
+    printf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"},"cwd":"%s"}' "$PWD" | bash -c "$HOOK_COMMAND" >/dev/null 2>&1
+  ); code=$?
+  record_check "muse MUSE_PLUGIN_ROOT blocks" "$code" "2"
+}
+
+assert_agy_contracts
+assert_grok_and_muse_contracts
 
 echo "pass=$pass fail=$fail"
 [[ $fail -eq 0 ]]

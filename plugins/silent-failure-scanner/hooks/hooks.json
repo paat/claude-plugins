@@ -2,11 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|bash|shell|exec_command|run_command|run_terminal_command",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/pre-commit-gate.sh\" ] && grep -qF silent-failure-scanner \"${CLAUDE_PLUGIN_ROOT:-}/.claude-plugin/plugin.json\" 2>/dev/null; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/pre-commit-gate.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/pre-commit-gate.sh\" ] && grep -qF silent-failure-scanner \"${CODEX_PLUGIN_ROOT:-}/.claude-plugin/plugin.json\" 2>/dev/null; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/pre-commit-gate.sh\"; fi; echo \"[silent-failure-scanner] hook target not found: hooks/pre-commit-gate.sh\" >&2; exit 0'",
+            "command": "bash -c 'for r in \"${CLAUDE_PLUGIN_ROOT:-}\" \"${CODEX_PLUGIN_ROOT:-}\" \"${PLUGIN_ROOT:-}\" \"${GROK_PLUGIN_ROOT:-}\" \"${MUSE_PLUGIN_ROOT:-}\"; do if [ -n \"$r\" ] && [ -f \"$r/hooks/pre-commit-gate.sh\" ] && grep -qF silent-failure-scanner \"$r/.claude-plugin/plugin.json\" 2>/dev/null; then exec bash \"$r/hooks/pre-commit-gate.sh\"; fi; done; echo \"[silent-failure-scanner] hook target not found: hooks/pre-commit-gate.sh\" >&2; exit 0'",
             "timeout": 30
           }
         ]
