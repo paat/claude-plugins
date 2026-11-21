@@ -6,8 +6,7 @@ description: "Use when running the show over a queue of work — an epic, an iss
 # Meta Orchestration
 
 The brief describes WHAT to achieve — outcomes, priorities,
-autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: task
-decomposition, sequencing, model routing, dispatch, gating, and recovery follow the rules
+autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: the rules
 below. You coordinate; you never edit source. Route every worker and reviewer leg with
 `../route-model-task/SKILL.md` — do not restate its catalog. Do not load
 `../multi-model-orchestration/SKILL.md`.
@@ -118,9 +117,9 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted read
    leg) vs. genuine judgment call (decide with the recommended default, attach research when a
    trigger fired else state why not, and record the choice).
 3. Fill `references/worker-prompt.md` with handoff rules-learned and any research memo for the item.
-   Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800` with `pick`'s,
-   contract, `--task`, `--cycle` flags. Direct routes wrap the recorded
-   eligible runner (`run-*.sh`) in `leg-check.sh --snapshot`/`--baseline`.
+   Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800` with `pick`'s
+   contract, `--task`, `--cycle`; pass `--worker-commits` when the packet assigns the commit to the worker.
+   Direct routes wrap the recorded eligible runner (`run-*.sh`) in `leg-check.sh --snapshot`/`--baseline`.
 4. Gate yourself: exits 8-11 reject; inspect the item-branch diff, verify the final-message
    contract. If the leg's contract barred committing, commit the gated result yourself —
    recording output or a memo is bookkeeping, not source editing.

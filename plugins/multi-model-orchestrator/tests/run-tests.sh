@@ -1582,6 +1582,14 @@ contains "$WORK/mt-resume-ok.err" 'continues=1' 'successful resume reports conti
 contains "$WORK/mt.out" 'grok findings' '--out holds the last call final message'
 contains "$WORK/mt.out.stderr" 'max turns reached' '.stderr accumulates the first call'
 contains "$WORK/grok.prompt" 'Finish the remaining edits now' 'resume uses the finishing prompt'
+contains "$WORK/grok.prompt" 'Do not commit.' 'implement resume without worker-commits forbids commit'
+: > "$STUB_GROK_CALLS"
+rm -f "$STUB_GROK_TOUCH"
+STUB_GROK_MAXTURNS_FIRST=1 MMO_WORKER_COMMITS=1 grok_mt "$WORK/mt-resume-own.err" --mode implement --max-turns 5
+rm -f "$STUB_GROK_TOUCH"
+[ "$mt_rc" -eq 0 ] || fail "worker-commits resume rc=$mt_rc want 0 ($(cat "$WORK/mt-resume-own.err"))"
+contains "$WORK/grok.prompt" 'Commit your changes.' 'implement resume with worker-commits says to commit'
+absent "$WORK/grok.prompt" 'Do not commit.' 'implement resume with worker-commits does not forbid commit'
 : > "$STUB_GROK_CALLS"
 STUB_GROK_TOUCH_ONCE=1 grok_mt "$WORK/mt-incr.err" --mode implement --max-turns 5 --continue-on-max-turns 2
 rm -f "$STUB_GROK_TOUCH"

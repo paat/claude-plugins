@@ -16,10 +16,12 @@
 # (not subject or body prose):
 #   Push-Gate: skip — <reason>
 #   Test-Deletion: justified — <reason>
-# Plain `git push` resolves @{push} (push.default), not the upstream branch.
+# `git push` and `git push <remote>` (no refspec) resolve @{push} (push.default).
 # A new branch is attributed from merge-base(tip, origin/<default>).
-# push_check runs even when that range cannot be resolved.
-# A live marker and its SHA must share one line of one comment.
+# push_check runs for every non-delete push even when HEAD or the range
+# cannot be resolved. A Push-Gate skip trailer in a resolved range skips it.
+# A live marker and its SHA share one line. The SHA is a standalone 7-40 hex token.
+# GH_REPO= and -R/--repo select the repository for the evidence lookup.
 # gh read failure warns and allows. Delete-ref pushes are not gated.
 set -uo pipefail
 
@@ -28,7 +30,7 @@ DEFAULT_TEST_RE='(\.test\.|\.spec\.|(^|/)test_[^/]*\.py$|_test\.go$|(^|/)tests?/
 DECL_RE='def[[:space:]]+test_|func[[:space:]]+Test|it\(|test\('
 PUSH_SKIP_RE='^[[:space:]]*skip[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
 TEST_JUST_RE='^[[:space:]]*justified[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
-LIVE_SHA_RE='VERIFIED LIVE:.*[[:xdigit:]]{7}'
+LIVE_SHA_RE='VERIFIED LIVE:.*\<[[:xdigit:]]{7,40}\>'
 LIVE_NONE_RE='Live-Recheck:[[:space:]]*no-live-surface[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
 
 block() {
@@ -90,6 +92,11 @@ classify_words() {
   while (( i < n )); do
     t="${words[$i]}"
     if [[ "$t" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      # Same simple command only; classify_words resets gate_gh_repo per segment.
+      # A later -R/--repo overwrites this, matching gh flag precedence.
+      case "$t" in
+        GH_REPO=*) gate_gh_repo="${t#GH_REPO=}" ;;
+      esac
       i=$((i + 1))
       continue
     fi
@@ -298,7 +305,7 @@ record_gate() {
 }
 
 # One line is one evidence statement. A marker and a SHA in different lines,
-# or in different comments, do not combine.
+# or in different comments, do not combine. The SHA is its own 7-40 hex word.
 has_live_marker() {
   local line=""
   while IFS= read -r line || [ -n "$line" ]; do
@@ -391,23 +398,33 @@ push_gate() { # push_gate INDEX
   remote="${remotes[$i]}"
   src="${srcs[$i]}"
   dst="${dsts[$i]}"
-  # Plain `git push` (no remote, no refspec). Explicit refspecs keep the parsed names.
-  if [ -z "$remote" ] && [ -z "$src" ]; then
+  load_repo_config "$top"
+  # No refspec (`git push` or `git push <remote>`): @{push} honors push.default.
+  # Nothing below returns until push_check has had its chance.
+  if [ -z "$src" ]; then
     local dest_line=""
     dest_line="$(plain_push_dest "$top" || true)"
     if [ -n "$dest_line" ]; then
-      remote="${dest_line%%$'\t'*}"
-      dst="${dest_line#*$'\t'}"
+      if [ -z "$remote" ]; then
+        remote="${dest_line%%$'\t'*}"
+      fi
+      if [ -z "$dst" ]; then
+        dst="${dest_line#*$'\t'}"
+      fi
     fi
   fi
   if [ -z "$remote" ]; then
     remote=origin
   fi
+  # HEAD, named or implied, is the branch, or the commit itself when detached.
   if [ -z "$src" ] || [ "$src" = HEAD ]; then
-    src="$(git -C "$top" symbolic-ref --short HEAD 2>/dev/null)" || {
-      warn "cannot resolve the branch being pushed; allowing"
-      return 0
-    }
+    local branch=""
+    branch="$(git -C "$top" symbolic-ref --short HEAD 2>/dev/null || true)"
+    if [ -n "$branch" ]; then
+      src="$branch"
+    else
+      src="$(git -C "$top" rev-parse --verify -q HEAD 2>/dev/null || true)"
+    fi
   fi
   src="${src#refs/heads/}"
   if [ -z "$dst" ] || [ "$dst" = HEAD ]; then
@@ -415,26 +432,23 @@ push_gate() { # push_gate INDEX
   fi
   dst="${dst#refs/heads/}"
   tip="$src"
-  git -C "$top" rev-parse --verify -q "$tip" >/dev/null || {
-    warn "cannot resolve the local ref being pushed; allowing"
-    return 0
-  }
   base=""
-  if git -C "$top" rev-parse --verify -q "$remote/$dst" >/dev/null; then
-    base="$remote/$dst"
-  else
-    local def=""
-    def="$(origin_default "$top" || true)"
-    if [ -n "$def" ]; then
-      base="$(git -C "$top" merge-base "$tip" "$def" 2>/dev/null || true)"
+  if [ -n "$tip" ] && git -C "$top" rev-parse --verify -q "$tip" >/dev/null; then
+    if [ -n "$dst" ] && git -C "$top" rev-parse --verify -q "$remote/$dst" >/dev/null; then
+      base="$remote/$dst"
+    else
+      local def=""
+      def="$(origin_default "$top" || true)"
+      if [ -n "$def" ]; then
+        base="$(git -C "$top" merge-base "$tip" "$def" 2>/dev/null || true)"
+      fi
     fi
   fi
-  load_repo_config "$top"
   local skip_push=0
-  if [ -n "$base" ] && range_has_trailer "$top" "$base" "$tip" Push-Gate "$PUSH_SKIP_RE"; then
+  if [ -n "$base" ] && [ -n "$tip" ] && range_has_trailer "$top" "$base" "$tip" Push-Gate "$PUSH_SKIP_RE"; then
     skip_push=1
   fi
-  # push_check does not need a diff. A missing range is not a reason to skip it.
+  # push_check does not need a branch or a diff. Resolution failure is not a skip.
   if [ "$skip_push" -eq 0 ] && [ -n "$cfg_push" ]; then
     check_rc=0
     if command -v timeout >/dev/null 2>&1; then

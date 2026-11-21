@@ -34,6 +34,9 @@ grep -q 'MMO_ALLOW_REDO' "$PLUGIN_ROOT/README.md" || fail 'README omits MMO_ALLO
 grep -q 'MMO_ALLOW_UNCOMMITTED' "$PLUGIN_ROOT/README.md" || fail 'README omits MMO_ALLOW_UNCOMMITTED'
 grep -q 'VERIFIED LIVE:' "$PLUGIN_ROOT/README.md" || fail 'README omits VERIFIED LIVE:'
 grep -q -- '--worker-commits' "$PLUGIN_ROOT/README.md" || fail 'README omits --worker-commits'
+grep -F 'pass `--worker-commits` when the packet assigns the commit to the worker' \
+  "$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md" \
+  || fail 'dispatch omits when to pass --worker-commits'
 pass 'hooks and README are wired'
 
 # --- ship gates ---
@@ -54,6 +57,22 @@ printf 'gh %s\n' "\$*" >> "$TOOLLOG"
 if [ "\${GH_RC:-0}" != 0 ]; then
   printf 'gh failed\n' >&2
   exit "\$GH_RC"
+fi
+target=cwd
+prev=""
+for a in "\$@"; do
+  case "\$prev" in
+    --repo|-R) target="\$a" ;;
+  esac
+  case "\$a" in
+    --repo=*) target="\${a#--repo=}" ;;
+  esac
+  prev="\$a"
+done
+printf 'gh target=%s\n' "\$target" >> "$TOOLLOG"
+if [ "\$target" != cwd ]; then
+  printf '%s\n' "\${GH_REPO_VIEW-}"
+  exit 0
 fi
 case " \$* " in
   *" http://"*|*" https://"*)
@@ -272,6 +291,52 @@ hook 2 'git push origin topic' "$REPO"
 contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'an explicit refspec still blocks the deleted test'
 pass 'plain git push uses the push destination'
 
+# Named remote, no refspec. push.default=upstream sends integration to topic.
+# origin/integration already has the deletion, so the branch name is the wrong base.
+make_repo remotespec
+mkdir -p "$REPO/tests"
+printf 'it("keep", () => {})\n' > "$REPO/tests/keep.test.js"
+commit_repo 'add test'
+publish
+git -C "$REPO" branch topic
+git -C "$REPO" push -q origin topic
+git -C "$REPO" checkout -q -b integration
+rm "$REPO/tests/keep.test.js"
+commit_repo 'drop test on integration'
+git -C "$REPO" push -q origin integration
+git -C "$REPO" branch -u origin/topic
+git -C "$REPO" config push.default upstream
+hook 2 'git push' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'plain push with push.default=upstream checks topic'
+hook 2 'git push origin integration:topic' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'an explicit refspec to topic still blocks'
+hook 2 'git push origin' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'a named remote without a refspec uses the push destination'
+pass 'a named remote without a refspec resolves the push destination'
+
+# Detached HEAD. push_check must run; an explicit HEAD is that commit.
+make_repo detach
+write_cfg 'push_check: exit 23'
+git -C "$REPO" checkout -q --detach
+hook 2 'git push origin HEAD:refs/heads/topic' "$REPO"
+contains "$T/hook.err" 'push_check exited 23' 'detached HEAD runs push_check for an explicit HEAD refspec'
+absent "$T/hook.err" 'cannot resolve the branch being pushed' 'detached HEAD is resolved as a commit'
+hook 2 'git push' "$REPO"
+contains "$T/hook.err" 'push_check exited 23' 'plain push from detached HEAD runs push_check'
+pass 'push_check runs from a detached HEAD'
+
+make_repo detachdel
+mkdir -p "$REPO/tests"
+printf 'it("keep", () => {})\n' > "$REPO/tests/keep.test.js"
+commit_repo 'add test'
+publish
+rm "$REPO/tests/keep.test.js"
+commit_repo 'drop test'
+git -C "$REPO" checkout -q --detach
+hook 2 'git push origin HEAD:refs/heads/topic' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'detached HEAD attributes the commit being pushed'
+pass 'an explicit HEAD refspec is the commit at HEAD'
+
 # A test added on the default branch after the fork is not a deletion on the new branch.
 make_repo fork
 git -C "$REPO" checkout -q -b topic
@@ -295,6 +360,15 @@ contains "$T/hook.err" 'VERIFIED LIVE:' 'close without a live marker blocks'
 grep -q 'gh issue view' "$TOOLLOG" || fail "close without a marker did not read the issue: $(cat "$TOOLLOG")"
 hook 2 'gh issue close 7 --comment "VERIFIED LIVE: abcdef"' "$REPO"
 contains "$T/hook.err" 'VERIFIED LIVE:' 'a SHA shorter than 7 hex digits blocks'
+hook 2 'gh issue close 7 --comment "VERIFIED LIVE: succeeded"' "$REPO"
+contains "$T/hook.err" 'VERIFIED LIVE:' 'hex inside an ordinary word is not a SHA'
+hook 2 'gh issue close 7 --comment "VERIFIED LIVE: prefixdeadbee1"' "$REPO"
+contains "$T/hook.err" 'VERIFIED LIVE:' 'a hex token must stand alone'
+sha41="$(printf 'a%.0s' {1..41})"
+hook 2 "gh issue close 7 --comment \"VERIFIED LIVE: $sha41\"" "$REPO"
+contains "$T/hook.err" 'VERIFIED LIVE:' 'a hex token longer than 40 digits is not a SHA'
+sha40="$(printf 'b%.0s' {1..40})"
+hook_nogh "gh issue close 7 --comment \"VERIFIED LIVE: $sha40\"" "$REPO"
 hook_nogh 'gh issue close 7 --comment "VERIFIED LIVE: abcdef1"' "$REPO"
 hook_nogh 'gh issue close 7 -c "Live-Recheck: no-live-surface — no deploy"' "$REPO"
 hook 0 'gh issue close 7' "$REPO" GH_VIEW=$'earlier note\nVERIFIED LIVE: deadbee\n'
@@ -322,6 +396,18 @@ absent "$T/hook.err" 'needs VERIFIED LIVE:' 'gh read failure does not block'
 write_cfg 'live_recheck: false'
 hook_nogh 'gh issue close 7' "$REPO"
 pass 'live recheck is opt-in and accepts a SHA, a prior comment, or no-live-surface'
+# Checkout evidence must not satisfy a close aimed at another repository.
+write_cfg 'live_recheck: true'
+printf 'VERIFIED LIVE: deadbee1\n' > "$REPO/gh-view.txt"
+hook 2 'GH_REPO=acme/widgets gh issue close 9' "$REPO"
+contains "$T/hook.err" 'VERIFIED LIVE:' 'GH_REPO= is the issue repository for the evidence lookup'
+grep -F 'gh target=acme/widgets' "$TOOLLOG" || fail "GH_REPO was not passed to gh: $(cat "$TOOLLOG")"
+hook 2 'gh -R acme/widgets issue close 9' "$REPO"
+contains "$T/hook.err" 'VERIFIED LIVE:' '-R is the issue repository for the evidence lookup'
+grep -F 'gh target=acme/widgets' "$TOOLLOG" || fail "-R was not passed to gh: $(cat "$TOOLLOG")"
+hook 0 'GH_REPO=acme/widgets gh issue close 9' "$REPO" GH_REPO_VIEW=$'VERIFIED LIVE: cafebae\n'
+grep -F 'gh target=acme/widgets' "$TOOLLOG" || fail "evidence lookup ignored GH_REPO: $(cat "$TOOLLOG")"
+pass 'GH_REPO= and -R select the issue repository for the evidence lookup'
 pass 'live recheck keeps the target repo, the issue URL, and one evidence line'
 
 # --- worker preflight through pool.sh ---

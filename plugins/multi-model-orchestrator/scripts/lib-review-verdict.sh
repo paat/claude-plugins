@@ -112,12 +112,21 @@ mmo_adjustment_lines() {  # mmo_adjustment_lines PROVIDER MODEL MODE [BUDGET] [S
   done < <(mmo_adjustment_rows)
 }
 
+# One ownership value for the implement preamble and a resume prompt.
+# MMO_WORKER_COMMITS=1 is pool.sh --worker-commits. Absent: the orchestrator commits.
+mmo_commit_instruction() {
+  if [ "${MMO_WORKER_COMMITS:-}" = 1 ]; then
+    printf '%s\n' 'Commit your changes.'
+  else
+    printf '%s\n' 'Do not commit.'
+  fi
+}
+
 # Prompt of an implement leg, shared by every runner; adds the provider's harness adjustments.
 mmo_implement_prompt() {  # mmo_implement_prompt REQUEST_FILE [BUDGET]
   printf '%s\n' 'You are one fresh, bounded implementation worker.'
-  # MMO_WORKER_COMMITS=1 is pool.sh --worker-commits. Absent: the orchestrator commits.
-  if [ "${MMO_WORKER_COMMITS:-}" = 1 ]; then
-    printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope. Commit your changes.'
+  if [ "$(mmo_commit_instruction)" = 'Commit your changes.' ]; then
+    printf '%s %s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope.' "$(mmo_commit_instruction)"
   else
     printf '%s\n' 'Obey the task acceptance, allowed files, and test exactly. Do not broaden scope or commit.'
   fi
