@@ -221,11 +221,12 @@ done
 
 agent="$PLUGIN_ROOT/agents/grok-reviewer.md"
 runner="$PLUGIN_ROOT/scripts/run-grok-review.sh"
-outer_ms="$(sed -n 's/.*timeout` set to at least \([0-9][0-9]*\) ms.*/\1/p' "$agent" | head -n 1)"
-inspect_t3="$(sed -n '/TRIBUNAL_RISK:-}.*T3/,/^fi$/s/^[[:space:]]*INSPECT_DEFAULT_TIMEOUT=\([0-9][0-9]*\).*/\1/p' "$runner" | head -n 1)"
+outer_ms="$(sed -n 's/.*`timeout` set to \([0-9][0-9]*\) ms.*/\1/p' "$agent" | head -n 1)"
+inspect_cap="$(sed -n 's/.*TRIBUNAL_GROK_TIMEOUT_SECONDS:-\([0-9][0-9]*\).*/\1/p' "$agent" | head -n 1)"
+margin="$(sed -n 's/.*margin of \([0-9][0-9]*\) seconds.*/\1/p' "$agent" | head -n 1)"
 finalize_reserve="$(sed -n 's/^FINALIZE_TIMEOUT=.*:-\([0-9][0-9]*\).*/\1/p' "$runner" | head -n 1)"
-check "standalone grok outer timeout covers T3 inspect plus finalize reserve" \
-  bash -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ "$1" -ge $(( ($2 + $3) * 1000 )) ]' \
-  _ "$outer_ms" "$inspect_t3" "$finalize_reserve"
+check "standalone grok bash timeout and inspect budget fit the tool cap" \
+  bash -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && [ "$1" -le 600000 ] && [ $(( $2 + $3 + $4 )) -le 600 ]' \
+  _ "$outer_ms" "$inspect_cap" "$finalize_reserve" "$margin"
 
 exit "$fail"
