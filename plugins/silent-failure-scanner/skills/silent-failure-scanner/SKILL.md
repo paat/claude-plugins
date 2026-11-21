@@ -12,17 +12,23 @@ never edits code.
 
 ## Invoke
 
+Set `SCAN_ROOT` from the harness plugin-root env var, or fall back to two directories above the path of this loaded `SKILL.md` (never `.`, which is the target repository):
+
 ```bash
+SCAN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-}}}}}"
+if [ -z "$SCAN_ROOT" ] || [ ! -f "$SCAN_ROOT/scripts/scan.sh" ]; then
+  SCAN_ROOT="$(cd "$(dirname "<path-to-this-SKILL.md>")/../.." && pwd)"
+fi
 # uncommitted changes (default)
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/scan.sh"
+bash "$SCAN_ROOT/scripts/scan.sh"
 # branch vs base, machine-readable
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/scan.sh" --base origin/main --format json
+bash "$SCAN_ROOT/scripts/scan.sh" --base origin/main --format json
 ```
 
 Or the command: `/silent-failure-scanner:scan [--staged | --base <ref> | <rev-range>]`
 
 A `PreToolUse` commit gate also runs `scan.sh --staged` before every `git commit` you make through
-Claude Code; on findings it denies the commit and hands them back to arbitrate — fix the swallowed
+Claude Code, Codex, Antigravity (`agy`), Grok, or Muse; on findings it denies the commit and hands them back to arbitrate — fix the swallowed
 error, or re-run the same commit prefixed with `SILENT_FAILURE_ACK="<reason>"` to record a
 justification and proceed.
 

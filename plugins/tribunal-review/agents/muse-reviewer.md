@@ -1,8 +1,8 @@
 ---
 name: muse-reviewer
 description: Invokes the Meta Muse Code CLI (`muse exec`) for independent, repo-walking (read-only) code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
-tools: Bash
-model: haiku
+tools: [Bash]
+model: inherit
 color: blue
 ---
 

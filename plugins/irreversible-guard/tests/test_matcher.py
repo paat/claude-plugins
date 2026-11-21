@@ -270,7 +270,8 @@ class TestFootguns(unittest.TestCase):
         self.assertEqual(footgun('pkill -f "[w]orker.py"')[0], "PASS")
 
     def test_agent_runtime_kill_by_name_blocks(self):
-        for cmd in ("pkill bash", "killall node", "pkill claude", "killall codex"):
+        for cmd in ("pkill bash", "killall node", "pkill claude", "killall codex",
+                    "pkill agy", "killall grok", "pkill muse"):
             self.assertEqual(footgun(cmd)[0], "BLOCK", cmd)
 
     def test_ordinary_kills_pass(self):

@@ -34,7 +34,9 @@ verdict it carries (issue #487).
 Set the plugin root and a per-run scratch dir for the provider JSON, then run preflight:
 
 ```bash
-TRIBUNAL_PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}" # this plugin's root
+TRIBUNAL_PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-}}}}}}"
+# When unset (e.g. agy skill runs where PLUGIN_ROOT is hook/MCP-only), set to ../.. of this SKILL.md:
+[ -f "$TRIBUNAL_PLUGIN_ROOT/scripts/preflight.sh" ] || { echo "Set TRIBUNAL_PLUGIN_ROOT to this plugin's root directory" >&2; exit 1; }
 RUN_DIR="$(mktemp -d)"                          # collects one JSON file per leg
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/preflight.sh"
 ```

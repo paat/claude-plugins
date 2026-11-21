@@ -1,8 +1,8 @@
 ---
 name: deepseek-reviewer
 description: Invokes DeepSeek V4 Pro through DeepSeek Harness (dsh) for independent, repo-walking, read-only code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
-tools: Bash
-model: haiku
+tools: [Bash]
+model: inherit
 color: purple
 ---
 

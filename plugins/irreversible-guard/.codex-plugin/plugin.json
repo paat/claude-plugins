@@ -1,14 +1,14 @@
 {
   "name": "irreversible-guard",
-  "version": "0.2.2",
-  "description": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
+  "version": "0.3.2",
+  "description": "PreToolUse gate that blocks shell commands with no practical local undo across Claude Code, Codex, Antigravity (agy), Grok, and Muse \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Irreversible Guard",
-    "shortDescription": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
-    "longDescription": "PreToolUse gate that blocks Bash commands with no practical local undo \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
+    "shortDescription": "PreToolUse gate that blocks shell commands with no practical local undo across Claude Code, Codex, Antigravity (agy), Grok, and Muse \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
+    "longDescription": "PreToolUse gate that blocks shell commands with no practical local undo across Claude Code, Codex, Antigravity (agy), Grok, and Muse \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
     "developerName": "Andre Paat",
     "category": "Security",
     "capabilities": [

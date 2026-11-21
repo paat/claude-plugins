@@ -21,7 +21,7 @@ absent() { ! grep -F -- "$2" "$1" >/dev/null || fail "$3: $(cat "$1")"; }
 
 # --- static wiring ---
 grep -q '"PreToolUse"' "$PLUGIN_ROOT/hooks/hooks.json" || fail 'hooks.json has no PreToolUse'
-grep -q '"Bash"' "$PLUGIN_ROOT/hooks/hooks.json" || fail 'hooks.json Bash matcher missing'
+jq -e '.hooks.PreToolUse[0].matcher | test("Bash") and test("execute_command") and test("run_command") and test("run_terminal_command")' "$PLUGIN_ROOT/hooks/hooks.json" >/dev/null || fail 'hooks.json Bash matcher missing'
 grep -q 'hooks/ship-gates.sh' "$PLUGIN_ROOT/hooks/hooks.json" || fail 'hooks.json does not run ship-gates.sh'
 grep -q '"timeout": 300' "$PLUGIN_ROOT/hooks/hooks.json" || fail 'ship-gates timeout is not 300'
 grep -q 'CODEX_PLUGIN_ROOT' "$PLUGIN_ROOT/hooks/hooks.json" || fail 'hooks.json omits the Codex plugin root'

@@ -1,8 +1,8 @@
 ---
 name: claude-reviewer
 description: Invokes the host Claude Code CLI (`claude -p`) for an independent, read-only repo-walking code review. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
-tools: Bash
-model: haiku
+tools: [Bash]
+model: inherit
 color: orange
 ---
 

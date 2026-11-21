@@ -1,0 +1,10 @@
+{
+  "name": "irreversible-guard",
+  "version": "0.3.2",
+  "description": "PreToolUse gate that blocks shell commands with no practical local undo across Claude Code, Codex, Antigravity (agy), Grok, and Muse \u2014 de-obfuscates ssh/docker-exec transports, heredocs, command chains, and env prefixes, then matches a tiered deny-set (irreversible-everywhere ops block unconditionally; locally-reversible ops block only when the command names production)",
+  "author": {
+    "name": "Andre Paat"
+  },
+  "homepage": "https://github.com/paat/claude-plugins",
+  "repository": "https://github.com/paat/claude-plugins"
+}

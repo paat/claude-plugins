@@ -23,6 +23,12 @@ error handling in production SaaS flows.
 - **Install for all collaborators on this repository** (project scope) — commit `.claude/settings.json` with the plugin enabled.
 - **Install for you, in this repo only** (local scope) — enable it in `.claude/settings.local.json`.
 
+Other supported harnesses:
+- **Codex:** `codex plugin marketplace add paat/claude-plugins && codex plugin add silent-failure-scanner@paat-plugins`
+- **Antigravity (`agy`):** `agy plugin install ./plugins/silent-failure-scanner` (uses `.antigravity-plugin/plugin.json` and root `hooks.json`)
+- **Grok (`grok`):** `grok plugin install ./plugins/silent-failure-scanner --trust` (or via `grok plugin marketplace add`)
+- **Muse (`muse`):** `MUSE_EXPERIMENTAL_PLUGINS=1 muse plugins install ./plugins/silent-failure-scanner && MUSE_EXPERIMENTAL_PLUGINS=1 muse plugins approve silent-failure-scanner`
+
 After cloning the repo for development:
 
 ```bash

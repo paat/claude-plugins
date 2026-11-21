@@ -1,8 +1,8 @@
 ---
 name: grok-reviewer
 description: Invokes the xAI Grok CLI ("Grok Build", direct transport) for independent, repo-walking (read-only) code review. Uses xAI's own model and transport. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
-tools: Bash
-model: haiku
+tools: [Bash]
+model: inherit
 color: purple
 ---
 

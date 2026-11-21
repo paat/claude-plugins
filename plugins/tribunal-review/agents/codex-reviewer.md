@@ -1,8 +1,8 @@
 ---
 name: codex-reviewer
 description: Invokes OpenAI Codex CLI for independent, repo-walking code review with unrestricted execution inside the development-container boundary. Returns structured JSON findings. Use in tribunal multi-provider review workflow.
-tools: Bash
-model: haiku
+tools: [Bash]
+model: inherit
 color: green
 ---
 

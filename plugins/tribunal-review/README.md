@@ -39,6 +39,12 @@ Each reviewer degrades gracefully: if a CLI is missing or a model fails, that re
 - **Install for you, in this repo only** (local scope) — enable it in
   `.claude/settings.local.json`.
 
+Other supported harnesses:
+- **Codex:** `codex plugin marketplace add paat/claude-plugins && codex plugin add tribunal-review@paat-plugins`
+- **Antigravity (`agy`):** `agy plugin install ./plugins/tribunal-review` (uses `.antigravity-plugin/plugin.json`)
+- **Grok (`grok`):** `grok plugin install ./plugins/tribunal-review --trust` (or via `grok plugin marketplace add`)
+- **Muse (`muse`):** `MUSE_EXPERIMENTAL_PLUGINS=1 muse plugins install ./plugins/tribunal-review`
+
 ## Usage
 
 On a feature branch with changes vs the repository default branch:

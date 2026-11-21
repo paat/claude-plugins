@@ -6,6 +6,9 @@ set -uo pipefail
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[irreversible-guard] python3 not found; guard disabled (fail-open)" >&2
+  if [ "${HOOK_RUNTIME:-}" = "agy" ]; then
+    printf '{"decision":"allow"}\n'
+  fi
   exit 0
 fi
 

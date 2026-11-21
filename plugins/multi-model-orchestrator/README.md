@@ -472,6 +472,12 @@ On `git push` and `git -C <dir> push` (not a delete-ref push), `push_check` runs
 - **Install for you, in this repo only** (local scope) — enable it in
   `.claude/settings.local.json`.
 
+Other supported harnesses:
+- **Codex:** `codex plugin marketplace add paat/claude-plugins && codex plugin add multi-model-orchestrator@paat-plugins`
+- **Antigravity (`agy`):** `agy plugin install ./plugins/multi-model-orchestrator` (uses `.antigravity-plugin/plugin.json` and root `hooks.json`)
+- **Grok (`grok`):** `grok plugin install ./plugins/multi-model-orchestrator --trust` (or via `grok plugin marketplace add`)
+- **Muse (`muse`):** `MUSE_EXPERIMENTAL_PLUGINS=1 muse plugins install ./plugins/multi-model-orchestrator && MUSE_EXPERIMENTAL_PLUGINS=1 muse plugins approve multi-model-orchestrator`
+
 ## Tests
 
 ```bash

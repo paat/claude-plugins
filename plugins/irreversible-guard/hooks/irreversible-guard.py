@@ -492,7 +492,9 @@ def classify(cmd, rules, cwd):
 ZERO_WIDTH = "\u200b\u200c\u200d\u2060\ufeff"
 CURLY_QUOTES = "\u201c\u201d\u2018\u2019\u00ab\u00bb"
 # Process names whose kill-by-name takes down the agent's own shell or runtime.
-AGENT_PROC_NAMES = {"bash", "sh", "zsh", "dash", "ash", "node", "claude", "codex"}
+AGENT_PROC_NAMES = {"bash", "sh", "zsh", "dash", "ash", "node", "claude", "codex", "agy", "grok", "muse"}
+# Shell execution tool names across supported harnesses (Claude, Codex, agy, Grok, Muse).
+SHELL_TOOL_NAMES = {"bash", "shell", "run_command", "run_terminal_command", "execute_command", "exec_command"}
 # Heredoc consumers where a curly quote inside the body is a string-termination
 # or posting hazard (a heredoc redirected into a plain file is fine).
 INTERPRETER_NAMES = {"python", "python3", "node", "psql", "mysql", "sqlite3",
@@ -683,26 +685,86 @@ def scan_footguns(cmd, fg, rules):
     return outcome, reason, notes
 
 
+def _extract_payload(payload):
+    """Normalize PreToolUse stdin across Claude, Codex, agy, Grok, and Muse."""
+    tool_call = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else None
+    is_agy = tool_call is not None or os.environ.get("HOOK_RUNTIME") == "agy"
+    if tool_call is not None:
+        tool_name = tool_call.get("name") or ""
+        args = tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
+    else:
+        tool_name = payload.get("tool_name") or payload.get("toolName") or ""
+        raw_input = payload.get("tool_input")
+        if not isinstance(raw_input, dict):
+            raw_input = payload.get("toolInput")
+        args = raw_input if isinstance(raw_input, dict) else {}
+    command = args.get("CommandLine") or args.get("command") or args.get("cmd") or ""
+    if not isinstance(command, str):
+        command = ""
+    cmd_cwd = args.get("Cwd") or args.get("cwd")
+    ws_paths = payload.get("workspacePaths")
+    fallback_cwd = ws_paths[0] if isinstance(ws_paths, list) and ws_paths and isinstance(ws_paths[0], str) else None
+    cwd = (cmd_cwd if isinstance(cmd_cwd, str) and cmd_cwd else None) or payload.get("cwd") or fallback_cwd or os.getcwd()
+    return is_agy, str(tool_name), command, cwd
+
+
+def _is_own_plugin_root(path):
+    if not path or not os.path.isfile(os.path.join(path, "hooks", "guard.sh")):
+        return False
+    manifest = os.path.join(path, ".claude-plugin", "plugin.json")
+    try:
+        with open(manifest, encoding="utf-8") as f:
+            return "irreversible-guard" in f.read()
+    except OSError:
+        return False
+
+
+def _resolve_plugin_root():
+    for var in ("CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT", "PLUGIN_ROOT", "GROK_PLUGIN_ROOT", "MUSE_PLUGIN_ROOT"):
+        val = os.environ.get(var)
+        if _is_own_plugin_root(val):
+            return val
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _allow(is_agy):
+    if is_agy:
+        print(json.dumps({"decision": "allow"}))
+    return 0
+
+
 def main():
     raw = sys.stdin.read()
+    is_agy_env = os.environ.get("HOOK_RUNTIME") == "agy"
     try:
         payload = json.loads(raw)
     except Exception:
-        return 0
-    if payload.get("tool_name") != "Bash":
-        return 0
-    command = (payload.get("tool_input") or {}).get("command", "")
+        return _allow(is_agy_env)
+    if not isinstance(payload, dict):
+        return _allow(is_agy_env)
+    is_agy, tool_name, command, cwd = _extract_payload(payload)
+    if tool_name.lower() not in SHELL_TOOL_NAMES:
+        return _allow(is_agy)
+    if payload.get("toolInputTruncated") is True:
+        msg = (
+            "[irreversible-guard] BLOCKED: truncated shell command "
+            "(toolInputTruncated=true) cannot be verified in full; "
+            "shorten or split the command and retry."
+        )
+        if is_agy:
+            print(json.dumps({"decision": "deny", "reason": msg}))
+            return 0
+        sys.stderr.write(msg + "\n")
+        return 2
     if not command.strip():
-        return 0
-    cwd = payload.get("cwd") or os.getcwd()
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or \
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return _allow(is_agy)
+    plugin_root = _resolve_plugin_root()
     rules = load_rules(plugin_root, cwd)
     try:
         outcome, reason = classify(command, rules, cwd)
     except Exception as e:
         sys.stderr.write("[irreversible-guard] internal error, allowing: %s\n" % e)
-        return 0
+        return _allow(is_agy)
     # Footgun scanning must never fail open past a Tier-1/2 verdict: its own
     # failure degrades to "no footgun findings", not to allowing the command.
     try:
@@ -711,17 +773,27 @@ def main():
     except Exception:
         fg_outcome, fg_reason, fg_notes = OUTCOME_PASS, "", []
     if outcome == OUTCOME_BLOCK:
-        sys.stderr.write(
+        msg = (
             "[irreversible-guard] BLOCKED: %s\n"
             "This operation has no practical undo. If you are certain it is safe, add an "
-            "`allow` pattern to .claude/irreversible-guard.json and retry.\n" % reason)
+            "`allow` pattern to .claude/irreversible-guard.json and retry." % reason
+        )
+        if is_agy:
+            print(json.dumps({"decision": "deny", "reason": msg}))
+            return 0
+        sys.stderr.write(msg + "\n")
         return 2
     if fg_outcome == OUTCOME_BLOCK:
-        sys.stderr.write(
+        msg = (
             "[irreversible-guard] BLOCKED (footgun): %s\n"
             "If this is genuinely safe here, add an `allow` pattern or a "
-            "`footgun_disable` entry to .claude/irreversible-guard.json and retry.\n"
-            % fg_reason)
+            "`footgun_disable` entry to .claude/irreversible-guard.json and retry."
+            % fg_reason
+        )
+        if is_agy:
+            print(json.dumps({"decision": "deny", "reason": msg}))
+            return 0
+        sys.stderr.write(msg + "\n")
         return 2
     warn_bits = []
     if outcome == OUTCOME_WARN:
@@ -729,9 +801,13 @@ def main():
     warn_bits += ["footgun: " + n for n in fg_notes]
     if warn_bits:
         note = "[irreversible-guard] " + "; ".join(warn_bits)
+        if is_agy:
+            print(json.dumps({"decision": "allow", "reason": note}))
+            return 0
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "PreToolUse", "additionalContext": note}}))
-    return 0
+        return 0
+    return _allow(is_agy)
 
 
 if __name__ == "__main__":

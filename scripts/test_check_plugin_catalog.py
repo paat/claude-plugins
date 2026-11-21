@@ -22,6 +22,7 @@ class CodexManifestVersionTests(unittest.TestCase):
         claude_version: str,
         marketplace_version: str,
         codex_version: str | None,
+        antigravity_version: str | None = None,
     ) -> list[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -36,6 +37,12 @@ class CodexManifestVersionTests(unittest.TestCase):
                 codex_manifest = plugin / ".codex-plugin" / "plugin.json"
                 codex_manifest.parent.mkdir()
                 codex_manifest.write_text(json.dumps({"version": codex_version}), encoding="utf-8")
+            if antigravity_version is not None:
+                agy_manifest = plugin / ".antigravity-plugin" / "plugin.json"
+                agy_manifest.parent.mkdir()
+                agy_manifest.write_text(
+                    json.dumps({"version": antigravity_version}), encoding="utf-8"
+                )
 
             errors: list[str] = []
             CHECKER.check_manifest_versions(
@@ -57,6 +64,15 @@ class CodexManifestVersionTests(unittest.TestCase):
         self.assertIn(".codex-plugin/plugin.json", errors[0])
         self.assertIn("1.2.3", errors[0])
         self.assertIn("1.2.2", errors[0])
+
+    def test_rejects_antigravity_manifest_version_drift(self) -> None:
+        errors = self.check_versions("1.2.3", "1.2.3", "1.2.3", "1.2.1")
+        self.assertEqual(len(errors), 1)
+        self.assertIn(".antigravity-plugin/plugin.json", errors[0])
+        self.assertIn("1.2.1", errors[0])
+
+    def test_accepts_matching_four_manifest_versions(self) -> None:
+        self.assertEqual(self.check_versions("1.2.3", "1.2.3", "1.2.3", "1.2.3"), [])
 
     def test_accepts_matching_three_manifest_versions(self) -> None:
         self.assertEqual(self.check_versions("1.2.3", "1.2.3", "1.2.3"), [])

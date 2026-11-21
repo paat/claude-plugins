@@ -16,6 +16,14 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLAUDE_MARKETPLACE_PATH = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 CODEX_MARKETPLACE_PATH = REPO_ROOT / ".agents" / "plugins" / "marketplace.json"
+ANTIGRAVITY_PLUGINS_CONFIG_PATH = REPO_ROOT / ".agents" / "plugins.json"
+
+ANTIGRAVITY_PLUGINS = (
+    "irreversible-guard",
+    "multi-model-orchestrator",
+    "silent-failure-scanner",
+    "tribunal-review",
+)
 
 DEFAULT_INSTALL_POLICY = "AVAILABLE"
 DEFAULT_AUTH_POLICY = "ON_INSTALL"
@@ -69,6 +77,11 @@ def main() -> int:
 
         codex_manifest = build_codex_manifest(plugin_dir, claude_manifest, raw_entry)
         planned_files[plugin_dir / ".codex-plugin" / "plugin.json"] = render_json(codex_manifest)
+        if plugin_name in ANTIGRAVITY_PLUGINS:
+            agy_manifest = build_antigravity_manifest(plugin_dir, claude_manifest, raw_entry)
+            planned_files[plugin_dir / ".antigravity-plugin" / "plugin.json"] = render_json(
+                agy_manifest
+            )
         planned_files.update(build_command_skill_files(plugin_dir, plugin_name))
         codex_entries.append(build_marketplace_entry(plugin_name, raw_entry))
 
@@ -85,6 +98,16 @@ def main() -> int:
         "plugins": codex_entries,
     }
     planned_files[CODEX_MARKETPLACE_PATH] = render_json(codex_marketplace)
+    planned_files[ANTIGRAVITY_PLUGINS_CONFIG_PATH] = render_json(
+        {
+            "entries": [
+                {
+                    "path": "plugins",
+                    "include_only": list(ANTIGRAVITY_PLUGINS),
+                }
+            ]
+        }
+    )
 
     changed = write_or_check(planned_files, check=args.check)
     if args.check and changed:
@@ -169,6 +192,38 @@ def build_codex_manifest(
 
     if (plugin_dir / ".mcp.json").is_file():
         manifest["mcpServers"] = "./.mcp.json"
+
+    return manifest
+
+
+def build_antigravity_manifest(
+    plugin_dir: Path,
+    claude_manifest: dict[str, Any],
+    marketplace_entry: dict[str, Any],
+) -> dict[str, Any]:
+    plugin_name = read_required_string(claude_manifest, "name", plugin_dir)
+    description = read_optional_string(claude_manifest, "description") or read_optional_string(
+        marketplace_entry, "description"
+    )
+    if description is None:
+        raise SystemExit(f"{plugin_name}: description is required")
+
+    manifest: dict[str, Any] = {
+        "name": plugin_name,
+        "version": read_required_string(claude_manifest, "version", plugin_dir),
+        "description": description,
+        "author": build_author(claude_manifest),
+    }
+
+    homepage = read_optional_string(marketplace_entry, "homepage") or read_optional_string(
+        claude_manifest, "homepage"
+    )
+    if homepage is not None:
+        manifest["homepage"] = homepage
+
+    repository = read_optional_string(claude_manifest, "repository")
+    if repository is not None:
+        manifest["repository"] = repository
 
     return manifest
 
