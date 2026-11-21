@@ -713,6 +713,11 @@ case "$command" in
     printf 'gemini-3.8-flash\tGemini\n'
     [[ ! -f "$HOME/extra-agy-models" ]] || cat "$HOME/extra-agy-models"
     ;;
+  opencode)
+    [[ ! -f "$HOME/opencode-v1" ]] || exit 2
+    printf 'opencode-go/glm-5.3\nopencode-go/glm-5.3-flash\nopencode-go/kimi-k3.1-pro\nopencode/claude-opus-5-5\n'
+    [[ ! -f "$HOME/extra-opencode-models" ]] || cat "$HOME/extra-opencode-models"
+    ;;
   gh)
     [[ $1 == pr && $2 == list ]] || exit 99
     printf 'https://example.invalid/existing-refresh-pr\n'
@@ -720,7 +725,7 @@ case "$command" in
   *) printf 'Forbidden external operation: %s\n' "$command" >&2; exit 99 ;;
 esac
 '''
-        for name in ("curl", "grok", "agy", "codex", "claude", "gh", "git"):
+        for name in ("curl", "grok", "agy", "codex", "claude", "gh", "git", "opencode"):
             path = binaries / name
             path.write_text(self.stub)
             path.chmod(0o755)
@@ -728,6 +733,7 @@ esac
             "## codex (~/.codex/models_cache.json)\ngpt-6-astra\ngpt-6.1-sol\n"
             "## grok (grok models)\ngrok-4.7\n"
             "## agy (agy models)\ngemini-3.8-flash\n"
+            "## opencode (opencode models)\nglm-5.3\nglm-5.3-flash\nkimi-k3.1-pro\n"
         )
 
     def main_script(self, *args, fail="", env=None):
@@ -757,7 +763,8 @@ esac
         self.assertIn("no material model change; zero model calls", result.stdout)
         self.assertEqual(calls.count("grok"), 1)
         self.assertEqual(calls.count("agy"), 1)
-        self.assertEqual(set(calls), {"curl", "grok", "agy"})
+        self.assertEqual(calls.count("opencode"), 1)
+        self.assertEqual(set(calls), {"curl", "grok", "agy", "opencode"})
 
     def test_main_feeds_only_never_calls_providers_models_or_pr(self):
         self.prepare_main()
@@ -881,97 +888,97 @@ esac
         self.assertIn("new_cli_model\tclaude-fable-5-1", (self.state / "catalog-changes.txt").read_text())
         self.assert_resumed_without_authoring(result, calls)
 
-    def test_main_never_calls_dropped_opencode_cli_and_drops_its_section(self):
-        # ASK-76: OpenCode Go left the fleet; an installed CLI and an old state section are ignored.
+    def test_main_missing_opencode_cli_skips_section_but_runs_others(self):
         self.prepare_main()
-        stale = self.temp / "home/.local/bin/opencode"
-        stale.write_text(self.stub)
-        stale.chmod(0o755)
-        catalog_before = (self.state / "catalog.txt").read_text()
-        (self.state / "catalog.txt").write_text(
-            catalog_before + "## opencode (opencode models)\nglm-5.3\nkimi-k3.1-pro\n")
+        (self.temp / "home/.local/bin/opencode").unlink()
         result, calls = self.main_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("opencode", calls)
-        self.assertNotIn("opencode", result.stdout)
+        self.assertIn("skip: no opencode (opencode models) catalog", result.stdout)
         self.assertIn("no material model change; zero model calls", result.stdout)
         self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
-        self.assertEqual((self.state / "catalog.txt").read_text(), catalog_before)
+        self.assertEqual(set(calls), {"curl", "grok", "agy"})
 
-    def opencode_mapped_baseline(self):
-        # ASK-76: state written before the drop maps a Go model through the opencode section.
+    def test_main_v1_opencode_cli_is_skipped_not_fatal(self):
         self.prepare_main()
-        catalog_before = (self.state / "catalog.txt").read_text()
-        (self.state / "catalog.txt").write_text(
-            catalog_before + "## opencode (opencode models)\nglm-5.3\nqwen3.8-max\n")
-        self.add_openrouter_model("qwen/qwen3.8-max")
-        result, _ = self.main_script("--feeds-only")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        rows = [line.split("\t") for line in (self.state / "evals.tsv").read_text().splitlines()[1:]]
-        self.assertIn(["qwen3.8-max", "qwen/qwen3.8-max"], [row[:2] for row in rows])
-        return catalog_before
-
-    def test_main_retired_opencode_mapping_alone_does_not_trigger(self):
-        catalog_before = self.opencode_mapped_baseline()
+        (self.temp / "home/opencode-v1").write_text("")
         result, calls = self.main_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("0 new rows; 0 pending rows", result.stdout)
+        self.assertIn("skip: no opencode (opencode models) catalog", result.stdout)
         self.assertIn("no material model change; zero model calls", result.stdout)
-        self.assertNotIn("claude", calls)
-        self.assertEqual((self.state / "eval-pending.txt").read_text(), "")
-        self.assertEqual((self.state / "catalog.txt").read_text(), catalog_before)
-        rows = [line.split("\t") for line in (self.state / "evals.tsv").read_text().splitlines()[1:]]
-        self.assertIn(["", "qwen/qwen3.8-max"], [row[:2] for row in rows])
+        self.assertEqual(set(calls), {"curl", "grok", "agy", "opencode"})
+
+    def test_main_missing_opencode_cli_keeps_seeded_section(self):
+        self.main_baseline()
+        (self.temp / "home/.local/bin/opencode").unlink()
         result, calls = self.main_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("skip: no opencode (opencode models) catalog", result.stdout)
         self.assertIn("no material model change; zero model calls", result.stdout)
-        self.assertNotIn("claude", calls)
-
-    def test_main_genuine_feed_change_triggers_beside_retired_opencode_mapping(self):
-        self.opencode_mapped_baseline()
-        data = json.loads((self.fixtures / "openrouter.json").read_text())
-        row = copy.deepcopy(data["data"][0])
-        row.update(id="anthropic/unknown-model", canonical_slug="anthropic/unknown-model")
-        data["data"].append(row)
-        data["total_count"] += 1
-        self.write_fixture("openrouter", data)
-        binaries = self.temp / "home/.local/bin"
-        (binaries / "gh").write_text("#!/usr/bin/env bash\nexit 0\n")
-        (binaries / "git").write_text(
-            '#!/usr/bin/env bash\n'
-            'if [[ $* == *"worktree add"* ]]; then mkdir -p "$XDG_STATE_HOME/model-refresh/worktree"; fi\n'
-            'exit 0\n')
-        (binaries / "claude").write_text(
-            '#!/usr/bin/env bash\n'
-            'cat >"$XDG_STATE_HOME/prompt"\n'
-            'echo NO_CHANGES\n')
-        result, _ = self.main_script()
+        self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
+        self.assertIn("## opencode (opencode models)\nglm-5.3\nglm-5.3-flash\nkimi-k3.1-pro\n",
+                      (self.state / "catalog.txt").read_text())
+        opencode_bin = self.temp / "home/.local/bin/opencode"
+        opencode_bin.write_text(self.stub)
+        opencode_bin.chmod(0o755)
+        (self.temp / "home/extra-opencode-models").write_text("opencode-go/glm-5.4\n")
+        result, calls = self.main_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("1 new rows; 1 pending rows", result.stdout)
-        self.assertIn("material model change; running refresh", result.stdout)
-        prompt = (self.temp / "prompt").read_text()
-        trigger_rows = prompt.split("<trigger_rows>", 1)[1].split("</trigger_rows>", 1)[0].strip()
-        self.assertEqual(len(trigger_rows.splitlines()), 1)
-        self.assertTrue(trigger_rows.startswith("unmapped\t\tanthropic/unknown-model\t"), trigger_rows)
+        self.assertNotIn("seeded opencode catalog", result.stdout)
+        self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
+        self.assertIn("glm-5.4", (self.state / "catalog.txt").read_text())
+        self.assertEqual(calls.count("opencode"), 1)
 
-    def test_main_carried_effort_block_stops_at_next_header(self):
+    def test_main_carried_opencode_block_stops_at_next_header(self):
         self.prepare_main()
         (self.state / "catalog.txt").write_text(
             "## codex (~/.codex/models_cache.json)\ngpt-6-astra\ngpt-6.1-sol\n"
-            "## effort levels (codex cache, agy models)\neffort codex gpt-6-astra high\n"
+            "## opencode (opencode models)\nglm-5.3\nglm-5.3-flash\nkimi-k3.1-pro\n"
+            "## grok (grok models)\ngrok-4.7\n"
+            "## agy (agy models)\ngemini-3.8-flash\n"
+        )
+        (self.temp / "home/.local/bin/opencode").unlink()
+        result, calls = self.main_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("skip: no opencode (opencode models) catalog", result.stdout)
+        self.assertIn("no material model change; zero model calls", result.stdout)
+        catalog = (self.state / "catalog.txt").read_text()
+        self.assertIn("## opencode (opencode models)\nglm-5.3\nglm-5.3-flash\nkimi-k3.1-pro\n", catalog)
+        self.assertEqual(catalog.count("## grok (grok models)\n"), 1)
+        self.assertEqual(catalog.count("grok-4.7\n"), 1)
+        self.assertEqual(catalog.count("## agy (agy models)\n"), 1)
+        self.assertEqual(catalog.count("gemini-3.8-flash\n"), 1)
+
+    def test_main_first_opencode_sight_seeds_state_without_trigger(self):
+        self.prepare_main()
+        (self.state / "catalog.txt").write_text(
+            "## codex (~/.codex/models_cache.json)\ngpt-6-astra\ngpt-6.1-sol\n"
             "## grok (grok models)\ngrok-4.7\n"
             "## agy (agy models)\ngemini-3.8-flash\n"
         )
         result, calls = self.main_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("skip: no effort levels (codex cache, agy models) catalog", result.stdout)
+        self.assertIn("seeded opencode catalog", result.stdout)
         self.assertIn("no material model change; zero model calls", result.stdout)
-        catalog = (self.state / "catalog.txt").read_text()
-        self.assertIn("## effort levels (codex cache, agy models)\neffort codex gpt-6-astra high\n", catalog)
-        self.assertEqual(catalog.count("## grok (grok models)\n"), 1)
-        self.assertEqual(catalog.count("grok-4.7\n"), 1)
-        self.assertEqual(catalog.count("## agy (agy models)\n"), 1)
-        self.assertEqual(catalog.count("gemini-3.8-flash\n"), 1)
+        self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
+        self.assertEqual(calls.count("opencode"), 1)
+        self.assertEqual((self.state / "catalog.txt").read_text(),
+                         "## codex (~/.codex/models_cache.json)\ngpt-6-astra\ngpt-6.1-sol\n"
+                         "## grok (grok models)\ngrok-4.7\n"
+                         "## agy (agy models)\ngemini-3.8-flash\n"
+                         "## opencode (opencode models)\nglm-5.3\nglm-5.3-flash\nkimi-k3.1-pro\n")
+        result, _ = self.main_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("seeded opencode catalog", result.stdout)
+        self.assertIn("no material model change; zero model calls", result.stdout)
+
+    def test_main_new_opencode_non_pool_model_does_not_trigger(self):
+        self.main_baseline()
+        (self.temp / "home/extra-opencode-models").write_text("opencode-go/beam-free\n")
+        result, calls = self.main_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no material model change; zero model calls", result.stdout)
+        self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
+        self.assertEqual(calls.count("opencode"), 1)
 
     def test_main_feed_failure_alone_does_not_wake_model(self):
         self.main_baseline()
@@ -979,7 +986,7 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("stale eval feeds: openrouter, arena-webdev, arena-agent, terminal", result.stdout)
         self.assertNotIn("no material model change", result.stdout)
-        self.assertEqual(set(calls), {"curl", "grok", "agy"})
+        self.assertEqual(set(calls), {"curl", "grok", "agy", "opencode"})
 
     def test_main_feeds_only_failure_does_not_call_providers(self):
         self.main_baseline()
@@ -1462,7 +1469,8 @@ exec bash -s -- "$@"
         (self.state / "catalog.txt").write_text(
             "## codex (~/.codex/models_cache.json)\ngpt-6-astra\ngpt-6.1-sol\n"
             "## grok (grok models)\ngrok-4.7\n"
-            "## agy (agy models)\nclaude-opus-5-5-high\nclaude-opus-5-5-low\ngemini-3.8-flash\n")
+            "## agy (agy models)\nclaude-opus-5-5-high\nclaude-opus-5-5-low\ngemini-3.8-flash\n"
+            "## opencode (opencode models)\nglm-5.3\nglm-5.3-flash\nkimi-k3.1-pro\n")
         (self.temp / "home/extra-agy-models").write_text("claude-opus-5-5-high\tOpus\nclaude-opus-5-5-low\tOpus\n")
         self.set_codex_levels(["low", "medium"])
         self.prepare_gates()

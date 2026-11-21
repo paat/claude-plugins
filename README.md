@@ -119,7 +119,8 @@ Codex-specific behavior differences are tracked in `docs/codex-plugin-behavior.m
 ## Model ID Refresh
 
 `scripts/refresh-model-versions.sh` snapshots the model catalogs of the installed
-`codex`, `grok`, and `agy` CLIs and the per-model effort levels the Codex model
+`codex`, `grok`, and `agy` CLIs, plus the optional opencode Go catalog (skipped
+when the CLI is missing or v1), and the per-model effort levels the Codex model
 cache and `agy models` expose. It also runs the multi-model-orchestrator
 `friction-report.sh` over the local outcome records. A new pool-vendor model, a
 pool-vendor effort level added or removed, a friction key newly flagged or
@@ -158,9 +159,9 @@ for an isolated live fetch/build with no model calls.
 The first run only seeds fresh state; triggers require a later run against the same state directory.
 
 State, the handled catalog, friction flags, the open PR being gated, and the last run log live in `~/.local/state/model-refresh/`.
-It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and the `codex`, `grok`, and `agy` CLIs; it
+It needs `curl`, `jq`, coreutils, `awk`, `sed`, `grep`, `claude`, `gh`, util-linux `flock`, and the `codex`, `grok`, and `agy` CLIs (the opencode CLI is optional); it
 fails closed when any of the `codex`, `grok`, or `agy` catalogs comes back
-empty, and the first sight of the effort-level section seeds it (codex/grok/agy are
+empty, and the first sight of the opencode section seeds it (codex/grok/agy are
 not seeded).
 
 The opt-in DeepSeek leg (`tribunal-review`, default `deepseek-v4-pro`) is excluded from this refresh; its pin is bumped by hand.
