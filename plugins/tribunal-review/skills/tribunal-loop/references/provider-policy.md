@@ -29,7 +29,7 @@ effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers ove
   Truncated captures fail; smoke has no tools. `--effort` is omitted on Haiku models.
 - Grok (`grok` CLI): repo-walking with read-only tools allowlist (`read_file,list_dir,grep` in both
   inspect and finalize), sandbox default `none` (`TRIBUNAL_GROK_SANDBOX`), `bypassPermissions`,
-  isolated host config, web search off; T3 defaults to 8 inspect turns (`TRIBUNAL_GROK_MAX_TURNS`).
+  isolated host config, web search off; T3 defaults to 60 inspect turns and a 2400s inspect timeout (`TRIBUNAL_GROK_MAX_TURNS`, `TRIBUNAL_GROK_TIMEOUT_SECONDS`).
 - Muse (`muse` CLI): repo-walking via `muse exec --yolo` with write, shell, and web tools off
   (`TRIBUNAL_MUSE_MODEL=default` passes no `--model`).
 - DeepSeek (`dsh` CLI + `DEEPSEEK_API_KEY` or dsh credentials): repo-walking with read-only

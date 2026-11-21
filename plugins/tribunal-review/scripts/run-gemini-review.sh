@@ -21,8 +21,9 @@ trap 'rm -rf "$TMPDIR"' EXIT
 WORK_DIR="$TMPDIR/work"
 AGY_DIR="$TMPDIR/home/.gemini/antigravity-cli"
 mkdir -p "$WORK_DIR/.git" "$AGY_DIR" || { tribunal_error gemini "cannot create review workspace"; exit 0; }
-DIFF_FILE="$TMPDIR/review.diff"
-CONTEXT_FILE="$TMPDIR/context.md"
+tribunal_prepare_review_input "$TMPDIR" || exit 1
+DIFF_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/review.diff"
+CONTEXT_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/context.md"
 REPO_ROOT="$(tribunal_repo_root)"
 tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error gemini "cannot diff against $BASE_REF"; exit 0; }
 DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"

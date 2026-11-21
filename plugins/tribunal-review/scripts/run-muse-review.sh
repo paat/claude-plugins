@@ -30,8 +30,9 @@ case "$MAX_STEPS" in ''|*[!0-9]*) MAX_STEPS=40 ;; esac
 BASE_REF="$(tribunal_base_ref)"
 TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
-DIFF_FILE="$TMPDIR/review.diff"
-CONTEXT_FILE="$TMPDIR/context.md"
+tribunal_prepare_review_input "$TMPDIR" || exit 1
+DIFF_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/review.diff"
+CONTEXT_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/context.md"
 PROMPT_FILE="$TMPDIR/prompt.md"
 OUT="$TMPDIR/out.jsonl"
 ERR="$TMPDIR/err.txt"

@@ -17,8 +17,8 @@ export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
 tribunal_claude_authenticated || { tribunal_error claude "Claude CLI is not authenticated"; exit 0; }
 
-INPUT_DIR="$TMPDIR/input"
-mkdir -p "$INPUT_DIR" || exit 1
+tribunal_prepare_review_input "$TMPDIR" || exit 1
+INPUT_DIR="$TRIBUNAL_REVIEW_INPUT_DIR"
 DIFF_FILE="$INPUT_DIR/review.diff"
 REPO_ROOT="$(tribunal_repo_root)"
 PROMPT_FILE="$TMPDIR/prompt.md"

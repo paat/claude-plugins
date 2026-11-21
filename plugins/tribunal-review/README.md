@@ -165,10 +165,10 @@ DeepSeek uses the direct DeepSeek API and walks the repository with a read-only 
 | `TRIBUNAL_LEG_ENV` | empty | Space-separated variable names (or `PREFIX*` patterns) passed into scrubbed leg environments (`opencode`, `muse`, `qwen`, `deepseek`). |
 | `TRIBUNAL_ALLOW_ENV_FILES` | `0` | `1` lets repo-walking legs walk a checkout that holds untracked `.env*` files instead of a scratch clone of HEAD. |
 | `TRIBUNAL_GROK_PERMISSION_MODE` | `bypassPermissions` | Grok CLI `--permission-mode`. |
-| `TRIBUNAL_GROK_TIMEOUT_SECONDS` | `600` | Inspect-phase wall timeout (seconds). |
+| `TRIBUNAL_GROK_TIMEOUT_SECONDS` | `2400` at T3; otherwise `600` | Inspect-phase wall timeout in seconds (clamped `30..2400`). |
 | `TRIBUNAL_GROK_RECOVERY` | `permit` | `permit` allows finalize recovery (read-only allowlist, instructed not to use tools); `reject` excludes recovery from quorum. Sealed at collect. |
 | `TRIBUNAL_GROK_FINALIZE_TIMEOUT_SECONDS` | `120` | Finalize-phase wall timeout after resume (read-only allowlist, instructed not to use tools). |
-| `TRIBUNAL_GROK_MAX_TURNS` | `8` at T3; otherwise `30` | Inspect-phase `--max-turns` budget. |
+| `TRIBUNAL_GROK_MAX_TURNS` | `60` at T3; otherwise `30` | Inspect-phase `--max-turns` budget. |
 | `TRIBUNAL_GROK_FINALIZE_MAX_TURNS` | `6` | Finalize-phase `--max-turns` budget. |
 | `TRIBUNAL_MUSE` | selected by panel (`on` standalone) | `on` forces the Muse leg into the panel; `off` excludes it. |
 | `TRIBUNAL_MUSE_MODEL` | tier row (`muse-spark-1.3`) | Model passed to `muse exec --model` (`default` passes no `--model`). |

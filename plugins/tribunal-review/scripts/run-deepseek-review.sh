@@ -41,8 +41,9 @@ if [ "$MODE" = smoke ]; then
   tribunal_smoke_prompt deepseek > "$PROMPT_FILE"
 else
   BASE_REF="$(tribunal_base_ref)"
-  DIFF_FILE="$TMPDIR/review.diff"
-  CONTEXT_FILE="$TMPDIR/context.md"
+  tribunal_prepare_review_input "$TMPDIR" || exit 1
+  DIFF_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/review.diff"
+  CONTEXT_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/context.md"
   tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error deepseek "cannot diff against $BASE_REF"; exit 0; }
   DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
   [ -s "$DIFF_FILE" ] || { tribunal_empty deepseek "$MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }

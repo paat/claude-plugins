@@ -35,8 +35,9 @@ fi
 REPO_ROOT="$(tribunal_repo_root)"
 WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
   || { tribunal_error codex "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }
+tribunal_prepare_review_input "$TMPDIR" || exit 1
 PROMPT_FILE="$TMPDIR/prompt.md"
-DIFF_FILE="$TMPDIR/review.diff"
+DIFF_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/review.diff"
 model_args=(
   --ignore-user-config --ignore-rules --strict-config
   --disable apps --disable plugins --disable hooks --disable multi_agent
@@ -54,7 +55,7 @@ if [ "$MODE" = smoke ]; then
   tribunal_smoke_prompt codex > "$PROMPT_FILE"
 else
   BASE_REF="$(tribunal_base_ref)"
-  CONTEXT_FILE="$TMPDIR/context.md"
+  CONTEXT_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/context.md"
   tribunal_prepare_diff "$DIFF_FILE" || { tribunal_error codex "cannot diff against $BASE_REF"; exit 0; }
   DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
   [ -s "$DIFF_FILE" ] || { tribunal_empty codex "$CODEX_MODEL" "$BASE_REF" "$DIFF_STAT"; exit 0; }
