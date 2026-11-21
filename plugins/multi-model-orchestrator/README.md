@@ -401,6 +401,8 @@ Only selected providers are required; `pool.sh` skips a provider whose CLI is no
 Defaults can be overridden without editing the plugin. Overrides must remain in the strict current
 catalog.
 
+Check `truncated=` on the exit line of every Grok review or advise leg. Advice marked `truncated=turns` is partial even on exit 0. On `truncated=timeout`, rerun with a larger `--timeout` or use another reviewer before acting on the report or starting a fix cycle.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `MMO_CLAUDE_MODEL` | `claude-opus-5-5` | Claude worker/reviewer model |
@@ -408,7 +410,7 @@ catalog.
 | `MMO_CODEX_MODEL` | `gpt-6.2-astra` | Codex worker/reviewer model |
 | `MMO_GROK_MODEL` | `grok-4.7` | Grok worker/reviewer model |
 | `MMO_GROK_EFFORT` | `medium` | Grok reasoning effort |
-| `MMO_GROK_MAX_TURNS` | `30` (`60` for review, `150` for implement and probe) | Grok tool-loop cap: 1 to 100, or 1 to 300 for `--mode implement` and `--mode probe`; env values above 100 are clamped for the other modes. Review/advise resume once keeping the read-only allowlist on cap (`truncated=turns`; a review resumed after the cap can report findings but not approve), else exit 78; a research leg also exits 78 at the turn cap (no resume). Review, advise and probe legs with `--out FILE` and no `--stream-log` write `FILE.stream` |
+| `MMO_GROK_MAX_TURNS` | `30` (`60` for review, `150` for implement and probe) | Turn cap of 1–100 (1–300 for implement and probe). Other modes clamp env values above 100. Explicit turn limits take precedence. Review/advise can resume once with the read-only allowlist after hitting the turn cap (`truncated=turns`). If inspection or synthesis times out, the leg exits 124 with `truncated=timeout` and an empty final report. The stream retains any progress. A truncated review cannot approve. An exhausted turn cap without a report exits 78, including in research mode. Review, advise and probe with `--out FILE` default to `FILE.stream` |
 | `MMO_GROK_CONTINUE_ON_MAX_TURNS` | `1` | Implement only: finishing `--resume` passes (0-3) after a max-turns stop on a changed tree, within the one `--timeout`; a max-turns stop exits 76 |
 | `MMO_MUSE_MODEL` | `muse-spark-1.3` | Direct runner default. `default` passes no `--model`. Pool rows supply their own `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |

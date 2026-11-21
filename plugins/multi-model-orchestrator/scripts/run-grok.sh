@@ -372,10 +372,14 @@ fi
 [ "$mode" != probe ] || tree_before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 started=$SECONDS
 run_grok_call "$run_timeout" "$prompt_file" ${inspect_args[@]+"${inspect_args[@]}"} ${session_id:+--session-id "$session_id"}
-if [ "$mode" != implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+hit_turn_cap() {
+  case "$mode:$rc" in review:124|advise:124) return 1 ;; esac
+  [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"
+}
+if [ "$mode" != implement ] && hit_turn_cap; then
   truncated=turns
 fi
-while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
+while [ "$continues" -lt "$continue_n" ] && hit_turn_cap; do
   left=$((run_timeout - (SECONDS - started)))
   [ "$left" -ge 30 ] || break
   if [ "$mode" = implement ]; then
@@ -386,7 +390,7 @@ while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max tur
   continues=$((continues + 1))
   run_grok_call "$left" "$resume_prompt" ${resume_args[@]+"${resume_args[@]}"} --resume "$session_id"
 done
-if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+if hit_turn_cap; then
   if [ "$mode" = implement ]; then
     printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (--mode %s cap %s)\n' "$max_turns" "$mode" "$turns_cap" >&2
     rc=76
@@ -502,5 +506,11 @@ classify_file="$runtime_dir/provider-failure.txt"
 [ ! -s "${output_file}.stderr" ] || cp "${output_file}.stderr" "$classify_file"
 finish_kv=("model=$model" "effort=$effort" "mode=$mode" "log=$log_path")
 [ "$continues" -eq 0 ] || finish_kv+=("continues=$continues")
+case "$mode" in review|advise)
+  if [ "$rc" -eq 124 ]; then
+    truncated=timeout
+    : > "$output_file"  # The stream keeps progress. Only a finished report belongs in --out.
+  fi
+esac
 [ -z "$truncated" ] || finish_kv+=("truncated=$truncated")
 mmo_finish run-grok "$rc" "$classify_file" "${finish_kv[@]}"
