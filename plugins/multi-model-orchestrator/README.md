@@ -31,7 +31,7 @@ Prior Claude generations (Opus 5, Sonnet 5, Fable 5.1, Fable 5, Haiku 4.5) are k
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
-| Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits (the default agy model); Argon for complex coding; Hydrogen as a T2 `medium` worker ahead of Flash `high` and a T3 route behind Argon; Carbon as an available T3 flagship behind Hydrogen, not preferred and not the default (owner correction 2026-11-19; `agy models` 2026-11-20 lists low/medium/high, no xhigh); Sonnet/Opus as small same-model overflow when the Claude plan window is spent; all advisory in review mode |
+| Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits (the default agy model); Argon for complex coding; Hydrogen as a T2 `medium` worker ahead of Flash `high` and a T3 route behind Argon; Carbon as an available T3 flagship behind Hydrogen, not preferred and not the default (owner correction 2026-11-19; `agy models` 2026-11-20 lists low/medium/high, no xhigh); Sonnet/Opus as small same-model overflow when the Claude plan window is spent; advisory in review mode except `claude-opus-5-5` (paat/ai-overlord#474, 2026-11-18) |
 | Mistral Vibe (`vibe`) | `mistral-large-4` (T2 `medium`, T3 `high`, lowest preference); `default` passes no `--model` | Worker-only. `run-vibe.sh` always passes `--max-price 0` and stops on the plan budget (2026-11-19, paat/ai-overlord#474). Review is advisory; vibe 3+ only |
 
 Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.2,
@@ -59,8 +59,8 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | T4 | Security, payments, destructive migration, concurrency | GPT-6.2 Astra xhigh, Opus 5.5 plan xhigh, GPT-6 Astra xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
-agy, OpenCode, Vibe), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
-order and moves past any that exit 75 (busy, down, or at a limit). T1 and T2 fall back to the
+agy, OpenCode, Vibe; agy `claude-opus-5-5` excepted, paat/ai-overlord#474, 2026-11-18), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
+order and moves past any that exit 75 (busy, down, or at a limit), skipping a provider/model that already exited 75 later in the run. T1 and T2 fall back to the
 higher tiers' workers; T3 and T4 never fall to a weaker tier and exit 75 with the earliest reset
 instead.
 

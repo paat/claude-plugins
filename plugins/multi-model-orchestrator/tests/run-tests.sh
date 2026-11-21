@@ -4241,9 +4241,13 @@ case "$out" in *claude*) fail "deny claude removes Claude through every transpor
 case "$out" in *gemini-3.8-flash*gemini-4-argon*) ;; *) fail "deny claude keeps agy Gemini rows: $out" ;; esac
 out="$(ship --tier T1 --allow claude --usage /dev/null 2>/dev/null)"
 [ "$(printf '%s\n' "$out" | cut -f2 | sort -u)" = claude ] || fail "allow claude admits no agy transport: $out"
-out="$(ship --tier T1 --mode review --usage /dev/null 2>"$PL/err")" || true
-case "$out" in *agy*) fail "review still skips every agy row: $out" ;; esac
-contains "$PL/err" 'skip T3 agy/claude-opus-5-5: advisory reviewer' 'agy Claude stays an advisory reviewer'
+out="$(ship --tier T3 --mode review --allow agy --usage /dev/null 2>"$PL/err")" \
+  || fail "review pick keeps agy Opus: $(cat "$PL/err")"
+[ "$(printf '%s\n' "$out" | cut -f2,3 | tr '\t' ' ')" = "agy claude-opus-5-5" ] \
+  || fail "review allow agy keeps agy Opus and drops other agy models: $out"
+contains "$PL/err" 'skip T3 agy/gemini-4-argon: advisory reviewer' 'Argon stays an advisory reviewer'
+out="$(ship --tier T3 --mode review --allow agy --deny claude --usage /dev/null 2>"$PL/err")" || true
+case "$out" in *claude-opus-5-5*) fail "deny claude still drops agy claude rows in review: $out" ;; esac
 
 # run: the Claude plan is spent at run time (exit 75), so the same Opus model runs through agy.
 mv "$PL/bin/claude" "$PL/claude.ok"
@@ -4265,16 +4269,15 @@ done
 rc=0; printf 'x\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --mode review --usage "$PL/usage.txt" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "pool run --mode review without --base is usage (got $rc)"
 
-# run: the low worker hits a quota (75), the pool moves to the high one; --out inside the repo is fine.
+# run: the low worker hits a quota (75); the same provider/model is not retried at high (#740).
 rm -f "$PL/calls"/*
-out="$(printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low \
-  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 --out "$AR/leg.out" 2>"$PL/err")" \
-  || fail "pool run falls through to the next worker: $(cat "$PL/err")"
-exact_line "$PL/calls/call.0.args" 'gemini-3.8-flash-low' 'pool tries the first worker first'
-exact_line "$PL/calls/call.1.args" 'gemini-3.8-flash-high' 'pool moves to the next worker on exit 75'
-contains "$PL/err" 'pool: agy unavailable (exit 75); next worker' 'pool reports the fall-through'
-contains "$PL/err" 'pool: exit=0 worker=agy model=gemini-3.8-flash effort=high tier=T2' 'pool names the worker that ran'
-case "$out" in *done*) ;; *) fail "pool passes the worker's body through: $out" ;; esac
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low \
+  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 --out "$AR/leg.out" >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "pool exits 75 when the only available provider/model failed (got $rc)"
+[ "$(find "$PL/calls" -name 'call.*.args' | wc -l | tr -d ' ')" = 1 ] || fail 'pool tries a failed provider/model only once per run'
+contains "$PL/err" 'pool: agy unavailable (exit 75); next worker' 'pool reports the failed worker'
+contains "$PL/err" 'skip T2 agy/gemini-3.8-flash: already unavailable (exit 75)' 'pool skips the same-model retry at high'
+contains "$PL/err" 'every T2 worker was unavailable' 'pool names the exhausted tier'
 rm -f "$AR"/leg.out*
 
 # run: a worker that changed the repo before failing is not replaced.
@@ -4288,20 +4291,22 @@ git -C "$AR" checkout -q -- f.txt
 
 # run: a clean fall-through followed by a leg that edits and fails still exits 55.
 rm -f "$PL/calls"/*
-rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash STUB_AGY_TOUCH="$AR/f.txt" \
-  STUB_AGY_TOUCH_MODEL=gemini-3.8-flash-high \
-  bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
-[ -e "$PL/calls/call.1.args" ] || fail 'the second worker ran after a clean fall-through'
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low STUB_AGY_TOUCH="$AR/f.txt" \
+  STUB_AGY_TOUCH_MODEL=gemini-3.8-flash-low \
+  bash "$POOL" run --tier T1 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ -e "$PL/calls/call.0.args" ] || fail 'the agy worker ran after the clean qwen fall-through'
 [ "$rc" -eq 55 ] || fail "a dirtying leg after a clean fall-through exits 55 (got $rc)"
+contains "$PL/err" 'after changing the repository' 'pool explains why it stopped'
 git -C "$AR" checkout -q -- f.txt
 
-# run: when every T1 worker is unavailable at run time, the T2 workers are next.
+# run: T1 agy hits a quota (75); the T2 agy rows are the same provider/model, so the run exits 75 (#740).
 rm -f "$PL/calls"/*
-printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low \
-  bash "$POOL" run --tier T1 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" \
-  || fail "a T1 run falls back to T2 workers: $(cat "$PL/err")"
+rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low \
+  bash "$POOL" run --tier T1 --deny claude --usage "$PL/usage.txt" --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "pool exits 75 when T2 only repeats the failed T1 provider/model (got $rc)"
 contains "$PL/err" 'pool: qwen unavailable (exit 75); next worker' 'the T1 qwen row was tried first'
-contains "$PL/err" 'pool: exit=0 worker=agy model=gemini-3.8-flash effort=high tier=T2' 'a T2 worker ran after T1 was exhausted'
+contains "$PL/err" 'skip T2 agy/gemini-3.8-flash: already unavailable (exit 75)' 'the T2 agy rows are skipped after the T1 quota failure'
+contains "$PL/err" 'every T1 worker was unavailable' 'pool names the exhausted tier'
 
 # run: every worker unavailable -> 75 naming the tier.
 rm -f "$PL/calls"/*
@@ -4341,6 +4346,17 @@ exact_line "$PL/vibe-calls/call.0.args" '--thinking' 'pool run passes effort as 
 exact_line "$PL/vibe-calls/call.0.args" 'medium' 'pool run sends the T2 medium effort'
 exact_line "$PL/vibe-calls/call.0.args" '--max-price' 'pool run keeps the hard price cap'
 exact_line "$PL/vibe-calls/call.0.args" '0' 'pool run caps price at 0'
+# run: a provider/model that exited 75 is skipped on later rows of the same run.
+rm -rf "$PL/vibe75-calls"; mkdir -p "$PL/vibe75-calls"
+printf 'T2\tvibe\tmistral-large-4\tmedium\nT3\tvibe\tmistral-large-4\thigh\n' > "$PL/vibe75-tiers.tsv"
+rc=0; printf 'task\n' | env -u MMO_VIBE_MODEL -u MMO_VIBE_EFFORT -u MMO_VIBE_MAX_TURNS \
+  HOME="$PL/home" PATH="$VB/bin:/usr/bin:/bin" \
+  MMO_POOL_TIERS="$PL/vibe75-tiers.tsv" STUB_VIBE_CALLS="$PL/vibe75-calls" \
+  STUB_VIBE_EXIT=3 STUB_VIBE_OUTCOME=price_limit \
+  bash "$POOL" run --tier T2 --allow vibe --usage /dev/null --repo "$AR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "pool exits 75 when the only provider/model failed (got $rc)"
+[ "$(find "$PL/vibe75-calls" -name 'call.*.args' | wc -l | tr -d ' ')" = 1 ] || fail 'pool tries a failed provider/model only once per run'
+contains "$PL/err" 'already unavailable (exit 75)' 'pool names the skipped repeat row'
 pass 'pool.sh: tiers, headroom, allow/deny/prefer, advisory review skip, escalation, fall-through'
 
 # --- leg-check.sh: deterministic scope/verify/no-change checks, one TSV row per check ---
@@ -4720,7 +4736,8 @@ for fixture in ok error; do
 done
 
 # An exhausted T1 attempt and a successful T2 attempt each carry the selected tier.
-printf 'T1\tagy\tgemini-3.8-flash\tlow\nT2\tagy\tgemini-3.8-flash\thigh\n' > "$OUTCOMES/tiers.tsv"
+# T2 uses another model: since #740 the pool never retries the failed provider/model.
+printf 'T1\tagy\tgemini-3.8-flash\tlow\nT2\tagy\tgemini-4-argon\thigh\n' > "$OUTCOMES/tiers.tsv"
 printf 'task\n' | "${outcome_env[@]}" MMO_POOL_TIERS="$OUTCOMES/tiers.tsv" \
   STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low MMO_OUTCOMES_FILE="$OUTCOMES/pool.tsv" \
   bash "$POOL" run --tier T1 --usage /dev/null --repo "$outcome_repo" --timeout 10 >/dev/null 2>&1
