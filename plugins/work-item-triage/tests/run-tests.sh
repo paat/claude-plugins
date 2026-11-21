@@ -461,5 +461,9 @@ export WIT_MODE=missing-history
 read_snapshot github --id 301 > "$TMP/missing-history.json"
 check '3 unavailable comment history is incomplete' 0 "$(truth "$TMP/missing-history.json" '.completeness=="incomplete" and .items[0].completeness=="incomplete"')"
 check '8 every analysis call is a read call' 0 "$(awk '!/^api repos\/[^/ ]+\/[^/ ]+\/(issues|pulls)(\/[0-9]+(\/(comments|timeline))?)?(\?[^ ]*)?$/ && !/^api search\/issues\?[^ ]+$/ && !/^plane (list [0-9]+|show [^ ]+)$/ {bad++} END {print bad+0}' "$WIT_LOG")"
+bad_script_refs="$(grep -rnoE '[^[:space:]`"]*wit-(read|register)\.sh' "$HERE/../skills" | grep -vE '\$WIT_ROOT"?/scripts/wit-(read|register)\.sh$' || true)"
+check 'skills call plugin scripts only via $WIT_ROOT/scripts (#727)' 0 "$(printf '%s' "$bad_script_refs" | grep -c . || true)"
+check 'skill defines WIT_ROOT resolution for Claude Code and Codex (#727)' 1 "$(grep -c 'WIT_ROOT. is .\${CLAUDE_PLUGIN_ROOT}' "$HERE/../skills/work-item-triage/SKILL.md" || true)"
+check 'plugin ships both scripts at the plugin root (#727)' 2 "$(ls "$HERE"/../scripts/wit-read.sh "$HERE"/../scripts/wit-register.sh 2>/dev/null | wc -l)"
 printf '\n%d passed, %d failed\n'  "$pass" "$fail"
 if [ "$fail" -eq 0 ]; then printf 'ALL GREEN\n'; else exit 1; fi

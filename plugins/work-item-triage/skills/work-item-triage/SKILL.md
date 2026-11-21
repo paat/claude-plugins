@@ -18,9 +18,12 @@ and a caller-selected output directory.
 For proposed work, accept a draft or finding even when no tracker item exists.
 Infer available inputs from the request and repository; ask only for required missing scope.
 
+Plugin scripts live in the plugin root, not the skill folder: `WIT_ROOT` is `${CLAUDE_PLUGIN_ROOT}` (Claude Code)
+or two levels above this skill's directory (Codex). Always call scripts as `"$WIT_ROOT/scripts/NAME"`.
+
 1. Read `references/adapters.md` to select the built-in GitHub reader or a configured source.
    Record available operations and limits. For an empty source/draft set, report no work and exit.
-2. Fetch one snapshot through `scripts/wit-read.sh`. Reuse it for all decisions in this run.
+2. Fetch one snapshot through `"$WIT_ROOT/scripts/wit-read.sh"`. Reuse it for all decisions in this run.
    Full bodies/history are read only for ambiguous items; preserve the resulting provenance.
    Partial pages, comments or unresolved relations remain explicit missing evidence.
 3. Existing items: inspect their own history, parent/duplicate/delivery links and prior decisions.

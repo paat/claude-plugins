@@ -1,6 +1,6 @@
 # Tracker operations
 
-Use `wit-read.sh --system NAME --scope SCOPE [--config FILE] [--id ID | --search QUERY]`
+Use `"$WIT_ROOT/scripts/wit-read.sh" --system NAME --scope SCOPE [--config FILE] [--id ID | --search QUERY]`
 with optional `--full` and `--max-pages N`. Standard output is a normalized JSON snapshot.
 GitHub scope is `owner/repository`; configured source scopes are caller-defined.
 The default operation enumerates open items. GitHub uses authenticated `gh`; Plane uses trusted
