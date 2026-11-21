@@ -62,7 +62,7 @@ models:
   research: "claude-opus-5-5 high"
 ```
 
-Treat sourced items like issues. Deliver via git branches and GitHub PRs; after merge, close or
+Treat sourced items like issues. Deliver via git branches and GitHub PRs; close or
 annotate the source via its `close` command.
 
 ## Delivery strategies
@@ -84,7 +84,7 @@ referenced issues/workitems exist; add `${MMO_HANDOFF_DIR:-.claude/handoffs}` (r
 If `git ls-files -- "${MMO_HANDOFF_DIR:-.claude/handoffs}"` is non-empty, queue OPERATOR ACTIONS REQUIRED (`git rm -r --cached <dir>` then commit) and write new handoffs under fresh names.
 Once the queue is ordered, and again immediately before every dispatch (including a pre-queue Discovery
 research leg) — never for a no-op scan — write the handoff (instantiate `references/handoff-template.md`)
-with the literal resume command, expected artifact paths, and baseline — all known before launch.
+with the literal resume command, expected artifact paths, and baseline.
 If another session's handoff records conflicting in-flight work on this branch,
 reconcile; do not overwrite it. Hold the run lease per the template's write rules; a refused
 claim (exit 75) = another orchestrator is live: stop.
@@ -100,7 +100,7 @@ overrides of decided judgment calls and brief deltas.
 Update the handoff after every merge, review verdict, ratified decision, filed
 research memo, or filed item — not at session end. After compaction, resume from this run's handoff
 (the summary names it); the summary is not authoritative. Browser QA, screenshots,
-logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted reads, no re-reads.
+logs, diffs: a leg or subagent returns a verdict. Be token-frugal.
 
 ## Per-item loop
 
@@ -120,6 +120,7 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted read
    Dispatch via `${CLAUDE_PLUGIN_ROOT}/scripts/pool.sh run --tier <T> --timeout 1800` with `pick`'s
    contract, `--task`, `--cycle`; pass `--worker-commits` when the packet assigns the commit to the worker.
    Direct routes wrap the recorded eligible runner (`run-*.sh`) in `leg-check.sh --snapshot`/`--baseline`.
+   Direct-route legs never commit — the orchestrator commits; only `pool.sh run --worker-commits` legs commit.
 4. Gate yourself: exits 8-11 reject; inspect the item-branch diff, verify the final-message
    contract. If the leg's contract barred committing, commit the gated result yourself —
    recording output or a memo is bookkeeping, not source editing.
@@ -140,7 +141,7 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted read
 - Exits 124 (timeout), 55 (partly edited) or 76 (max turns) may follow work: never discard any of them — check
   `git status`, rerun suites, and salvage or redispatch on evidence.
 - You never edit source while any worker is live. `git checkout` is a write. Never
-  `gh pr merge --delete-branch` under a live worker — that moves the tree out from under it.
+  `gh pr merge --delete-branch` under a live worker.
 - Start every turn by reading any unread dispatched-leg output, then resume at the gate.
 - Dispatch every leg through a host mechanism whose completion re-invokes the orchestrator. In
   Claude Code, use Bash `run_in_background: true` for its `<task-notification>`; never use bare shell `&`.

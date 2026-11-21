@@ -314,6 +314,53 @@ hook 2 'git push origin' "$REPO"
 contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'a named remote without a refspec uses the push destination'
 pass 'a named remote without a refspec resolves the push destination'
 
+# remote.<name>.push, not @{push}. fork/integration already has the deletion,
+# so push.default=current would miss it. fork/topic still has the test.
+make_repo forkpush
+mkdir -p "$REPO/tests"
+printf 'it("keep", () => {})\n' > "$REPO/tests/test_keep.py"
+commit_repo 'add test'
+publish
+git -C "$REPO" branch topic
+git -C "$REPO" push -q origin topic
+FORK="$T/bares/forkpush-fork.git"
+git init -q --bare "$FORK"
+git -C "$REPO" remote add fork "$FORK"
+git -C "$REPO" push -q fork topic
+git -C "$REPO" checkout -q -b integration
+rm "$REPO/tests/test_keep.py"
+commit_repo 'drop test on integration'
+git -C "$REPO" push -q origin integration
+git -C "$REPO" push -q fork integration
+git -C "$REPO" config push.default current
+git -C "$REPO" config remote.fork.push 'integration:topic'
+hook 2 'git push fork' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'remote.<name>.push selects topic, not the current branch'
+grep -F 'push --dry-run --porcelain fork' "$TOOLLOG" >/dev/null \
+  || fail "dry-run did not resolve git push fork: $(cat "$TOOLLOG")"
+hook 2 'git push fork integration:topic' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'an explicit fork refspec still blocks'
+# An earlier clean pair must not hide a later pair that deletes a test.
+git -C "$REPO" branch kept topic
+git -C "$REPO" push -q fork kept:kept
+git -C "$REPO" config --unset-all remote.fork.push
+git -C "$REPO" config remote.fork.push 'refs/heads/topic:refs/heads/topic'
+git -C "$REPO" config --add remote.fork.push 'integration:kept'
+hook 2 'git push fork' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'every dry-run ref pair is checked'
+# Same bare origin: current compares the same-named branch, upstream compares topic.
+git -C "$REPO" branch -u origin/topic
+git -C "$REPO" config push.default current
+hook 0 'git push' "$REPO"
+absent "$T/hook.err" 'deleted test file' 'push.default=current does not compare the upstream branch'
+git -C "$REPO" config push.default upstream
+hook 2 'git push' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'push.default=upstream compares the upstream branch'
+git -C "$REPO" remote set-url origin "file://$T/no-such-origin.git"
+hook 2 'git push' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'a failed dry-run falls back to @{push}'
+pass 'remote push refspecs and push.default select the compared branch'
+
 # Detached HEAD. push_check must run; an explicit HEAD is that commit.
 make_repo detach
 write_cfg 'push_check: exit 23'

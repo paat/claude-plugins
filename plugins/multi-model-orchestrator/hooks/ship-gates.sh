@@ -16,8 +16,10 @@
 # (not subject or body prose):
 #   Push-Gate: skip — <reason>
 #   Test-Deletion: justified — <reason>
-# `git push` and `git push <remote>` (no refspec) resolve @{push} (push.default).
-# A new branch is attributed from merge-base(tip, origin/<default>).
+# `git push` and `git push <remote>` (no refspec) take local:remote pairs from
+# `git push --dry-run --porcelain` (remote.<name>.push and push.default).
+# A failed dry-run falls back to @{push}. A new branch is attributed from
+# merge-base(tip, origin/<default>).
 # push_check runs for every non-delete push even when HEAD or the range
 # cannot be resolved. A Push-Gate skip trailer in a resolved range skips it.
 # A live marker and its SHA share one line. The SHA is a standalone 7-40 hex token.
@@ -26,6 +28,8 @@
 set -uo pipefail
 
 PUSH_CHECK_TIMEOUT=240
+# Short so an offline dry-run falls back to @{push} instead of hanging the hook.
+PUSH_DRY_RUN_TIMEOUT=10
 DEFAULT_TEST_RE='(\.test\.|\.spec\.|(^|/)test_[^/]*\.py$|_test\.go$|(^|/)tests?/|(^|/)__tests__/|(^|/)spec/)'
 DECL_RE='def[[:space:]]+test_|func[[:space:]]+Test|it\(|test\('
 PUSH_SKIP_RE='^[[:space:]]*skip[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
@@ -315,8 +319,9 @@ has_live_marker() {
   return 1
 }
 
-# @{push} is the remote-tracking ref of a plain git push. It fails when that
-# ref is not fetched yet; %(push) is the same name and still honours push.default.
+# Fallback when the dry-run cannot be read. @{push} is the remote-tracking ref
+# of a plain git push. It fails when that ref is not fetched yet; %(push) is
+# the same name and still honours push.default. It does not read remote.<name>.push.
 plain_push_dest() { # plain_push_dest REPO  -> "remote<TAB>branch" or nothing
   local repo="$1" push_ref="" head_ref="" rest="" best="" rname=""
   push_ref="$(git -C "$repo" rev-parse --symbolic-full-name '@{push}' 2>/dev/null || true)"
@@ -383,40 +388,76 @@ load_repo_config() {
   [ "$raw" = true ] && cfg_live=1
 }
 
-push_gate() { # push_gate INDEX
-  local i="$1" repo remote src dst top base tip bodies deleted path removed added content file_match=0 counting=0
-  local check_rc greprc skip_tests=0 diff_text line
-  [ "${deletes[$i]}" = 1 ] && return 0
-  if ! command -v git >/dev/null 2>&1; then
-    warn "git not found; allowing push"
-    return 0
-  fi
-  top="$(git -C "${repos[$i]}" rev-parse --show-toplevel 2>/dev/null)" || {
-    warn "push target is not a git repository; allowing"
-    return 0
-  }
-  remote="${remotes[$i]}"
-  src="${srcs[$i]}"
-  dst="${dsts[$i]}"
-  load_repo_config "$top"
-  # No refspec (`git push` or `git push <remote>`): @{push} honors push.default.
-  # Nothing below returns until push_check has had its chance.
-  if [ -z "$src" ]; then
-    local dest_line=""
-    dest_line="$(plain_push_dest "$top" || true)"
-    if [ -n "$dest_line" ]; then
-      if [ -z "$remote" ]; then
-        remote="${dest_line%%$'\t'*}"
-      fi
-      if [ -z "$dst" ]; then
-        dst="${dest_line#*$'\t'}"
-      fi
+# Remote whose push URL equals the dry-run "To" line. Relative paths are
+# resolved from the checkout. Nothing is printed when none match.
+match_push_remote() { # match_push_remote REPO URL
+  local repo="$1" url="$2" name="" pushurl="" a="" b=""
+  [ -n "$url" ] || return 0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    pushurl="$(git -C "$repo" remote get-url --push "$name" 2>/dev/null || true)"
+    [ -n "$pushurl" ] || continue
+    if [ "$pushurl" = "$url" ]; then
+      printf '%s\n' "$name"
+      return 0
     fi
+    a="$(cd "$repo" && cd "$pushurl" 2>/dev/null && pwd -P || true)"
+    b="$(cd "$url" 2>/dev/null && pwd -P || true)"
+    if [ -n "$a" ] && [ "$a" = "$b" ]; then
+      printf '%s\n' "$name"
+      return 0
+    fi
+  done < <(git -C "$repo" remote 2>/dev/null || true)
+}
+
+# "@remote<TAB>name" when the dry-run names one, then "src<TAB>dst" per
+# non-delete ref. Delete-only success prints no pair. Returns 1 if the
+# dry-run failed (timeout, offline, no destination) so the caller can fall back.
+porcelain_push_pairs() { # porcelain_push_pairs REPO REMOTE
+  local repo="$1" remote="$2" out="" line="" flag="" rest="" pair="" from="" to=""
+  local to_url="" resolved="" saw=0
+  local -a cmd
+  cmd=(git -C "$repo" -c color.ui=never push --dry-run --porcelain)
+  [ -n "$remote" ] && cmd+=("$remote")
+  if command -v timeout >/dev/null 2>&1; then
+    out="$(GIT_TERMINAL_PROMPT=0 timeout "$PUSH_DRY_RUN_TIMEOUT" "${cmd[@]}" 2>/dev/null)" || true
+  else
+    out="$(GIT_TERMINAL_PROMPT=0 "${cmd[@]}" 2>/dev/null)" || true
   fi
-  if [ -z "$remote" ]; then
-    remote=origin
-  fi
-  # HEAD, named or implied, is the branch, or the commit itself when detached.
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      "To "*) to_url="${line#To }"; continue ;;
+    esac
+    flag="${line%%$'\t'*}"
+    [ "$flag" = "$line" ] && continue
+    rest="${line#*$'\t'}"
+    pair="${rest%%$'\t'*}"
+    case "$flag" in
+      ' '|'*'|'+'|'='|'!'|'-') ;;
+      *) continue ;;
+    esac
+    case "$pair" in
+      *:*) ;;
+      *) continue ;;
+    esac
+    saw=1
+    [ "$flag" = "-" ] && continue
+    from="${pair%%:*}"
+    to="${pair#*:}"
+    [ -n "$from" ] && [ -n "$to" ] || continue
+    from="${from#refs/heads/}"
+    to="${to#refs/heads/}"
+    printf '%s\t%s\n' "$from" "$to"
+  done <<< "$out"
+  [ "$saw" -eq 1 ] || return 1
+  resolved="$(match_push_remote "$repo" "$to_url")"
+  [ -n "$resolved" ] && printf '@remote\t%s\n' "$resolved"
+  return 0
+}
+
+# Helpers below read and write push_gate's locals.
+normalize_push_endpoint() {
   if [ -z "$src" ] || [ "$src" = HEAD ]; then
     local branch=""
     branch="$(git -C "$top" symbolic-ref --short HEAD 2>/dev/null || true)"
@@ -431,6 +472,9 @@ push_gate() { # push_gate INDEX
     dst="$src"
   fi
   dst="${dst#refs/heads/}"
+}
+
+resolve_push_base() {
   tip="$src"
   base=""
   if [ -n "$tip" ] && git -C "$top" rev-parse --verify -q "$tip" >/dev/null; then
@@ -444,10 +488,13 @@ push_gate() { # push_gate INDEX
       fi
     fi
   fi
-  local skip_push=0
+  skip_push=0
   if [ -n "$base" ] && [ -n "$tip" ] && range_has_trailer "$top" "$base" "$tip" Push-Gate "$PUSH_SKIP_RE"; then
     skip_push=1
   fi
+}
+
+run_push_check() {
   # push_check does not need a branch or a diff. Resolution failure is not a skip.
   if [ "$skip_push" -eq 0 ] && [ -n "$cfg_push" ]; then
     check_rc=0
@@ -462,6 +509,9 @@ push_gate() { # push_gate INDEX
       block "push_check exited $check_rc"
     fi
   fi
+}
+
+run_deletion_gate() {
   if [ -z "$base" ]; then
     warn "cannot resolve the push range; allowing"
     return 0
@@ -519,6 +569,104 @@ push_gate() { # push_gate INDEX
   if [ "$removed" -gt "$added" ]; then
     block "removed test declarations ($removed removed, $added added)"
   fi
+}
+
+# Every non-delete pair from one dry-run. push_check runs once.
+push_many_pairs() {
+  local i need=0
+  local -a bases=() tips=()
+  [ -n "$remote" ] || remote=origin
+  for i in "${!pair_srcs[@]}"; do
+    src="${pair_srcs[$i]}"
+    dst="${pair_dsts[$i]}"
+    normalize_push_endpoint
+    resolve_push_base
+    bases+=("$base")
+    tips+=("$tip")
+    [ "$skip_push" -eq 0 ] && need=1
+  done
+  if [ "$need" -eq 1 ]; then
+    skip_push=0
+  else
+    skip_push=1
+  fi
+  run_push_check
+  for i in "${!bases[@]}"; do
+    base="${bases[$i]}"
+    tip="${tips[$i]}"
+    run_deletion_gate
+  done
+}
+
+push_gate() { # push_gate INDEX
+  local i="$1" repo remote src dst top base tip bodies deleted path removed added content file_match=0 counting=0
+  local check_rc greprc skip_tests=0 diff_text line skip_push=0
+  [ "${deletes[$i]}" = 1 ] && return 0
+  if ! command -v git >/dev/null 2>&1; then
+    warn "git not found; allowing push"
+    return 0
+  fi
+  top="$(git -C "${repos[$i]}" rev-parse --show-toplevel 2>/dev/null)" || {
+    warn "push target is not a git repository; allowing"
+    return 0
+  }
+  remote="${remotes[$i]}"
+  src="${srcs[$i]}"
+  dst="${dsts[$i]}"
+  load_repo_config "$top"
+  # No refspec: dry-run porcelain names each local:remote pair (remote.<name>.push
+  # and push.default). @{push} is only the fallback when that dry-run fails.
+  # A delete-only result is not gated. An explicit refspec keeps the parsed names.
+  local resolved_remote="" pairs_out="" pairs_rc=0 pline=""
+  local -a pair_srcs=() pair_dsts=()
+  if [ -z "$src" ]; then
+    pairs_out="$(porcelain_push_pairs "$top" "$remote")" || pairs_rc=$?
+    if [ "$pairs_rc" -eq 0 ]; then
+      while IFS= read -r pline || [ -n "$pline" ]; do
+        [ -n "$pline" ] || continue
+        case "$pline" in
+          @remote*)
+            resolved_remote="${pline#@remote}"
+            resolved_remote="${resolved_remote#$'\t'}"
+            ;;
+          *)
+            pair_srcs+=("${pline%%$'\t'*}")
+            pair_dsts+=("${pline#*$'\t'}")
+            ;;
+        esac
+      done <<< "$pairs_out"
+      if [ "${#pair_srcs[@]}" -eq 0 ]; then
+        return 0
+      fi
+      if [ -z "$remote" ] && [ -n "$resolved_remote" ]; then
+        remote="$resolved_remote"
+      fi
+      if [ "${#pair_srcs[@]}" -gt 1 ]; then
+        push_many_pairs
+        return
+      fi
+      src="${pair_srcs[0]}"
+      dst="${pair_dsts[0]}"
+    else
+      local dest_line=""
+      dest_line="$(plain_push_dest "$top" || true)"
+      if [ -n "$dest_line" ]; then
+        if [ -z "$remote" ]; then
+          remote="${dest_line%%$'\t'*}"
+        fi
+        if [ -z "$dst" ]; then
+          dst="${dest_line#*$'\t'}"
+        fi
+      fi
+    fi
+  fi
+  if [ -z "$remote" ]; then
+    remote=origin
+  fi
+  normalize_push_endpoint
+  resolve_push_base
+  run_push_check
+  run_deletion_gate
 }
 
 close_gate() { # close_gate INDEX
