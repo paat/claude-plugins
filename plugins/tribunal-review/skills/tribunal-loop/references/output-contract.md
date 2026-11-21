@@ -51,7 +51,8 @@ The deterministic ignored-path and deleted-path sources are attributed as
     "qwen": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "grok": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
     "muse": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
-    "claude": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"}
+    "claude": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"},
+    "vibe": {"findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok|failed|disabled"}
   },
   "conflicts_resolved": [],
   "summary": "..."

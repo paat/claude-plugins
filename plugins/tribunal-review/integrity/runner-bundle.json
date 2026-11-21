@@ -2,15 +2,15 @@
   "files": [
     {
       "path": "schemas/review-output.json",
-      "sha256": "2aaf4cbec57f5f263f170d9a3ec0bbf66889befe5db06b038f4ecb586438f357"
+      "sha256": "bf07fba38631bae3972348863a51dfaf300880e46b960352cc9eb4c67ab17554"
     },
     {
       "path": "scripts/check-runner-bundle.sh",
-      "sha256": "bcf2eb86fa45517c3a0ef6b62aae39590503d6105daa0f56ae7e7435f5be14d6"
+      "sha256": "e5811469df5ae03eb5f16a15a733ee42607055add5aa5dc09122ca51c5f25e67"
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "cbffe07cf33402559fe4980523a3328a0cf5b4690e16fcbe58111047828e03c0"
+      "sha256": "ee60f80dea4ecd9484a65e2eefdd30a720ab4f67586732970822613c85eb8909"
     },
     {
       "path": "scripts/dsh-review.patch.yml",
@@ -18,15 +18,15 @@
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
-      "sha256": "6be16f12a7bf73c3c1fb4c491d10bb3e9c504e0ddce3753b064e79165727d7dc"
+      "sha256": "1eb1753d8c8e0574664f61811a9e2ef7ef765db3caf34a66d9208ca717d0a1ba"
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "111f31fd75d9d0674572301ebf26bad87adbc1b8d05e75c9ccbc4b014012ec85"
+      "sha256": "46a072c25227242b86581f6e7e30bc69c9390ba100d9761357cc12d2c4d32930"
     },
     {
       "path": "scripts/review-panel.tsv",
-      "sha256": "7a68e85b18999fd6e827022c03f2249d0833eb4ecb6d2d31fda3bc1f36a13769"
+      "sha256": "3220b381abb6ff02f4ec907ab5af93a631583861267ee57400f02d7a30242ce3"
     },
     {
       "path": "scripts/run-claude-review.sh",
@@ -55,6 +55,10 @@
     {
       "path": "scripts/run-qwen-review.sh",
       "sha256": "be514060ec174a806cffd3a8cb006219eb78320caebb1159fd564a0927aaf760"
+    },
+    {
+      "path": "scripts/run-vibe-review.sh",
+      "sha256": "538a77f64ad064e62c003399eecfed638b6e38fdea1eff1d709626f4b167fb41"
     }
   ],
   "plugin": "tribunal-review",

@@ -113,6 +113,15 @@ else
   add_provider grok skipped "CLI not signed in (no usable auth.json / XAI_API_KEY)"
 fi
 if [ "${TRIBUNAL_MUSE:-off}" != "on" ]; then add_provider muse disabled "$(disabled_note muse)"; elif command -v muse >/dev/null 2>&1; then add_provider muse usable "CLI present; non-interactive invocation not probed"; else add_provider muse skipped "CLI not on PATH"; fi
+if [ "${TRIBUNAL_VIBE:-off}" != "on" ]; then
+  add_provider vibe disabled "$(disabled_note vibe)"
+elif ! command -v vibe >/dev/null 2>&1; then
+  add_provider vibe skipped "vibe not on PATH"
+elif vibe_note="$(tribunal_vibe_available)"; then
+  add_provider vibe usable "vibe configured; non-interactive invocation not probed"
+else
+  add_provider vibe skipped "$vibe_note"
+fi
 if [ "${TRIBUNAL_CLAUDE:-off}" != "on" ]; then
   add_provider claude disabled "$(disabled_note claude)"
 elif ! command -v claude >/dev/null 2>&1; then
@@ -163,6 +172,14 @@ if [ "${TRIBUNAL_SMOKE_PROBE:-off}" = on ]; then
       set_provider_result deepseek usable "non-interactive smoke passed"
     else
       set_provider_result deepseek failed "$(smoke_failure_note deepseek "$smoke_output")"
+    fi
+  fi
+  if provider_usable vibe; then
+    smoke_output="$(bash "$SCRIPT_DIR/run-vibe-review.sh" --smoke 2>/dev/null || true)"
+    if printf '%s\n' "$smoke_output" | smoke_review_ok vibe; then
+      set_provider_result vibe usable "non-interactive smoke passed"
+    else
+      set_provider_result vibe failed "$(smoke_failure_note vibe "$smoke_output")"
     fi
   fi
 fi

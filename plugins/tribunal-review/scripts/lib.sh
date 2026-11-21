@@ -8,8 +8,25 @@ tribunal_deepseek_model() {
   printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek-v4-pro}"
 }
 
+tribunal_vibe_model() {
+  printf '%s\n' "${TRIBUNAL_VIBE_MODEL:-mistral-large-4}"
+}
+
+# Vibe resolves its credential from MISTRAL_API_KEY in the environment or from
+# a KEY=value entry in ${VIBE_HOME:-$HOME/.vibe}/.env (written by `vibe --setup`).
+tribunal_vibe_available() {
+  if [ -n "${MISTRAL_API_KEY:+present}" ]; then
+    return 0
+  fi
+  if grep -q '^MISTRAL_API_KEY=.' "${VIBE_HOME:-${HOME}/.vibe}/.env" 2>/dev/null; then
+    return 0
+  fi
+  printf 'vibe is not configured: MISTRAL_API_KEY is unset and no key entry exists in ${VIBE_HOME:-$HOME/.vibe}/.env (run `vibe --setup` once)\n'
+  return 1
+}
+
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 2; otherwise an
-# integer in 2..7 (seven legs exist, so a floor of 8 could never pass).
+# integer in 2..8 (eight legs exist, so a floor of 9 could never pass).
 # A 1-leg APPROVE is never permitted.
 tribunal_min_ok_legs() {
   local raw="${TRIBUNAL_MIN_OK_LEGS:-}"
@@ -19,17 +36,17 @@ tribunal_min_ok_legs() {
   fi
   case "$raw" in
     1)
-      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..7)\n' >&2
+      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..8)\n' >&2
       return 1
       ;;
-    [2-7]) printf '%s\n' "$raw"; return 0 ;;
+    [2-8]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..7)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..8)\n' "$raw" >&2
   return 1
 }
 
-# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..7
-# (seven legs exist, so a panel of 8 could never seat).
+# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..8
+# (eight legs exist, so a panel of 9 could never seat).
 tribunal_panel_size() {
   local raw="${TRIBUNAL_PANEL_SIZE:-}"
   if [ -z "$raw" ]; then
@@ -37,9 +54,9 @@ tribunal_panel_size() {
     return 0
   fi
   case "$raw" in
-    [2-7]) printf '%s\n' "$raw"; return 0 ;;
+    [2-8]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..7)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..8)\n' "$raw" >&2
   return 1
 }
 
@@ -92,8 +109,8 @@ tribunal_backup_legs() {
   IFS=, read -r -a legs <<< "$raw"
   for leg in ${legs[@]+"${legs[@]}"}; do
     case "$leg" in
-      codex|gemini|deepseek|qwen|grok|muse|claude) ;;
-      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want codex, gemini, deepseek, qwen, grok, muse, claude, or off)\n' "$leg" >&2; return 1 ;;
+      codex|gemini|deepseek|qwen|grok|muse|claude|vibe) ;;
+      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want codex, gemini, deepseek, qwen, grok, muse, claude, vibe, or off)\n' "$leg" >&2; return 1 ;;
     esac
     case "$seen" in *" $leg "*) printf 'duplicate TRIBUNAL_BACKUP_LEGS entry: %s\n' "$leg" >&2; return 1 ;; esac
     seen="$seen$leg "
@@ -151,12 +168,13 @@ tribunal_backup_installed() {
     deepseek) tribunal_deepseek_available >/dev/null ;;
     gemini) command -v agy >/dev/null 2>&1 && tribunal_gemini_available >/dev/null ;;
     qwen) command -v qwen >/dev/null 2>&1 ;;
+    vibe) command -v vibe >/dev/null 2>&1 && tribunal_vibe_available >/dev/null ;;
     *) return 1 ;;
   esac
 }
 
 # Select the active review panel and backup order from review-panel.tsv for the
-# effective risk tier (default T2). Exports TRIBUNAL_<P>=on|off for all 7 providers
+# effective risk tier (default T2). Exports TRIBUNAL_<P>=on|off for all 8 providers
 # and TRIBUNAL_<P>_MODEL / TRIBUNAL_<P>_EFFORT for selected and backup rows unless
 # already set by the operator. Sets TRIBUNAL_SELECTED_PANEL_SIZE,
 # TRIBUNAL_SELECTED_PANEL_JSON, TRIBUNAL_SELECTED_BACKUPS, and TRIBUNAL_EXPLICIT_OFF.
@@ -177,15 +195,15 @@ tribunal_select_panel() {
     return 1
   fi
 
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     upper="${p^^}"
     toggle_var="TRIBUNAL_${upper}"
     toggle_val="${!toggle_var:-}"
     case "$toggle_val" in
       '') ;;
       auto)
-        if [ "$p" != gemini ]; then
-          printf 'invalid %s value: auto (only TRIBUNAL_GEMINI accepts auto; want on or off)\n' "$toggle_var" >&2
+        if [ "$p" != gemini ] && [ "$p" != vibe ]; then
+          printf 'invalid %s value: auto (only TRIBUNAL_GEMINI and TRIBUNAL_VIBE accept auto; want on or off)\n' "$toggle_var" >&2
           return 1
         fi
         ;;
@@ -229,7 +247,7 @@ tribunal_select_panel() {
         ;;
     esac
     case "$row_provider" in
-      codex|gemini|deepseek|qwen|grok|muse|claude) ;;
+      codex|gemini|deepseek|qwen|grok|muse|claude|vibe) ;;
       *)
         printf 'invalid review panel row at %s:%d (bad provider: %s)\n' "$panel_file" "$lineno" "$row_provider" >&2
         return 1
@@ -259,7 +277,7 @@ tribunal_select_panel() {
   done
 
   local forced_count=0 remaining_seats=0
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     case "$forced_set" in *" $p "*) forced_count=$((forced_count + 1)) ;; esac
   done
   if [ "$panel_size" -gt "$forced_count" ]; then
@@ -287,7 +305,7 @@ tribunal_select_panel() {
     esac
   done
 
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     case "$forced_set" in
       *" $p "*)
         case "$selected_set" in
@@ -309,7 +327,7 @@ tribunal_select_panel() {
     active_or_backup="${active_or_backup}${p} "
   done
 
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     upper="${p^^}"
     case "$selected_set" in
       *" $p "*) export "TRIBUNAL_${upper}=on" ;;
@@ -1229,6 +1247,7 @@ tribunal_stamp_executed_model() {
   case "$provider" in
     grok) family='^grok([[:digit:]._-]|$)' ;;
     muse) family='^muse([[:digit:]._-]|$)' ;;
+    vibe) family='^mistral([[:digit:]._-]|$)' ;;
     qwen) family='^([[:alnum:]_.-]+/)?qwen([[:digit:]._-]|$)' ;;
     *) family='' ;;
   esac

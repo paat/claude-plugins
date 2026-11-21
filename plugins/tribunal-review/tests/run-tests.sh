@@ -10,13 +10,14 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 # Pin product defaults so host shell exports cannot flip panel membership mid-suite.
 # Per-test prefixes still override (e.g. TRIBUNAL_GROK=off for disabled-marker cases).
 unset TRIBUNAL_CODEX TRIBUNAL_CLAUDE TRIBUNAL_GROK TRIBUNAL_RISK TRIBUNAL_PANEL_SIZE \
-  TRIBUNAL_MIN_OK_LEGS TRIBUNAL_BACKUP_LEGS TRIBUNAL_REVIEW_PANEL
+  TRIBUNAL_MIN_OK_LEGS TRIBUNAL_BACKUP_LEGS TRIBUNAL_REVIEW_PANEL TRIBUNAL_VIBE
 export TRIBUNAL_GROK_RECOVERY=permit
 # Opt-out host-installed repo-walking CLIs by default so real CLIs on PATH never answer legacy fixtures.
 export TRIBUNAL_MUSE=off
 export TRIBUNAL_GEMINI=off
 export TRIBUNAL_QWEN=off
 export TRIBUNAL_DEEPSEEK=off
+export TRIBUNAL_VIBE=off
 # Smoke is opt-in; never inherit a host-on probe into default preflight checks.
 export TRIBUNAL_SMOKE_PROBE=off
 # Qwen/DeepSeek legs run under a scrubbed environment; the fakes read FIXTURE_* through it.
@@ -468,7 +469,7 @@ head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\",\"note\":\"native review (codex exec review) fed the verdict pass\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":0,\"deletions\":1,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
   sed 's/"provider":"codex"/"provider":"claude"/' "$plugin/scripts/run-codex-review.sh" > "$plugin/scripts/run-claude-review.sh"
-  for provider in gemini qwen grok muse; do
+  for provider in gemini qwen grok muse vibe; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -534,7 +535,8 @@ EOF
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "vibe":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
 }
@@ -669,7 +671,7 @@ head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
   sed 's/"provider":"codex"/"provider":"claude"/' "$plugin/scripts/run-codex-review.sh" > "$plugin/scripts/run-claude-review.sh"
-  for provider in gemini qwen grok muse; do
+  for provider in gemini qwen grok muse vibe; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -733,7 +735,8 @@ EOF
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "vibe":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
 }
@@ -1097,6 +1100,99 @@ EOF
   rm -rf "$work"
 }
 
+test_vibe_leg() {
+  local label="vibe leg: auto toggle, read-only flags, max-price guard, stub run, failures" work fake ok=1
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake" "$work/nohome"
+  cat > "$fake/vibe" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$FIXTURE_VIBE_ARGS"
+outdir=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = --output-dir ]; then outdir="$arg"; fi
+  prev="$arg"
+done
+[ -n "$outdir" ] && mkdir -p "$outdir"
+if [ "${FIXTURE_VIBE_FAIL:-off}" != off ]; then
+  printf 'vibe fixture failure: %s\n' "$FIXTURE_VIBE_FAIL" >&2
+  jq -nc --arg o "${FIXTURE_VIBE_OUTCOME:-error}" '{outcome:$o,config:{},usage:{}}' > "$outdir/export.json"
+  exit 1
+fi
+review='{"provider":"vibe","model":"placeholder","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+jq -cn --arg t "$review" '{type:"message",role:"assistant",outcome:{type:"committed"},content:[{type:"text",text:$t}]}'
+jq -nc --arg m "${FIXTURE_VIBE_SERVED:-mistral-large-4}" '{outcome:"finished",config:{active_model:$m},usage:{total_tokens:10}}' > "$outdir/export.json"
+EOF
+  chmod +x "$fake/vibe"
+  (
+    set -e
+    cd "$work"
+    git init -q; git config user.email test@example.com; git config user.name "Test User"
+    printf 'one\n' > file.txt; git add file.txt; git commit -q -m base
+    printf 'two\n' > file.txt; git commit -q -am change
+  ) || ok=0
+  run_vibe() { (cd "$work" && PATH="$fake:/usr/bin:/bin" MISTRAL_API_KEY=fixture TRIBUNAL_VIBE=on TRIBUNAL_RISK=T2 TRIBUNAL_BASE_REF=HEAD~1 \
+    FIXTURE_VIBE_ARGS="$work/args" "$@" bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh"); }
+  run_vibe env > "$work/ok.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .model=="mistral-large-4" and .summary.verdict=="APPROVE" and (.diff_stat|type=="object")' \
+    "$work/ok.json" >/dev/null || ok=0
+  for flag in --prompt-file --output streaming --max-price 0 --max-turns 50 --enabled-tools read_file --model mistral-large-4 --thinking medium; do
+    grep -qxF -- "$flag" "$work/args" || ok=0
+  done
+  # --max-price is immediately followed by 0, so the run stops before paid credit.
+  awk '$0=="--max-price"{if ((getline line) <= 0 || line != "0") exit 1; found=1} END{exit !found}' "$work/args" || ok=0
+  # Read-only posture: no trust or approval-bypass flags that would enable writes.
+  for flag in --trust --auto-approve --yolo; do
+    ! grep -qxF -- "$flag" "$work/args" || ok=0
+  done
+  run_vibe env TRIBUNAL_RISK= FIXTURE_VIBE_SERVED=mistral-large-4 > "$work/noeffort.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .model=="mistral-large-4" and .summary.verdict=="APPROVE"' \
+    "$work/noeffort.json" >/dev/null || ok=0
+  ! grep -qxF -- --thinking "$work/args" || ok=0
+  run_vibe env FIXTURE_VIBE_SERVED=mistral-large-4-0 > "$work/alias.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .model=="mistral-large-4-0" and .summary.verdict=="APPROVE"' "$work/alias.json" >/dev/null || ok=0
+  run_vibe env FIXTURE_VIBE_SERVED=other-model > "$work/mismatch.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and (.error|contains("not the requested mistral-large-4"))' "$work/mismatch.json" >/dev/null || ok=0
+  run_vibe env FIXTURE_VIBE_FAIL=boom FIXTURE_VIBE_OUTCOME=price_limit > "$work/limit.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and (.error|startswith("plan limit:"))' "$work/limit.json" >/dev/null || ok=0
+  run_vibe env TRIBUNAL_VIBE_EFFORT=xhigh > "$work/effort.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and (.error|contains("invalid TRIBUNAL_VIBE_EFFORT"))' "$work/effort.json" >/dev/null || ok=0
+  (cd "$work" && PATH="$fake:/usr/bin:/bin" MISTRAL_API_KEY=fixture TRIBUNAL_VIBE=on TRIBUNAL_BASE_REF=HEAD~1 \
+    FIXTURE_VIBE_ARGS="$work/args" bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh" --smoke) > "$work/smoke.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .model=="mistral-large-4" and .summary.verdict=="APPROVE" and (has("diff_stat")|not)' \
+    "$work/smoke.json" >/dev/null || ok=0
+  # No auth: on errors, auto (and missing CLI) disables without an error.
+  (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" HOME="$work/nohome" VIBE_HOME="$work/nohome/.vibe" \
+    TRIBUNAL_VIBE=on TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/noauth.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and (.error|contains("vibe is not configured"))' "$work/noauth.json" >/dev/null || ok=0
+  (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" HOME="$work/nohome" VIBE_HOME="$work/nohome/.vibe" \
+    env -u TRIBUNAL_VIBE TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/autoidle.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled"' "$work/autoidle.json" >/dev/null || ok=0
+  (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" HOME="$work/nohome" VIBE_HOME="$work/nohome/.vibe" \
+    env -u TRIBUNAL_VIBE TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh" --smoke) > "$work/autosmoke.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled"' "$work/autosmoke.json" >/dev/null || ok=0
+  (cd "$work" && PATH="$fake:/usr/bin:/bin" MISTRAL_API_KEY=fixture TRIBUNAL_VIBE=off TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/off.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled"' "$work/off.json" >/dev/null || ok=0
+  (cd "$work" && env -u MISTRAL_API_KEY PATH="/usr/bin:/bin" HOME="$work/nohome" VIBE_HOME="$work/nohome/.vibe" \
+    TRIBUNAL_VIBE=on TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/missing.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .error=="Vibe CLI (vibe) not on PATH"' "$work/missing.json" >/dev/null || ok=0
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/codex"; chmod +x "$fake/codex"
+  (cd "$work" && git branch -q -m main && git checkout -q -b feature && PATH="$fake:$PATH" MISTRAL_API_KEY=fixture \
+    TRIBUNAL_BASE_BRANCH=main TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_CODEX=on TRIBUNAL_VIBE=on TRIBUNAL_CLAUDE=off TRIBUNAL_GROK=off \
+    bash "$PLUGIN_ROOT/scripts/preflight.sh") > "$work/preflight.json" 2>/dev/null || ok=0
+  jq -e '.providers[]|select(.name=="vibe")|.status=="usable"' "$work/preflight.json" >/dev/null || ok=0
+  if [ "$ok" -eq 1 ]; then
+    echo -e "  ${GREEN}PASS${NC} $label"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} $label"; FAIL=$((FAIL+1)); FAILURES+=("$label")
+  fi
+  rm -rf "$work"
+}
+
 test_gemini_tier_panel() {
   local work fake home out
   work="$(mktemp -d)"; fake="$work/bin"; home="$work/home"
@@ -1112,7 +1208,7 @@ EOF
   chmod +x "$fake/"*
   select_panel() (
     local p upper
-    for p in codex claude grok muse deepseek gemini qwen; do
+    for p in codex claude grok muse deepseek gemini qwen vibe; do
       upper="${p^^}"
       unset "TRIBUNAL_$upper" "TRIBUNAL_${upper}_MODEL" "TRIBUNAL_${upper}_EFFORT"
     done
@@ -1126,7 +1222,7 @@ EOF
       {panel:$panel,backups:($backups|split("\n")|map(select(length>0))),
        toggles:{codex:env.TRIBUNAL_CODEX,claude:env.TRIBUNAL_CLAUDE,
          grok:env.TRIBUNAL_GROK,muse:env.TRIBUNAL_MUSE,deepseek:env.TRIBUNAL_DEEPSEEK,
-         gemini:env.TRIBUNAL_GEMINI,qwen:env.TRIBUNAL_QWEN}}'
+         gemini:env.TRIBUNAL_GEMINI,qwen:env.TRIBUNAL_QWEN,vibe:env.TRIBUNAL_VIBE}}'
   )
   printf 'token\n' > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
   out="$(select_panel)"
@@ -1134,7 +1230,7 @@ EOF
     .panel == [{provider:"codex",model:"gpt-6.2-sol",effort:"medium"},
       {provider:"claude",model:"claude-sonnet-5-5",effort:"medium"},
       {provider:"gemini",model:"gemini-4-hydrogen-medium",effort:null}]
-    and .toggles == {codex:"on",claude:"on",gemini:"on",grok:"off",muse:"off",deepseek:"off",qwen:"off"}' <<< "$out"
+    and .toggles == {codex:"on",claude:"on",gemini:"on",grok:"off",muse:"off",deepseek:"off",qwen:"off",vibe:"off"}' <<< "$out"
   tr_check "default backup order uses the remaining available T2 rows" jqe \
     '.backups == ["grok","muse","deepseek","qwen"]' <<< "$out"
   out="$(select_panel TRIBUNAL_RISK=T3 TRIBUNAL_PANEL_SIZE=5)"
@@ -1296,7 +1392,7 @@ EOF
       set -e
       cd "$work"
       local p upper
-      for p in codex claude grok muse deepseek gemini qwen; do
+      for p in codex claude grok muse deepseek gemini qwen vibe; do
         upper="${p^^}"
         unset "TRIBUNAL_$upper" "TRIBUNAL_${upper}_MODEL" "TRIBUNAL_${upper}_EFFORT"
       done
@@ -1334,27 +1430,31 @@ EOF
   rm -rf "$work"
 }
 
-test_panel_contract_seven_legs() {
-  local tsv tier count first3 tier_providers gemini_models muse_models
+test_panel_contract_eight_legs() {
+  local tsv tier count first3 tier_providers gemini_models muse_models last_row vibe_rows
   tsv="$PLUGIN_ROOT/scripts/review-panel.tsv"
-  tr_check "review schema provider enum is exactly the seven legs" jq -e \
-    '.properties.provider.enum == ["codex","gemini","deepseek","qwen","grok","muse","claude"]' \
+  tr_check "review schema provider enum is exactly the eight legs" jq -e \
+    '.properties.provider.enum == ["codex","gemini","deepseek","qwen","grok","muse","claude","vibe"]' \
     "$PLUGIN_ROOT/schemas/review-output.json"
   for tier in T1 T2 T3 T4; do
     count="$(awk -F$'\t' -v t="$tier" '$1==t {print $2}' "$tsv" | sort -u | wc -l | tr -d ' ')"
     first3="$(awk -F$'\t' -v t="$tier" '$1==t {print $2}' "$tsv" | head -3 | sort -u | wc -l | tr -d ' ')"
     tier_providers="$(awk -F$'\t' -v t="$tier" '$1==t {print $2}' "$tsv" | sort -u | tr '\n' ' ')"
-    tr_check "$tier fields exactly the seven legs and nothing retired" bash -c '[ "$1" = "claude codex deepseek gemini grok muse qwen " ]' _ "$tier_providers"
+    last_row="$(awk -F$'\t' -v t="$tier" '$1==t {print $2}' "$tsv" | tail -1)"
+    tr_check "$tier fields exactly the eight legs and nothing retired" bash -c '[ "$1" = "claude codex deepseek gemini grok muse qwen vibe " ]' _ "$tier_providers"
     tr_check "$tier leads with three distinct legs ahead of the fallbacks" bash -c '[ "$1" -eq 3 ]' _ "$first3"
+    tr_check "$tier seats vibe mistral-large-4 as the last fallback row" bash -c '[ "$1" = vibe ]' _ "$last_row"
   done
   gemini_models="$(awk -F$'\t' '$2=="gemini" {print $1 "=" $3}' "$tsv" | sort | tr '\n' ' ')"
   tr_check "gemini rows use Hydrogen at T1/T2 and Argon at T3/T4" bash -c '[ "$1" = "T1=gemini-4-hydrogen-low T2=gemini-4-hydrogen-medium T3=gemini-4-argon-high T4=gemini-4-argon-high " ]' _ "$gemini_models"
   muse_models="$(awk -F$'\t' '$2=="muse" && ($1=="T3" || $1=="T4") {print $1 "=" $3}' "$tsv" | sort | tr '\n' ' ')"
   tr_check "muse rows use Wonder Full at T3/T4" bash -c '[ "$1" = "T3=muse-wonder-full-1.0 T4=muse-wonder-full-1.0 " ]' _ "$muse_models"
+  vibe_rows="$(awk -F$'\t' '$2=="vibe" {print $1 "=" $3 ":" $4}' "$tsv" | sort | tr '\n' ' ')"
+  tr_check "vibe rows pin mistral-large-4 with tiered thinking" bash -c '[ "$1" = "T1=mistral-large-4:low T2=mistral-large-4:medium T3=mistral-large-4:high T4=mistral-large-4:high " ]' _ "$vibe_rows"
 }
 
 test_executed_model_family_guard() {
-  local label="executed model family guard" work review off_family on_family qwen_namespaced qwen_claude qwen_coder muse_ok muse_bad unresolved
+  local label="executed model family guard" work review off_family on_family qwen_namespaced qwen_claude qwen_coder muse_ok muse_bad vibe_ok vibe_bad unresolved
   work="$(mktemp -d)"
   review='{"provider":"model-authored","model":"claude-haiku-4-5","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
   : > "$work/stdout"
@@ -1367,6 +1467,8 @@ test_executed_model_family_guard() {
   qwen_coder="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen coder-qwen "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   muse_ok="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model muse muse-wonder-full-1.0 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   muse_bad="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model muse claude-haiku-4-5 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  vibe_ok="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model vibe mistral-large-4 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
+  vibe_bad="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model vibe claude-haiku-4-5 "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
   unresolved="$(printf '%s' "$review" | bash -c '. "$1"; tribunal_stamp_executed_model qwen "" "$2" "$3" 0' _ "$PLUGIN_ROOT/scripts/lib.sh" "$work/stdout" "$work/stderr" 2>/dev/null || true)"
 
   if printf '%s' "$off_family" | jq -e '
@@ -1394,6 +1496,12 @@ test_executed_model_family_guard() {
     ' >/dev/null \
     && printf '%s' "$muse_bad" | jq -e '
       .provider == "muse" and (.error | contains("requested provider muse")) and (.error | contains("claude-haiku-4-5")) and (.error | contains("phase=model_family"))
+    ' >/dev/null \
+    && printf '%s' "$vibe_ok" | jq -e '
+      .provider == "model-authored" and .model == "mistral-large-4" and .summary.verdict == "APPROVE"
+    ' >/dev/null \
+    && printf '%s' "$vibe_bad" | jq -e '
+      .provider == "vibe" and (.error | contains("requested provider vibe")) and (.error | contains("claude-haiku-4-5")) and (.error | contains("phase=model_family"))
     ' >/dev/null \
     && printf '%s' "$unresolved" | jq -e '
       .provider == "model-authored" and .model == "unverified" and .summary.verdict == "APPROVE"
@@ -3272,7 +3380,7 @@ else
   printf '%s\n' '{"provider":"claude","model":"fixture","files_examined":["app.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"},'"$(fixture_stat)"'}'
 fi
 EOF
-  for provider in gemini qwen grok muse; do
+  for provider in gemini qwen grok muse vibe; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -3471,7 +3579,8 @@ EOF
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "vibe":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
 }
@@ -3619,7 +3728,8 @@ EOF
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "vibe":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"One medium finding remains non-blocking."
 }
@@ -4101,7 +4211,7 @@ EOF
 
   # Invalid values → exit 2 naming the key (including 1: one-leg APPROVE rejected); unset → floor 2.
   local bad
-  for bad in 0 1 8 abc 9; do
+  for bad in 0 1 9 abc; do
     ec=0
     (
       cd "$work"
@@ -4126,6 +4236,13 @@ EOF
       TRIBUNAL_DEEPSEEK=off \
       env -u TRIBUNAL_MIN_OK_LEGS bash "$PLUGIN_ROOT/scripts/preflight.sh" > "$work/unset.json" 2> "$work/unset.err"
   ) || ec=$?
+  floor8="$(TRIBUNAL_MIN_OK_LEGS=8 bash -c '. "$1"; tribunal_min_ok_legs' _ "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null)" || floor8=""
+  if [ "$floor8" = 8 ]; then
+    echo -e "  ${GREEN}PASS${NC} TRIBUNAL_MIN_OK_LEGS=8 is accepted"; PASS=$((PASS+1))
+  else
+    echo -e "  ${RED}FAIL${NC} TRIBUNAL_MIN_OK_LEGS=8 is accepted"; FAIL=$((FAIL+1))
+    FAILURES+=("min_ok_legs 8 accepted")
+  fi
   if [ "$ec" -eq 0 ] && jq -e '.status=="ok" and .min_ok_legs==2' "$work/unset.json" >/dev/null; then
     echo -e "  ${GREEN}PASS${NC} preflight defaults TRIBUNAL_MIN_OK_LEGS to 2"; PASS=$((PASS+1))
   else
@@ -4357,7 +4474,7 @@ DIFF_STAT="$(tribunal_take_diff_stat "$DIFF_FILE")"
 printf '%s\n' '{"provider":"grok","model":"fixture","files_examined":[],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}' \
   | tribunal_stamp_diff_stat "$DIFF_STAT"
 EOF
-  for provider in gemini qwen muse; do
+  for provider in gemini qwen muse vibe; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -4422,7 +4539,8 @@ EOF
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"failed"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"ok"},
+    "vibe":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"Blind leg must block the 0.95 shortcut."
 }
@@ -4745,7 +4863,7 @@ base="$(git rev-parse --verify "${TRIBUNAL_BASE_REF}^{commit}")"
 head="$(git rev-parse --verify 'HEAD^{commit}')"
 printf '%s\n' "{\"provider\":\"codex\",\"model\":\"fixture\",\"files_examined\":[\"app.txt\"],\"findings\":[],\"summary\":{\"total_findings\":0,\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"quality_score\":10,\"verdict\":\"APPROVE\"},\"diff_stat\":{\"files_changed\":1,\"insertions\":1,\"deletions\":0,\"base\":\"$TRIBUNAL_BASE_REF\",\"base_oid\":\"$base\",\"head_oid\":\"$head\",\"truncated\":false}}"
 EOF
-  for provider in gemini qwen grok muse claude; do
+  for provider in gemini qwen grok muse claude vibe; do
     cat > "$plugin/scripts/run-$provider-review.sh" <<EOF
 #!/usr/bin/env bash
 printf '%s\\n' '{"provider":"$provider","status":"disabled","note":"fixture disabled"}'
@@ -4815,7 +4933,8 @@ EOF
     "qwen":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "grok":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
     "muse":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
-    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
+    "claude":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"},
+    "vibe":{"findings_accepted":0,"findings_rejected":0,"false_positives":[],"status":"disabled"}
   },
   "conflicts_resolved":[],"summary":"No blocking findings."
 }
@@ -4851,7 +4970,7 @@ EOF_GROK
         --output "$collection" > "$work/collect-recovery.json"
     manifest_sha="$(jq -r .manifest_sha256 "$work/collect-recovery.json")"
     if jq -e --arg policy "$recovery_policy" --arg status "$recovery_status" '
-      .grok_recovery==$policy and .panel_policy.min_ok_legs==2 and (.providers|length)==7
+      .grok_recovery==$policy and .panel_policy.min_ok_legs==2 and (.providers|length)==8
       and any(.providers[]; .provider=="grok" and .status==$status)' "$collection/manifest.json" >/dev/null \
       && { [ "$recovery_policy" = permit ] || jq -e '.error|contains("grok_recovery_rejected")' "$collection/providers/grok.json" >/dev/null; }; then
       echo -e "  ${GREEN}PASS${NC} collector seals $recovery_policy recovery policy, named status and unchanged panel floor"; PASS=$((PASS+1))
@@ -5327,6 +5446,7 @@ for script in \
   scripts/run-grok-review.sh \
   scripts/run-muse-review.sh \
   scripts/run-claude-review.sh \
+  scripts/run-vibe-review.sh \
   scripts/collect-review-evidence.sh \
   scripts/check-runner-bundle.sh \
   scripts/generate-runner-bundle.sh \
@@ -5418,6 +5538,8 @@ assert_grep "Grok clamps T3 inspect timeout upper bound" "scripts/run-grok-revie
 assert_grep "Grok clamps non-T3 inspect timeout at 1800" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=1800"
 assert_grep "Grok extracts camelCase structuredOutput" "scripts/lib.sh" "structuredOutput"
 assert_grep "Grok payload completeness helper" "scripts/lib.sh" "tribunal_review_payload_complete"
+assert_grep "Vibe never spends paid credit" "scripts/run-vibe-review.sh" "--max-price 0"
+assert_grep "Vibe restricts tools to read_file" "scripts/run-vibe-review.sh" "--enabled-tools read_file"
 assert_grep "Grok payload requires enum verdict" "scripts/lib.sh" 'APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"'
 
 echo "Disabled-provider markers:"
@@ -5427,11 +5549,13 @@ assert_json_field "gemini disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-gemini-
 assert_json_field "qwen disabled JSON" "bash '$PLUGIN_ROOT/scripts/run-qwen-review.sh' | jq -e '.provider==\"qwen\" and .status==\"disabled\"'"
 assert_json_field "grok disabled JSON" "TRIBUNAL_GROK=off bash '$PLUGIN_ROOT/scripts/run-grok-review.sh' | jq -e '.provider==\"grok\" and .status==\"disabled\"'"
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
+assert_json_field "vibe disabled JSON" "TRIBUNAL_VIBE=off bash '$PLUGIN_ROOT/scripts/run-vibe-review.sh' | jq -e '.provider==\"vibe\" and .status==\"disabled\"'"
 test_empty_staged_diff_with_real_changes_fails_closed
 test_genuine_empty_diff_is_reverified_and_unchanged
 test_unresolvable_base_during_empty_verification_fails_closed
 test_qwen_envelope_parser
 test_muse_leg
+test_vibe_leg
 test_executed_model_family_guard
 test_claude_auth_guard
 test_grok_auth_guard
@@ -5994,7 +6118,7 @@ EOF
   chmod +x "$fake/"*
   select_panel() (
     local p upper
-    for p in codex claude grok muse deepseek gemini qwen; do
+    for p in codex claude grok muse deepseek gemini qwen vibe; do
       upper="${p^^}"
       unset "TRIBUNAL_$upper" "TRIBUNAL_${upper}_MODEL" "TRIBUNAL_${upper}_EFFORT"
     done
@@ -6007,14 +6131,14 @@ EOF
       {panel:$panel,backups:($backups|split("\n")|map(select(length>0))),
        toggles:{codex:env.TRIBUNAL_CODEX,claude:env.TRIBUNAL_CLAUDE,
          grok:env.TRIBUNAL_GROK,muse:env.TRIBUNAL_MUSE,deepseek:env.TRIBUNAL_DEEPSEEK,
-         gemini:env.TRIBUNAL_GEMINI,qwen:env.TRIBUNAL_QWEN}}'
+         gemini:env.TRIBUNAL_GEMINI,qwen:env.TRIBUNAL_QWEN,vibe:env.TRIBUNAL_VIBE}}'
   )
   out="$(select_panel)"
   tr_check "default selection runs the T2 Codex Claude Gemini panel and disables every other provider" jqe '
     .panel == [{provider:"codex",model:"gpt-6.2-sol",effort:"medium"},
       {provider:"claude",model:"claude-sonnet-5-5",effort:"medium"},
       {provider:"gemini",model:"gemini-4-hydrogen-medium",effort:null}]
-    and .toggles == {codex:"on",claude:"on",gemini:"on",grok:"off",muse:"off",deepseek:"off",qwen:"off"}' <<< "$out"
+    and .toggles == {codex:"on",claude:"on",gemini:"on",grok:"off",muse:"off",deepseek:"off",qwen:"off",vibe:"off"}' <<< "$out"
   tr_check "default backup order uses the remaining available T2 rows" jqe \
     '.backups == ["grok","muse","deepseek","qwen"]' <<< "$out"
   out="$(select_panel TRIBUNAL_RISK=T3)"
@@ -6052,12 +6176,15 @@ EOF
   tr_check "TRIBUNAL_PANEL_SIZE=2 selects exactly two legs" jqe \
     '[.panel[].provider] == ["codex","claude"]' <<< "$out"
   invalid_panel_sizes() {
-    for bad in 1 8 9 invalid; do
+    for bad in 1 9 invalid; do
       if select_panel TRIBUNAL_PANEL_SIZE="$bad" > /dev/null 2> "$work/invalid.err"; then return 1; fi
       grep -q 'TRIBUNAL_PANEL_SIZE' "$work/invalid.err" || return 1
     done
   }
   tr_check "invalid panel sizes are rejected" invalid_panel_sizes
+  out="$(select_panel TRIBUNAL_PANEL_SIZE=8 TRIBUNAL_MUSE=on TRIBUNAL_QWEN=on TRIBUNAL_DEEPSEEK=on TRIBUNAL_VIBE=on)"
+  tr_check "TRIBUNAL_PANEL_SIZE=8 seats all eight legs" jqe \
+    '[.panel[].provider] == ["codex","claude","gemini","grok","muse","deepseek","qwen","vibe"]' <<< "$out"
   out="$(select_panel TRIBUNAL_BACKUP_LEGS=)"
   tr_check "an explicitly empty TRIBUNAL_BACKUP_LEGS selects no backups" jqe '.backups == []' <<< "$out"
   invalid_toggle() {
@@ -6069,7 +6196,10 @@ EOF
     if select_panel TRIBUNAL_QWEN=auto > /dev/null 2> "$work/invalid.err"; then return 1; fi
     grep -Fq 'invalid TRIBUNAL_QWEN value: auto' "$work/invalid.err"
   }
-  tr_check "auto is rejected for non-Gemini provider toggles" reject_non_gemini_auto
+  tr_check "auto is rejected for non-Gemini non-Vibe provider toggles" reject_non_gemini_auto
+  out="$(select_panel TRIBUNAL_VIBE=auto 2> "$work/invalid.err")"
+  tr_check "auto is accepted for the Vibe toggle" jqe \
+    '.toggles.vibe == "off"' <<< "$out"
   printf '# fixture\nT2\tcodex\tgpt-6.1-sol # trailing comment\tmedium\n' > "$work/bad-panel.tsv"
   reject_bad_model() {
     if select_panel TRIBUNAL_REVIEW_PANEL="$work/bad-panel.tsv" > /dev/null 2> "$work/invalid.err"; then return 1; fi
@@ -6661,7 +6791,7 @@ else
   bash "$(dirname "$0")/fixture-review.sh" muse
 fi
 EOF
-  for provider in gemini qwen grok; do
+  for provider in gemini qwen grok vibe; do
     printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' \
       "'{\"provider\":\"$provider\",\"status\":\"disabled\",\"note\":\"fixture disabled\"}'" > "$plugin/scripts/run-$provider-review.sh"
   done
@@ -6954,7 +7084,7 @@ EOF
       [ "$ec" -eq 0 ] || return 1
       jq -e --argjson expected "$expected" --arg muse "$muse_status" '
         ([.providers[] | {key:.provider,value:.status}] | from_entries) as $actual
-        | $actual == ({gemini:"disabled",qwen:"disabled",grok:"disabled",muse:$muse} + $expected)
+        | $actual == ({gemini:"disabled",qwen:"disabled",grok:"disabled",muse:$muse,vibe:"disabled"} + $expected)
       ' "$collection/manifest.json" >/dev/null || return 1
       manifest_sha="$(jq -r .manifest_sha256 "$work/collect-$n.json")"
       fixture_finalize() {
@@ -7323,7 +7453,7 @@ test_panel_selection
 test_gemini_tier_panel
 test_gemini_auto_runner
 test_panel_selected_cli_argv
-test_panel_contract_seven_legs
+test_panel_contract_eight_legs
 test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok
 test_grok_finalize_effort

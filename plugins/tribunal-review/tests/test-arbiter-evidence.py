@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
 
     check('documented lookup fails visibly when pinned object is pruned', missing_pinned_object)
 
-    providers = ('codex', 'gemini', 'deepseek', 'qwen', 'grok', 'muse', 'claude')
+    providers = ('codex', 'gemini', 'deepseek', 'qwen', 'grok', 'muse', 'claude', 'vibe')
     (work / 'providers').mkdir()
 
     def verdict_case(statuses, decision, confidence, accepts=True, findings=[],
