@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # leg-preflight.sh — implement-leg gates called by pool.sh.
 #
-#   leg-preflight.sh --repo DIR [--task ID] [--prompt FILE]
-#   leg-preflight.sh --after --repo DIR [--prompt FILE] [--out FILE]...
+#   leg-preflight.sh --repo DIR [--task ID] [--out FILE]...
+#   leg-preflight.sh --after --repo DIR [--out FILE]...
 #
 # Before dispatch: a dirty tree (git status --porcelain, so .gitignore and
 # info/exclude stay out) exits 56 check=preflight unless MMO_ALLOW_DIRTY=<reason>.
@@ -10,11 +10,9 @@
 # check=preflight unless MMO_ALLOW_REDO=<reason>. No GitHub remote: allow.
 # gh missing or failing: warn and allow.
 #
-# After a worker exit 0: a still-dirty tree exits 56 check=uncommitted unless
-# MMO_ALLOW_UNCOMMITTED=<reason>, or the prompt bars committing. The bar is the
-# worker contract: "the orchestrator commits", "leave the tree uncommitted",
-# "Do not edit any other path or commit", or "Do not broaden scope or commit",
-# unless a line also orders "Commit on" without "when your leg's contract permits".
+# After a worker exit 0: MMO_WORKER_COMMITS=1 (pool.sh --worker-commits) makes a
+# still-dirty tree exit 56 check=uncommitted unless MMO_ALLOW_UNCOMMITTED=<reason>.
+# Without that value the orchestrator commits, so a dirty tree is allowed.
 # Leg --out files and the outcome/check records are not worker dirt.
 # Escape reasons are printed on stderr. Exit 0 allows.
 set -euo pipefail
@@ -26,14 +24,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mode=before
 repo=""
 task=""
-prompt=""
 outs=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --after) mode=after; shift ;;
     --repo) [ "$#" -ge 2 ] || exit 2; repo="$2"; shift 2 ;;
     --task) [ "$#" -ge 2 ] || exit 2; task="$2"; shift 2 ;;
-    --prompt) [ "$#" -ge 2 ] || exit 2; prompt="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || exit 2; outs+=("$2"); shift 2 ;;
     *) printf 'leg-preflight: unknown option: %s\n' "$1" >&2; exit 2 ;;
   esac
@@ -50,24 +46,6 @@ escape_reason() { # escape_reason VAR
   raw="${raw#"${raw%%[![:space:]]*}"}"
   raw="${raw%"${raw##*[![:space:]]}"}"
   printf '%s' "$raw"
-}
-
-# 0 when the prompt tells the worker not to commit (the orchestrator commits).
-commit_barred() {
-  local file="$1" line unconditional=0
-  [ -n "$file" ] && [ -f "$file" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      *'Commit on '*)
-        case "$line" in
-          *'when your leg'"'"'s contract permits'*) ;;
-          *) unconditional=1 ;;
-        esac
-        ;;
-    esac
-  done < "$file"
-  [ "$unconditional" -eq 0 ] || return 1
-  grep -Eq 'the orchestrator commits|leave the tree uncommitted|Do not edit any other path or commit|Do not broaden scope or commit' "$file"
 }
 
 worktree_status() { # prints porcelain; fails when git cannot answer
@@ -117,9 +95,8 @@ fi
 
 if [ "$mode" = after ]; then
   [ -n "$dirty" ] || exit 0
-  if commit_barred "$prompt"; then
-    exit 0
-  fi
+  # Absent means the orchestrator commits. Only an explicit worker-commits leg checks.
+  [ "${MMO_WORKER_COMMITS:-}" = 1 ] || exit 0
   reason="$(escape_reason MMO_ALLOW_UNCOMMITTED)"
   if [ -n "$reason" ]; then
     printf 'leg-preflight: MMO_ALLOW_UNCOMMITTED=%s\n' "$reason" >&2

@@ -12,17 +12,22 @@
 #                                   def test_ / func Test / it( / test( on them
 #   live_recheck: true              gh issue close needs VERIFIED LIVE: <sha>
 #                                   or Live-Recheck: no-live-surface — <reason>
-# Renames (-M) are not deletions. Trailers in the push range:
+# Renames (-M) are not deletions. Real Git trailers in the push range
+# (not subject or body prose):
 #   Push-Gate: skip — <reason>
 #   Test-Deletion: justified — <reason>
+# Plain `git push` resolves @{push} (push.default), not the upstream branch.
+# A new branch is attributed from merge-base(tip, origin/<default>).
+# push_check runs even when that range cannot be resolved.
+# A live marker and its SHA must share one line of one comment.
 # gh read failure warns and allows. Delete-ref pushes are not gated.
 set -uo pipefail
 
 PUSH_CHECK_TIMEOUT=240
 DEFAULT_TEST_RE='(\.test\.|\.spec\.|(^|/)test_[^/]*\.py$|_test\.go$|(^|/)tests?/|(^|/)__tests__/|(^|/)spec/)'
 DECL_RE='def[[:space:]]+test_|func[[:space:]]+Test|it\(|test\('
-PUSH_SKIP_RE='Push-Gate:[[:space:]]*skip[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
-TEST_JUST_RE='Test-Deletion:[[:space:]]*justified[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
+PUSH_SKIP_RE='^[[:space:]]*skip[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
+TEST_JUST_RE='^[[:space:]]*justified[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
 LIVE_SHA_RE='VERIFIED LIVE:.*[[:xdigit:]]{7}'
 LIVE_NONE_RE='Live-Recheck:[[:space:]]*no-live-surface[[:space:]]*(—|–|-)[[:space:]]*[^[:space:]]'
 
@@ -292,12 +297,67 @@ record_gate() {
   kind=none
 }
 
+# One line is one evidence statement. A marker and a SHA in different lines,
+# or in different comments, do not combine.
 has_live_marker() {
-  local flat
-  flat="$(printf '%s' "$1" | tr '\n' ' ')"
-  printf '%s\n' "$flat" | grep -Eq "$LIVE_SHA_RE" && return 0
-  printf '%s\n' "$flat" | grep -Eq "$LIVE_NONE_RE" && return 0
+  local line=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "$line" | grep -Eq "$LIVE_SHA_RE" && return 0
+    printf '%s\n' "$line" | grep -Eq "$LIVE_NONE_RE" && return 0
+  done <<< "$1"
   return 1
+}
+
+# @{push} is the remote-tracking ref of a plain git push. It fails when that
+# ref is not fetched yet; %(push) is the same name and still honours push.default.
+plain_push_dest() { # plain_push_dest REPO  -> "remote<TAB>branch" or nothing
+  local repo="$1" push_ref="" head_ref="" rest="" best="" rname=""
+  push_ref="$(git -C "$repo" rev-parse --symbolic-full-name '@{push}' 2>/dev/null || true)"
+  if [ -z "$push_ref" ]; then
+    head_ref="$(git -C "$repo" symbolic-ref -q HEAD 2>/dev/null || true)"
+    if [ -n "$head_ref" ]; then
+      push_ref="$(git -C "$repo" for-each-ref --format='%(push)' "$head_ref" 2>/dev/null || true)"
+    fi
+  fi
+  case "$push_ref" in
+    refs/remotes/*) ;;
+    *) return 0 ;;
+  esac
+  rest="${push_ref#refs/remotes/}"
+  while IFS= read -r rname; do
+    [ -n "$rname" ] || continue
+    case "$rest" in
+      "$rname"/*)
+        [ "${#rname}" -gt "${#best}" ] && best="$rname"
+        ;;
+    esac
+  done < <(git -C "$repo" remote 2>/dev/null || true)
+  [ -n "$best" ] || return 0
+  printf '%s\t%s\n' "$best" "${rest#"$best"/}"
+}
+
+origin_default() { # origin_default REPO -> origin/<default>, or nothing
+  local repo="$1" sym=""
+  sym="$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  if [ -n "$sym" ] && git -C "$repo" rev-parse --verify -q "$sym" >/dev/null; then
+    printf '%s\n' "$sym"
+    return 0
+  fi
+  if git -C "$repo" rev-parse --verify -q origin/main >/dev/null; then
+    printf '%s\n' origin/main
+    return 0
+  fi
+  if git -C "$repo" rev-parse --verify -q origin/master >/dev/null; then
+    printf '%s\n' origin/master
+    return 0
+  fi
+  return 1
+}
+
+range_has_trailer() { # range_has_trailer REPO BASE TIP KEY ERE
+  local vals=""
+  vals="$(git -C "$1" log --format="%(trailers:key=$4,valueonly)" "$2..$3" 2>/dev/null || true)"
+  printf '%s\n' "$vals" | grep -Eq "$5"
 }
 
 load_repo_config() {
@@ -331,15 +391,17 @@ push_gate() { # push_gate INDEX
   remote="${remotes[$i]}"
   src="${srcs[$i]}"
   dst="${dsts[$i]}"
-  if [ -z "$remote" ]; then
-    local up=""
-    up="$(git -C "$top" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
-    if [[ "$up" == */* ]]; then
-      remote="${up%%/*}"
-      [ -n "$src" ] || src="${up#*/}"
-    else
-      remote=origin
+  # Plain `git push` (no remote, no refspec). Explicit refspecs keep the parsed names.
+  if [ -z "$remote" ] && [ -z "$src" ]; then
+    local dest_line=""
+    dest_line="$(plain_push_dest "$top" || true)"
+    if [ -n "$dest_line" ]; then
+      remote="${dest_line%%$'\t'*}"
+      dst="${dest_line#*$'\t'}"
     fi
+  fi
+  if [ -z "$remote" ]; then
+    remote=origin
   fi
   if [ -z "$src" ] || [ "$src" = HEAD ]; then
     src="$(git -C "$top" symbolic-ref --short HEAD 2>/dev/null)" || {
@@ -352,40 +414,45 @@ push_gate() { # push_gate INDEX
     dst="$src"
   fi
   dst="${dst#refs/heads/}"
-  if git -C "$top" rev-parse --verify -q "$remote/$dst" >/dev/null; then
-    base="$remote/$dst"
-  elif git -C "$top" rev-parse --verify -q origin/main >/dev/null; then
-    base="origin/main"
-  else
-    warn "cannot resolve the push range; allowing"
-    return 0
-  fi
   tip="$src"
   git -C "$top" rev-parse --verify -q "$tip" >/dev/null || {
     warn "cannot resolve the local ref being pushed; allowing"
     return 0
   }
-  bodies="$(git -C "$top" log --format=%B "${base}..${tip}" 2>/dev/null)" || {
-    warn "cannot read commits in the push range; allowing"
-    return 0
-  }
-  load_repo_config "$top"
-  if ! printf '%s\n' "$bodies" | grep -Eq "$PUSH_SKIP_RE"; then
-    if [ -n "$cfg_push" ]; then
-      check_rc=0
-      if command -v timeout >/dev/null 2>&1; then
-        (cd "$top" && timeout "$PUSH_CHECK_TIMEOUT" bash -c "$cfg_push") >/dev/null 2>&1 || check_rc=$?
-      else
-        (cd "$top" && bash -c "$cfg_push") >/dev/null 2>&1 || check_rc=$?
-      fi
-      if [ "$check_rc" -eq 124 ]; then
-        block "push_check timed out"
-      elif [ "$check_rc" -ne 0 ]; then
-        block "push_check exited $check_rc"
-      fi
+  base=""
+  if git -C "$top" rev-parse --verify -q "$remote/$dst" >/dev/null; then
+    base="$remote/$dst"
+  else
+    local def=""
+    def="$(origin_default "$top" || true)"
+    if [ -n "$def" ]; then
+      base="$(git -C "$top" merge-base "$tip" "$def" 2>/dev/null || true)"
     fi
   fi
-  printf '%s\n' "$bodies" | grep -Eq "$TEST_JUST_RE" && return 0
+  load_repo_config "$top"
+  local skip_push=0
+  if [ -n "$base" ] && range_has_trailer "$top" "$base" "$tip" Push-Gate "$PUSH_SKIP_RE"; then
+    skip_push=1
+  fi
+  # push_check does not need a diff. A missing range is not a reason to skip it.
+  if [ "$skip_push" -eq 0 ] && [ -n "$cfg_push" ]; then
+    check_rc=0
+    if command -v timeout >/dev/null 2>&1; then
+      (cd "$top" && timeout "$PUSH_CHECK_TIMEOUT" bash -c "$cfg_push") >/dev/null 2>&1 || check_rc=$?
+    else
+      (cd "$top" && bash -c "$cfg_push") >/dev/null 2>&1 || check_rc=$?
+    fi
+    if [ "$check_rc" -eq 124 ]; then
+      block "push_check timed out"
+    elif [ "$check_rc" -ne 0 ]; then
+      block "push_check exited $check_rc"
+    fi
+  fi
+  if [ -z "$base" ]; then
+    warn "cannot resolve the push range; allowing"
+    return 0
+  fi
+  range_has_trailer "$top" "$base" "$tip" Test-Deletion "$TEST_JUST_RE" && return 0
   greprc=0
   printf 'x\n' | grep -Eq "$cfg_test" >/dev/null 2>&1 || greprc=$?
   if [ "$greprc" -gt 1 ]; then
@@ -441,7 +508,7 @@ push_gate() { # push_gate INDEX
 }
 
 close_gate() { # close_gate INDEX
-  local i="$1" issue comment text gh_repo top
+  local i="$1" issue comment text gh_repo top view_issue
   top="$(git -C "${repos[$i]}" rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$top" ] || top="${repos[$i]}"
   load_repo_config "$top"
@@ -451,18 +518,24 @@ close_gate() { # close_gate INDEX
     return 0
   fi
   issue="${issues[$i]}"
-  issue="${issue##*/}"
-  issue="${issue#\#}"
-  [[ "$issue" =~ ^[0-9]+$ ]] || { warn "cannot parse the issue number; allowing close"; return 0; }
+  case "$issue" in
+    *://*) view_issue="$issue" ;;
+    *)
+      view_issue="${issue##*/}"
+      view_issue="${view_issue#\#}"
+      [[ "$view_issue" =~ ^[0-9]+$ ]] || { warn "cannot parse the issue number; allowing close"; return 0; }
+      ;;
+  esac
   if ! command -v gh >/dev/null 2>&1; then
     warn "gh not found; allowing issue close"
     return 0
   fi
   gh_repo="${gh_repos[$i]}"
-  local -a gh_args=(issue view "$issue" --comments)
+  local -a gh_args=(issue view "$view_issue" --comments)
   [ -z "$gh_repo" ] || gh_args+=(--repo "$gh_repo")
-  if ! text="$(gh "${gh_args[@]}" 2>/dev/null)"; then
-    warn "gh could not read issue $issue; allowing close"
+  # The command's repo (after cd / git -C), not the hook process's directory.
+  if ! text="$(cd "$top" && gh "${gh_args[@]}" 2>/dev/null)"; then
+    warn "gh could not read issue $view_issue; allowing close"
     return 0
   fi
   if has_live_marker "$text"; then

@@ -33,14 +33,8 @@ grep -q 'MMO_ALLOW_DIRTY' "$PLUGIN_ROOT/README.md" || fail 'README omits MMO_ALL
 grep -q 'MMO_ALLOW_REDO' "$PLUGIN_ROOT/README.md" || fail 'README omits MMO_ALLOW_REDO'
 grep -q 'MMO_ALLOW_UNCOMMITTED' "$PLUGIN_ROOT/README.md" || fail 'README omits MMO_ALLOW_UNCOMMITTED'
 grep -q 'VERIFIED LIVE:' "$PLUGIN_ROOT/README.md" || fail 'README omits VERIFIED LIVE:'
-grep -q '"version": "0.31.6"' "$PLUGIN_ROOT/.claude-plugin/plugin.json" || fail 'plugin.json is not 0.31.6'
-python3 - "$ROOT/.claude-plugin/marketplace.json" <<'PY' || fail 'marketplace.json multi-model-orchestrator is not 0.31.6'
-import json, sys
-data = json.load(open(sys.argv[1]))
-hit = [p for p in data["plugins"] if p.get("name") == "multi-model-orchestrator"]
-sys.exit(0 if len(hit) == 1 and hit[0].get("version") == "0.31.6" else 1)
-PY
-pass 'hooks, README, and version 0.31.6 are wired'
+grep -q -- '--worker-commits' "$PLUGIN_ROOT/README.md" || fail 'README omits --worker-commits'
+pass 'hooks and README are wired'
 
 # --- ship gates ---
 REAL_GIT="$(command -v git)"
@@ -55,10 +49,21 @@ exec "$REAL_GIT" "\$@"
 EOF
 cat > "$S/gh" <<EOF
 #!/bin/bash
+printf 'cwd %s\n' "\$PWD" >> "$TOOLLOG"
 printf 'gh %s\n' "\$*" >> "$TOOLLOG"
 if [ "\${GH_RC:-0}" != 0 ]; then
   printf 'gh failed\n' >&2
   exit "\$GH_RC"
+fi
+case " \$* " in
+  *" http://"*|*" https://"*)
+    printf '%s\n' "\${GH_URL_VIEW-}"
+    exit 0
+    ;;
+esac
+if [ -f "\$PWD/gh-view.txt" ]; then
+  cat "\$PWD/gh-view.txt"
+  exit 0
 fi
 printf '%s\n' "\${GH_VIEW:-}"
 exit 0
@@ -70,7 +75,7 @@ hook() { # hook WANT CMD CWD [env assignments...]
   shift 3
   : > "$TOOLLOG"
   jq -n --arg c "$cmd" --arg d "$cwd" '{tool_input:{command:$c},cwd:$d}' \
-    | env -u GH_RC -u GH_VIEW PATH="$S:$PATH" "$@" bash "$GATES" >"$T/hook.out" 2>"$T/hook.err" || got=$?
+    | env -u GH_RC -u GH_VIEW -u GH_URL_VIEW PATH="$S:$PATH" "$@" bash "$GATES" >"$T/hook.out" 2>"$T/hook.err" || got=$?
   [ "$got" -eq "$want" ] || fail "hook want $want got $got for [$cmd]: $(cat "$T/hook.err")"
 }
 hook_quiet() {
@@ -127,14 +132,14 @@ hook 2 "cd $REPO && git push" /tmp
 contains "$T/hook.err" 'push_check exited 3' 'cd && git push is the same push'
 pass 'ship gates ignore other commands and block a failing push_check'
 
-git -C "$REPO" commit --allow-empty -qm $'Push-Gate: skip — ci is down'
+git -C "$REPO" commit --allow-empty -qm $'ci\n\nPush-Gate: skip — ci is down'
 hook 0 'git push' "$REPO"
 absent "$T/hook.err" 'push_check exited' 'Push-Gate skip allows a failing push_check'
-git -C "$REPO" commit --allow-empty -qm $'Push-Gate: skip - hyphen also counts'
+git -C "$REPO" commit --allow-empty -qm $'hyphen subject\n\nPush-Gate: skip - hyphen also counts'
 # The previous skip commit is still in the range, so this only locks the hyphen form
 # once that commit is published and the range is the hyphen commit alone.
 publish
-git -C "$REPO" commit --allow-empty -qm $'Push-Gate: skip - hyphen also counts'
+git -C "$REPO" commit --allow-empty -qm $'hyphen\n\nPush-Gate: skip - hyphen also counts'
 hook 0 'git push' "$REPO"
 absent "$T/hook.err" 'push_check exited' 'a hyphen Push-Gate skip allows the push'
 pass 'Push-Gate skip trailer is honored inside the push range'
@@ -146,7 +151,13 @@ hook 2 'git push' "$REPO"
 contains "$T/hook.err" 'push_check exited 3' 'a skip trailer already on the remote does not apply'
 pass 'Push-Gate skip outside the push range does not apply'
 
-# No remote-tracking base: fail open, and do not run push_check.
+# The phrase in a subject is not a trailer, so a failing push_check still blocks.
+git -C "$REPO" commit --allow-empty -qm $'Push-Gate: skip — maintenance\n\nThe subject documents the phrase.'
+hook 2 'git push' "$REPO"
+contains "$T/hook.err" 'push_check exited 3' 'a subject that mentions Push-Gate skip does not waive push_check'
+pass 'Push-Gate skip in a subject is not a trailer'
+
+# No remote-tracking base: the diff cannot be attributed, but push_check still runs.
 NOR="$T/noremote"
 mkdir -p "$NOR"
 git init -q -b main "$NOR"
@@ -155,11 +166,10 @@ git -C "$NOR" config user.name t
 printf 'base\n' > "$NOR/README.md"
 git -C "$NOR" add README.md && git -C "$NOR" commit -qm base
 mkdir -p "$NOR/.claude"
-printf -- '---\npush_check: exit 3\n---\n' > "$NOR/.claude/multi-model-orchestrator.local.md"
-hook 0 'git push' "$NOR"
-contains "$T/hook.err" 'cannot resolve the push range' 'an unresolvable range warns'
-absent "$T/hook.err" 'push_check exited' 'an unresolvable range does not run push_check'
-pass 'ship gates fail open when the push range cannot be resolved'
+printf -- '---\npush_check: exit 23\n---\n' > "$NOR/.claude/multi-model-orchestrator.local.md"
+hook 2 'git push' "$NOR"
+contains "$T/hook.err" 'push_check exited 23' 'push_check runs when the push range cannot be resolved'
+pass 'push_check runs without a resolved push range'
 
 # Test deletion. push_check stays failing; deletion cases that must reach the
 # diff either omit it or carry a Push-Gate skip so the deletion decision is visible.
@@ -204,6 +214,16 @@ absent "$T/hook.err" 'deleted test file' 'Test-Deletion justified allows the del
 pass 'Test-Deletion justified allows a deleted test'
 
 publish
+printf 'it("z", () => {})\n' > "$REPO/tests/subj.test.js"
+commit_repo 'add subj'
+publish
+rm "$REPO/tests/subj.test.js"
+commit_repo $'Test-Deletion: justified — maintenance\n\nThe subject is not a trailer.'
+hook 2 'git push' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/subj.test.js' 'a subject Test-Deletion does not waive a deleted test'
+pass 'Test-Deletion in a subject is not a trailer'
+
+publish
 rm "$REPO/README.md"
 commit_repo 'drop readme'
 hook 0 'git push' "$REPO"
@@ -235,6 +255,38 @@ absent "$T/hook.err" 'push_check exited' 'a body push_check is ignored'
 hook_nogh 'gh issue close 4' "$REPO"
 pass 'config keys outside frontmatter are ignored'
 
+# Plain git push follows @{push} (push.default), not the upstream branch.
+make_repo plain
+mkdir -p "$REPO/tests"
+printf 'it("keep", () => {})\n' > "$REPO/tests/keep.test.js"
+commit_repo 'add test'
+publish
+git -C "$REPO" checkout -q -b topic
+git -C "$REPO" branch -u origin/main
+git -C "$REPO" config push.default current
+rm "$REPO/tests/keep.test.js"
+commit_repo 'drop test on topic'
+hook 2 'git push' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'plain git push checks the push destination, not upstream'
+hook 2 'git push origin topic' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/keep.test.js' 'an explicit refspec still blocks the deleted test'
+pass 'plain git push uses the push destination'
+
+# A test added on the default branch after the fork is not a deletion on the new branch.
+make_repo fork
+git -C "$REPO" checkout -q -b topic
+git -C "$REPO" checkout -q main
+mkdir -p "$REPO/tests"
+printf 'it("later", () => {})\n' > "$REPO/tests/later.test.js"
+commit_repo 'add test on main'
+publish
+git -C "$REPO" checkout -q topic
+printf 'more\n' >> "$REPO/README.md"
+commit_repo 'topic addition'
+hook 0 'git push origin topic' "$REPO"
+absent "$T/hook.err" 'deleted test file' 'a test added on the default branch after the fork is not deleted by the topic'
+pass 'a new branch is attributed from the merge base'
+
 # Live recheck is opt-in.
 make_repo live
 write_cfg 'live_recheck: true'
@@ -247,12 +299,30 @@ hook_nogh 'gh issue close 7 --comment "VERIFIED LIVE: abcdef1"' "$REPO"
 hook_nogh 'gh issue close 7 -c "Live-Recheck: no-live-surface — no deploy"' "$REPO"
 hook 0 'gh issue close 7' "$REPO" GH_VIEW=$'earlier note\nVERIFIED LIVE: deadbee\n'
 grep -q 'gh issue view' "$TOOLLOG" || fail 'an existing comment was not read'
+hook 2 'gh issue close 7' "$REPO" GH_VIEW=$'VERIFIED LIVE: pending\nrollback deadbee1\n'
+contains "$T/hook.err" 'VERIFIED LIVE:' 'a marker and a SHA on different lines do not combine'
+hook 2 $'gh issue close 7 --comment "VERIFIED LIVE: pending\ndeadbee1"' "$REPO"
+contains "$T/hook.err" 'VERIFIED LIVE:' 'a multiline close comment needs the marker and SHA on one line'
+LIVE="$REPO"
+make_repo other
+OTHER="$REPO"
+write_cfg 'live_recheck: true'
+printf 'no marker\n' > "$OTHER/gh-view.txt"
+hook 2 "cd $OTHER && gh issue close 123" "$LIVE" GH_VIEW=$'VERIFIED LIVE: deadbee1\n'
+contains "$T/hook.err" 'VERIFIED LIVE:' 'a marker in the starting directory does not satisfy the target repo'
+grep -F "cwd $OTHER" "$TOOLLOG" || fail "gh did not run in the target repo: $(cat "$TOOLLOG")"
+hook 2 'gh issue close https://github.com/acme/widgets/issues/123' "$LIVE" \
+  GH_VIEW=$'VERIFIED LIVE: deadbee1\n' GH_URL_VIEW='no marker'
+contains "$T/hook.err" 'VERIFIED LIVE:' 'an issue URL is not looked up as a bare number'
+grep -F 'https://github.com/acme/widgets/issues/123' "$TOOLLOG" || fail "issue URL was not preserved: $(cat "$TOOLLOG")"
+REPO="$LIVE"
 hook 0 'gh issue close 7' "$REPO" GH_RC=1
 contains "$T/hook.err" 'could not read issue' 'gh read failure warns'
 absent "$T/hook.err" 'needs VERIFIED LIVE:' 'gh read failure does not block'
 write_cfg 'live_recheck: false'
 hook_nogh 'gh issue close 7' "$REPO"
 pass 'live recheck is opt-in and accepts a SHA, a prior comment, or no-live-surface'
+pass 'live recheck keeps the target repo, the issue URL, and one evidence line'
 
 # --- worker preflight through pool.sh ---
 P="$T/pool"
@@ -260,6 +330,7 @@ mkdir -p "$P/bin" "$P/calls" "$P/home" "$P/safe"
 cat > "$P/bin/agy" <<'STUB'
 #!/usr/bin/env bash
 n=$(find "$STUB_AGY_CALLS" -name 'call.*.args' | wc -l)
+cat > "$STUB_AGY_CALLS/call.$n.stdin"
 printf '%s\n' "$@" > "$STUB_AGY_CALLS/call.$n.args"
 printf '%s\n' '{"event":"init","init":{}}'
 case "$*" in *"${STUB_AGY_TOUCH_MODEL:-}"*) [ -z "${STUB_AGY_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_AGY_TOUCH" ;; esac
@@ -389,6 +460,7 @@ contains "$T/pool.err" 'gh not found' 'missing gh warns'
 pass 'closed issues block; open, non-numeric, missing remote, and gh failure do not'
 
 worker_repo dirt
+POOL_EXTRA=(--worker-commits)
 impl 'task' STUB_AGY_TOUCH="$WREPO/new.txt"
 [ "$rc" -eq 56 ] || fail "uncommitted want 56 got $rc: $(cat "$T/pool.err")"
 contains "$T/pool.err" 'check=uncommitted' 'uncommitted names the check'
@@ -396,6 +468,7 @@ contains "$T/pool.err" 'dirty worktree after a worker exit 0' 'uncommitted names
 contains "$T/pool.err" 'pool: exit=56' 'pool reports exit 56'
 [ -f "$WREPO/new.txt" ] || fail 'the worker file was not created'
 rm -f "$WREPO/new.txt"
+POOL_EXTRA=(--worker-commits)
 impl 'task' STUB_AGY_TOUCH="$WREPO/new2.txt" MMO_ALLOW_UNCOMMITTED='orchestrator commits next'
 [ "$rc" -eq 0 ] || fail "MMO_ALLOW_UNCOMMITTED want 0 got $rc: $(cat "$T/pool.err")"
 contains "$T/pool.err" 'MMO_ALLOW_UNCOMMITTED=orchestrator commits next' 'uncommitted escape prints the reason'
@@ -418,19 +491,24 @@ absent "$T/pick.err" 'preflight' 'pick is not preflighted'
 pass 'review and pick ignore a dirty tree'
 
 clean_work
-impl $'Do not edit any other path or commit.' STUB_AGY_TOUCH="$WREPO/left.txt"
-[ "$rc" -eq 0 ] || fail "orchestrate no-commit sentence want 0 got $rc: $(cat "$T/pool.err")"
-absent "$T/pool.err" 'check=uncommitted' 'orchestrate no-commit sentence stays exit 0'
+POOL_EXTRA=(--allow-paths 'README.md' --verify-cmd true --task 88 --cycle 2)
+impl $'Update README.md to rename the button from Commit on save to Save changes.\nDo not edit any other path or commit.' \
+  STUB_AGY_TOUCH="$WREPO/README.md"
+[ "$rc" -eq 0 ] || fail "orchestrator-commits want 0 got $rc: $(cat "$T/pool.err")"
+contains "$T/pool.err" 'check=pass' 'the same contract without --worker-commits is check=pass'
+absent "$T/pool.err" 'check=uncommitted' 'Commit on save does not require a worker commit'
+grep -F 'Do not broaden scope or commit.' "$P/calls/call.0.stdin" >/dev/null \
+  || fail "default worker prompt should forbid commit: $(cat "$P/calls/call.0.stdin")"
 clean_work
-impl $'Commit on `feat/x` when your leg'"'"'s contract permits committing; otherwise leave the tree uncommitted — the orchestrator commits.' \
-  STUB_AGY_TOUCH="$WREPO/tpl.txt"
-[ "$rc" -eq 0 ] || fail "worker template want 0 got $rc: $(cat "$T/pool.err")"
-absent "$T/pool.err" 'check=uncommitted' 'worker template leaves the tree uncommitted'
-clean_work
-impl $'Do not broaden scope or commit.\nCommit on the branch.' STUB_AGY_TOUCH="$WREPO/must.txt"
-[ "$rc" -eq 56 ] || fail "unconditional Commit on want 56 got $rc: $(cat "$T/pool.err")"
-contains "$T/pool.err" 'check=uncommitted' 'Commit on without the contract clause still requires a commit'
-pass 'no-commit contracts skip check=uncommitted unless Commit on is unconditional'
+POOL_EXTRA=(--worker-commits --allow-paths 'README.md' --verify-cmd true --task 88 --cycle 2)
+impl $'Document how the orchestrator commits changes.' STUB_AGY_TOUCH="$WREPO/README.md"
+[ "$rc" -eq 56 ] || fail "worker-commits want 56 got $rc: $(cat "$T/pool.err")"
+contains "$T/pool.err" 'check=uncommitted' '--worker-commits enforces a commit despite the prompt text'
+grep -F 'Commit your changes.' "$P/calls/call.0.stdin" >/dev/null \
+  || fail "worker-commits prompt should say to commit: $(cat "$P/calls/call.0.stdin")"
+grep -F 'Do not broaden scope or commit.' "$P/calls/call.0.stdin" >/dev/null \
+  && fail 'worker-commits prompt still forbids commit'
+pass '--worker-commits, not the prompt text, decides who commits'
 
 clean_work
 printf '*.log\n' > "$WREPO/.gitignore"
@@ -453,6 +531,12 @@ impl 'task'
 [ "$rc" -eq 0 ] || fail "leg --out want 0 got $rc: $(cat "$T/pool.err")"
 [ -f "$WREPO/leg.out" ] || fail 'runner did not write --out'
 absent "$T/pool.err" 'check=uncommitted' 'a leg --out is not uncommitted work'
-pass 'leg --out is excluded from the uncommitted check'
+printf 'stream\n' > "$WREPO/leg.out.stream"
+POOL_EXTRA=(--out "$WREPO/leg.out")
+impl 'task'
+[ "$rc" -eq 0 ] || fail "retry with the same --out want 0 got $rc: $(cat "$T/pool.err")"
+[ "$(calls_n)" = 1 ] || fail 'an existing --out blocked dispatch'
+absent "$T/pool.err" 'check=preflight' 'preflight excludes --out and its sidecars'
+pass 'leg --out is excluded from the uncommitted check and from preflight'
 
 printf 'ask88 gates: %s passed\n' "$passes"
