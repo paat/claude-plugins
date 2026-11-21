@@ -1196,14 +1196,14 @@ EOF
     == {codex:"ok",claude:"ok",opencode:"ok",grok:"disabled",muse:"disabled",deepseek:"disabled",gemini:"disabled",qwen:"disabled"}' \
     "$work"/*.selected.json
   tr_check "default T2 selection sends Codex Sol medium to the CLI" bash -c '
-    grep -qxF -- gpt-6.1-sol "$1" && grep -qxF -- "model_reasoning_effort=\"medium\"" "$1"' _ "$work/codex.args"
+    grep -qxF -- gpt-6.2-sol "$1" && grep -qxF -- "model_reasoning_effort=\"medium\"" "$1"' _ "$work/codex.args"
   tr_check "default T2 selection sends Claude Sonnet medium to the CLI" bash -c '
     grep -qxF -- claude-sonnet-5-5 "$1" && grep -qxF -- --effort "$1" && grep -qxF -- medium "$1"' _ "$work/claude.args"
   tr_check "default T2 selection sends OpenCode glm high to the CLI" \
     grep -qxF -- opencode-go/glm-5.3#high "$work/opencode.args"
   run_selected_panel env TRIBUNAL_RISK=T3
   tr_check "T3 selection sends Codex Astra high to the CLI" bash -c '
-    grep -qxF -- gpt-6-astra "$1" && grep -qxF -- "model_reasoning_effort=\"high\"" "$1"' _ "$work/codex.args"
+    grep -qxF -- gpt-6.2-astra "$1" && grep -qxF -- "model_reasoning_effort=\"high\"" "$1"' _ "$work/codex.args"
   tr_check "T3 selection sends Claude Opus high to the CLI" bash -c '
     grep -qxF -- claude-opus-5-5 "$1" && grep -qxF -- --effort "$1" && grep -qxF -- high "$1"' _ "$work/claude.args"
   tr_check "T3 selection sends OpenCode Kimi high to the CLI" \
@@ -5883,7 +5883,7 @@ EOF
   )
   out="$(select_panel)"
   tr_check "default selection runs the T2 Codex Claude OpenCode panel and disables every other provider" jqe '
-    .panel == [{provider:"codex",model:"gpt-6.1-sol",effort:"medium"},
+    .panel == [{provider:"codex",model:"gpt-6.2-sol",effort:"medium"},
       {provider:"claude",model:"claude-sonnet-5-5",effort:"medium"},
       {provider:"opencode",model:"glm-5.3",effort:"high"}]
     and .toggles == {codex:"on",claude:"on",opencode:"on",grok:"off",muse:"off",deepseek:"off",gemini:"off",qwen:"off"}' <<< "$out"
@@ -5891,7 +5891,7 @@ EOF
     '.backups == ["grok","muse","deepseek","gemini","qwen"]' <<< "$out"
   out="$(select_panel TRIBUNAL_RISK=T3)"
   tr_check "T3 selection uses tiered Codex Claude and OpenCode models and efforts" jqe '
-    .panel == [{provider:"codex",model:"gpt-6-astra",effort:"high"},
+    .panel == [{provider:"codex",model:"gpt-6.2-astra",effort:"high"},
       {provider:"claude",model:"claude-opus-5-5",effort:"high"},
       {provider:"opencode",model:"kimi-k3.1-pro",effort:"high"}]' <<< "$out"
   out="$(select_panel TRIBUNAL_CLAUDE=off TRIBUNAL_CODEX=off)"

@@ -4874,8 +4874,11 @@ pass 'friction-report kinds, thresholds, window, combined inputs and usage error
 
 # --- harness-adjustments.tsv: provider prompt lines with evidence, matched by provider, model glob and mode ---
 mmo_adjustment_rows check 2>"$FR/adj.err" || fail "shipped harness-adjustments.tsv is malformed: $(cat "$FR/adj.err")"
-[ "$(grep -vc -E '^[[:space:]]*(#|$)' "$PLUGIN_ROOT/scripts/harness-adjustments.tsv")" -eq 1 ] \
-  || fail 'harness-adjustments.tsv holds exactly the seeded Grok row'
+[ "$(grep -vc -E '^[[:space:]]*(#|$)' "$PLUGIN_ROOT/scripts/harness-adjustments.tsv")" -eq 2 ] \
+  || fail 'harness-adjustments.tsv holds exactly the seeded Grok rows'
+case "$(mmo_adjustment_lines grok grok-4.7 review 9 300)" in 'Your wall-clock limit is 300 seconds:'*) ;; *) fail 'the shipped Grok 4.7 review row answers its short-timeout friction' ;; esac
+[ -z "$(mmo_adjustment_lines grok grok-4.7 review 9 2>"$FR/adj.err")" ] && [ ! -s "$FR/adj.err" ] \
+  || fail 'the shipped Grok 4.7 short-review row stays out of a default-timeout review, silently'
 for provider in claude codex grok muse agy opencode vibe qwen; do
   for adj_mode in implement review research advise; do
     out="$(mmo_adjustment_lines "$provider" any-model "$adj_mode" 9)"
@@ -4931,6 +4934,23 @@ for bad_row in $'codex\t*\timplement\tAt most {budget} turns.\tev\t2026-11-01' $
   ! MMO_HARNESS_ADJUSTMENTS="$FR/adj-nobudget.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail "check accepts {budget} without a budget: ${bad_row//$'\t'/|}"
   contains "$FR/adj.err" 'has no turn or step budget for {budget}' 'the missing budget is named'
 done
+# A {timeout} row reaches only a Grok leg whose --timeout is below the 1200 s default.
+for t in 300 1200; do
+  printf x | "$PLUGIN_ROOT/scripts/run-grok.sh" --mode review --repo "$WORK/repo" --base HEAD \
+    --model grok-4.7 --effort high --timeout "$t" >/dev/null 2>"$FR/grok-t.err" || fail "run-grok review --timeout $t: $(cat "$FR/grok-t.err")"
+  if [ "$t" = 300 ]; then
+    grep -qF 'Your wall-clock limit is 300 seconds:' "$STUB_GROK_PROMPT" || fail 'a 300 s Grok 4.7 review gets the short-review line'
+  else
+    ! grep -qF 'Your wall-clock limit' "$STUB_GROK_PROMPT" || fail 'a default-timeout high-effort Grok 4.7 review omits the short-review line'
+  fi
+done
+for bad_row in $'codex\t*\treview\tWithin {timeout} s.\tev\t2026-11-01' $'grok\t*\tresearch\tWithin {timeout} s.\tev\t2026-11-01'; do
+  printf '%s\n' "$bad_row" > "$FR/adj-notimeout.tsv"
+  ! MMO_HARNESS_ADJUSTMENTS="$FR/adj-notimeout.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail "check accepts {timeout} for a leg that passes none: ${bad_row//$'\t'/|}"
+  contains "$FR/adj.err" 'passes no short timeout for {timeout}' 'the leg without {timeout} is named'
+done
+printf '%s\n' $'grok\t*\t*\tWithin {timeout} s.\tev\t2026-11-01' > "$FR/adj-timeout-any.tsv"
+MMO_HARNESS_ADJUSTMENTS="$FR/adj-timeout-any.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail "check rejects a Grok * {timeout} row: $(cat "$FR/adj.err")"
 # Fix 5: a row for a mode its runner does not take (or an unknown runner) can never apply.
 for bad_row in $'codex\t*\tadvise\tL\tev\t2026-11-01' $'qwen\t*\tresearch\tL\tev\t2026-11-01' $'agy\t*\tadvise\tL\tev\t2026-11-01' $'grokk\t*\t*\tL\tev\t2026-11-01'; do
   printf '%s\n' "$bad_row" > "$FR/adj-mode.tsv"

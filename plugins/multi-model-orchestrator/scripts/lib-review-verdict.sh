@@ -59,6 +59,10 @@ mmo_adjustment_row_error() {  # mmo_adjustment_row_error ROW
   if [[ "${f[3]}" == *'{budget}'* ]]; then
     case "${f[0]}" in claude|grok|muse|vibe) ;; *) printf '%s has no turn or step budget for {budget}\n' "${f[0]}"; return 0 ;; esac
   fi
+  # Only a Grok review leg passes a short wall-clock timeout for {timeout}.
+  if [[ "${f[3]}" == *'{timeout}'* ]]; then
+    case "${f[0]}:${f[2]}" in grok:review|grok:'*') ;; *) printf '%s %s passes no short timeout for {timeout}\n' "${f[0]}" "${f[2]}"; return 0 ;; esac
+  fi
   [[ "${f[5]}" =~ ^([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$ ]] || { printf 'as_of %s is not an ISO date\n' "${f[5]}"; return 0; }
   local y=$((10#${BASH_REMATCH[1]})) m=$((10#${BASH_REMATCH[2]})) d=$((10#${BASH_REMATCH[3]})) last=31
   case "$m" in 4|6|9|11) last=30 ;; 2) last=$(( (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 ? 29 : 28 )) ;; esac
@@ -90,7 +94,9 @@ mmo_adjustment_rows() {  # mmo_adjustment_rows [check]
 # Prompt lines for PROVIDER, exact MODEL id and MODE, from the matching table rows in order.
 # A malformed row is reported on stderr and skipped. {budget} becomes BUDGET, the leg's turn or step
 # cap; a {budget} row is skipped with a warning when the leg has none (Claude without --max-turns).
-mmo_adjustment_lines() {  # mmo_adjustment_lines PROVIDER MODEL MODE [BUDGET]
+# {timeout} becomes SHORT_TIMEOUT, a wall-clock limit below the runner default; a {timeout} row is
+# skipped silently without one, so it only reaches short-timeout legs.
+mmo_adjustment_lines() {  # mmo_adjustment_lines PROVIDER MODEL MODE [BUDGET] [SHORT_TIMEOUT]
   local row f
   while IFS= read -r row; do
     IFS=$'\t' read -r -a f <<< "$row"
@@ -100,7 +106,9 @@ mmo_adjustment_lines() {  # mmo_adjustment_lines PROVIDER MODEL MODE [BUDGET]
       printf 'harness-adjustments: skipped a {budget} line: this %s %s leg has no turn or step budget\n' "$1" "$3" >&2
       continue
     fi
-    printf '%s\n' "${f[3]//\{budget\}/${4:-}}"
+    [[ "${f[3]}" != *'{timeout}'* ]] || [ -n "${5:-}" ] || continue
+    f[3]="${f[3]//\{budget\}/${4:-}}"
+    printf '%s\n' "${f[3]//\{timeout\}/${5:-}}"
   done < <(mmo_adjustment_rows)
 }
 

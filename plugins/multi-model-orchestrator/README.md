@@ -224,7 +224,8 @@ scripts/friction-report.sh --flags-only --outcomes host-a.tsv --outcomes host-b.
 the provider-specific prompt lines: every runner adds the lines whose provider, model glob (bash
 pattern on the exact model id) and mode (`implement`, `review`, `research`, `advise`, `*`) match
 to that leg's prompt. `{budget}` becomes the leg's turn or step cap (Grok, Muse, Vibe; Claude only
-with `--max-turns`, else the line is skipped with a warning). Each row cites the friction it answers
+with `--max-turns`, else the line is skipped with a warning). `{timeout}` becomes a Grok review
+leg's `--timeout` when it is below the 1200 s default; otherwise the line is left out. Each row cites the friction it answers
 and a calendar date. The test suite rejects a malformed row, a mode its runner does not take, and
 `{budget}` for a runner without one; runners skip such a row with a warning. Probe prompts take none.
 

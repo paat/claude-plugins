@@ -2,8 +2,10 @@
 # Runners add matching lines to implement, review, research and advise prompts; no match adds nothing.
 # model_glob is a bash pattern on the exact model id; mode is implement, review, research, advise or *.
 # {budget} in line becomes the leg's turn or step cap (Grok, Muse, Vibe; Claude with --max-turns).
+# {timeout} becomes a Grok review leg's --timeout when below the 1200 s default; otherwise the row is skipped.
 # evidence: friction-report row, issue URL or dated observation. as_of: YYYY-MM-DD.
 # Remove a row once friction-report.sh no longer flags its friction.
 # Override the whole table with MMO_HARNESS_ADJUSTMENTS=<file> in the same format.
 # provider	model_glob	mode	line	evidence	as_of
 grok	*	implement	You have at most {budget} agent turns: make the edits early, keep dev-server, screenshot and exploration loops short, and leave room to run the named test and write your final message.	https://github.com/paat/claude-plugins/issues/614: Grok implement legs stopped at the turn cap with work uncommitted, most turns spent on dev-server screenshots and file reads (line added in d95a236)	2026-10-06
+grok	grok-4.7	review	Your wall-clock limit is {timeout} seconds: read the diff once, probe only the riskiest hunks, and write the verdict well before the limit instead of exploring further.	friction-report row grok grok-4.7 low review timeout count 4 of 10 legs (40.0%) 2026-10-31T07:40:53Z..2026-11-15T16:48:56Z flag yes	2026-11-21
