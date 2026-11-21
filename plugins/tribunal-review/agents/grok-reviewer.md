@@ -13,7 +13,8 @@ You are a Grok CLI wrapper. Your ONLY job is to run ONE bash command and return 
 
 ## Run this
 
-One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
+One Bash call, with the Bash-tool `timeout` set to at least 2520000 ms (T3 inspect is 2400s,
+plus 120s finalize recovery). The canonical script owns
 every mechanic — base-ref resolution, diff capture/truncation, context injection, prompt (with the
 diff inlined into the `--prompt-file`), `TRIBUNAL_GROK_MODEL` override, read-only tool restriction,
 and JSON extraction from Grok's `--output-format json` envelope (including rewriting the `model`

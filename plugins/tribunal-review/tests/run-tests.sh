@@ -5272,7 +5272,8 @@ assert_grep "Grok marks non-EndTurn stop as dead_leg" "scripts/run-grok-review.s
 assert_grep "Grok fails loud on missing schema" "scripts/run-grok-review.sh" "review schema missing"
 assert_grep "Grok resolves schema via plugin root helper" "scripts/lib.sh" "tribunal_plugin_root"
 assert_grep "Grok finalize re-inlines the authoritative diff" "scripts/run-grok-review.sh" "Base the verdict on the unified diff"
-assert_grep "Grok clamps inspect timeout upper bound" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=2400"
+assert_grep "Grok clamps T3 inspect timeout upper bound" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=2400"
+assert_grep "Grok clamps non-T3 inspect timeout at 1800" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=1800"
 assert_grep "Grok extracts camelCase structuredOutput" "scripts/lib.sh" "structuredOutput"
 assert_grep "Grok payload completeness helper" "scripts/lib.sh" "tribunal_review_payload_complete"
 assert_grep "Grok payload requires enum verdict" "scripts/lib.sh" 'APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"'

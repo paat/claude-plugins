@@ -207,4 +207,25 @@ check "non-T3 grok inspect budget stays 30 turns and 600 seconds" \
 check "non-T3 grok inspect timeout stays 600 seconds" \
   awk 'NR==1 && $1=="600" { ok=1 } END { exit !ok }' "$work/timeouts"
 
+run_grok "$work/grok-t3-2000.json" TRIBUNAL_RISK=T3 TRIBUNAL_GROK_TIMEOUT_SECONDS=2000
+check "T3 grok timeout ceiling allows a 2000 second override" \
+  awk 'NR==1 && $1=="2000" { ok=1 } END { exit !ok }' "$work/timeouts"
+run_grok "$work/grok-t3-over.json" TRIBUNAL_RISK=T3 TRIBUNAL_GROK_TIMEOUT_SECONDS=3000
+check "T3 grok timeout ceiling stays 2400 seconds" \
+  awk 'NR==1 && $1=="2400" { ok=1 } END { exit !ok }' "$work/timeouts"
+for tier in T1 T2 T4; do
+  run_grok "$work/grok-${tier}-2000.json" TRIBUNAL_RISK="$tier" TRIBUNAL_GROK_TIMEOUT_SECONDS=2000
+  check "grok ${tier} timeout override of 2000 stays clamped at 1800" \
+    awk 'NR==1 && $1=="1800" { ok=1 } END { exit !ok }' "$work/timeouts"
+done
+
+agent="$PLUGIN_ROOT/agents/grok-reviewer.md"
+runner="$PLUGIN_ROOT/scripts/run-grok-review.sh"
+outer_ms="$(sed -n 's/.*timeout` set to at least \([0-9][0-9]*\) ms.*/\1/p' "$agent" | head -n 1)"
+inspect_t3="$(sed -n '/TRIBUNAL_RISK:-}.*T3/,/^fi$/s/^[[:space:]]*INSPECT_DEFAULT_TIMEOUT=\([0-9][0-9]*\).*/\1/p' "$runner" | head -n 1)"
+finalize_reserve="$(sed -n 's/^FINALIZE_TIMEOUT=.*:-\([0-9][0-9]*\).*/\1/p' "$runner" | head -n 1)"
+check "standalone grok outer timeout covers T3 inspect plus finalize reserve" \
+  bash -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ "$1" -ge $(( ($2 + $3) * 1000 )) ]' \
+  _ "$outer_ms" "$inspect_t3" "$finalize_reserve"
+
 exit "$fail"
