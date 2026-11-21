@@ -336,8 +336,45 @@ git -C "$REPO" config push.default current
 git -C "$REPO" config remote.fork.push 'integration:topic'
 hook 2 'git push fork' "$REPO"
 contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'remote.<name>.push selects topic, not the current branch'
-grep -F 'push --dry-run --porcelain fork' "$TOOLLOG" >/dev/null \
+grep -F 'push --dry-run --porcelain --no-verify fork' "$TOOLLOG" >/dev/null \
   || fail "dry-run did not resolve git push fork: $(cat "$TOOLLOG")"
+# A slow local pre-push hook must not run inside the destination lookup.
+# It used to burn the 10s dry-run budget, fall back to fork/integration
+# (the deletion is already there), and allow the push.
+HOOKLOG="$T/prehook.log"
+: > "$HOOKLOG"
+mkdir -p "$REPO/.git/hooks"
+cat > "$REPO/.git/hooks/pre-push" <<EOF
+#!/bin/bash
+printf 'invoked\n' >> "$HOOKLOG"
+sleep 11
+exit 0
+EOF
+chmod +x "$REPO/.git/hooks/pre-push"
+hook 2 'git push fork' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'a slow pre-push hook still checks remote.<name>.push'
+[ ! -s "$HOOKLOG" ] || fail "destination lookup invoked the local pre-push hook: $(cat "$HOOKLOG")"
+grep -F 'push --dry-run --porcelain --no-verify fork' "$TOOLLOG" >/dev/null \
+  || fail "destination lookup did not pass --no-verify: $(cat "$TOOLLOG")"
+rm -f "$REPO/.git/hooks/pre-push"
+# --repo names the same remote as a positional argument, for the dry-run and the fallback.
+hook 2 'git push --repo=fork' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'git push --repo=fork keeps the named remote'
+grep -F 'push --dry-run --porcelain --no-verify fork' "$TOOLLOG" >/dev/null \
+  || fail "dry-run dropped --repo=fork: $(cat "$TOOLLOG")"
+hook 2 'git push --repo fork' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'git push --repo fork keeps the named remote'
+grep -F 'push --dry-run --porcelain --no-verify fork' "$TOOLLOG" >/dev/null \
+  || fail "dry-run dropped --repo fork: $(cat "$TOOLLOG")"
+fork_url="$(git -C "$REPO" remote get-url fork)"
+git -C "$REPO" update-ref refs/remotes/fork/integration "$(git -C "$REPO" rev-parse topic)"
+git -C "$REPO" remote set-url fork "file://$T/no-such-fork.git"
+hook 2 'git push --repo=fork' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'a failed dry-run keeps the --repo remote'
+hook 2 'git push --repo fork' "$REPO"
+contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'a failed dry-run keeps the spaced --repo remote'
+git -C "$REPO" remote set-url fork "$fork_url"
+git -C "$REPO" update-ref refs/remotes/fork/integration HEAD
 hook 2 'git push fork integration:topic' "$REPO"
 contains "$T/hook.err" 'deleted test file: tests/test_keep.py' 'an explicit fork refspec still blocks'
 # An earlier clean pair must not hide a later pair that deletes a test.

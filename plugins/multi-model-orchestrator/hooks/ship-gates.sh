@@ -17,8 +17,11 @@
 #   Push-Gate: skip — <reason>
 #   Test-Deletion: justified — <reason>
 # `git push` and `git push <remote>` (no refspec) take local:remote pairs from
-# `git push --dry-run --porcelain` (remote.<name>.push and push.default).
-# A failed dry-run falls back to @{push}. A new branch is attributed from
+# `git push --dry-run --porcelain --no-verify` (remote.<name>.push and
+# push.default). --no-verify keeps that lookup from running a local pre-push
+# hook. `git push --repo=<remote>` is that same remote; a positional remote
+# wins when both are present. A failed dry-run falls back to @{push} and keeps
+# the remote. A new branch is attributed from
 # merge-base(tip, origin/<default>).
 # push_check runs for every non-delete push even when HEAD or the range
 # cannot be resolved. A Push-Gate skip trailer in a resolved range skips it.
@@ -152,7 +155,7 @@ classify_git() {
   [ "${words[$i]:-}" = push ] || return 0
   i=$((i + 1))
   local -a pos=()
-  local delete_flag=0
+  local delete_flag=0 repo_opt=""
   while (( i < n )); do
     t="${words[$i]}"
     case "$t" in
@@ -162,9 +165,16 @@ classify_git() {
       -d|--delete) delete_flag=1; i=$((i + 1)) ;;
       -u|--set-upstream|-f|--force|--force-with-lease|--force-if-includes|--no-force-with-lease|-q|--quiet|-v|--verbose|--progress|--no-progress|-n|--dry-run|--no-verify|--verify|--follow-tags|--no-follow-tags|--atomic|--no-atomic|--prune|--no-prune|--thin|--no-thin|-4|--ipv4|-6|--ipv6|--signed|--no-signed|--porcelain)
         i=$((i + 1)) ;;
-      --force-with-lease=*|--signed=*|--push-option=*|--receive-pack=*|--exec=*|--repo=*)
+      --repo=*)
+        repo_opt="${t#--repo=}"
         i=$((i + 1)) ;;
-      -o|--push-option|--receive-pack|--exec|--repo)
+      --force-with-lease=*|--signed=*|--push-option=*|--receive-pack=*|--exec=*)
+        i=$((i + 1)) ;;
+      --repo)
+        [ $((i + 1)) -lt "$n" ] || { kind=ambiguous; return 0; }
+        repo_opt="${words[$((i + 1))]}"
+        i=$((i + 2)) ;;
+      -o|--push-option|--receive-pack|--exec)
         [ $((i + 1)) -lt "$n" ] || { kind=ambiguous; return 0; }
         i=$((i + 2)) ;;
       -*) kind=ambiguous; return 0 ;;
@@ -176,10 +186,12 @@ classify_git() {
   gate_delete=$delete_flag
   if [ "$delete_flag" -eq 1 ]; then
     [ "${#pos[@]}" -gt 0 ] && gate_remote="${pos[0]}"
+    [ -z "$gate_remote" ] && [ -n "$repo_opt" ] && gate_remote="$repo_opt"
     return 0
   fi
   local spec src dst updates=0
   if [ "${#pos[@]}" -eq 0 ]; then
+    [ -n "$repo_opt" ] && gate_remote="$repo_opt"
     return 0
   fi
   # First positional is the remote unless it is a refspec (colon or HEAD).
@@ -208,6 +220,10 @@ classify_git() {
   done
   if [ "$updates" -eq 0 ] && [ "${#pos[@]}" -gt 0 ]; then
     gate_delete=1
+  fi
+  # Positional <repository> wins over --repo, matching git push.
+  if [ -z "$gate_remote" ] && [ -n "$repo_opt" ]; then
+    gate_remote="$repo_opt"
   fi
 }
 
@@ -417,7 +433,9 @@ porcelain_push_pairs() { # porcelain_push_pairs REPO REMOTE
   local repo="$1" remote="$2" out="" line="" flag="" rest="" pair="" from="" to=""
   local to_url="" resolved="" saw=0
   local -a cmd
-  cmd=(git -C "$repo" -c color.ui=never push --dry-run --porcelain)
+  # --no-verify: this probe must not run the repo pre-push hook. A slow hook
+  # would exhaust PUSH_DRY_RUN_TIMEOUT and hide remote.<name>.push.
+  cmd=(git -C "$repo" -c color.ui=never push --dry-run --porcelain --no-verify)
   [ -n "$remote" ] && cmd+=("$remote")
   if command -v timeout >/dev/null 2>&1; then
     out="$(GIT_TERMINAL_PROMPT=0 timeout "$PUSH_DRY_RUN_TIMEOUT" "${cmd[@]}" 2>/dev/null)" || true
