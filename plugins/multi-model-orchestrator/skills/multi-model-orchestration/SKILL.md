@@ -88,7 +88,8 @@ same-provider reviewer; preserve the restriction.
   a severity threshold, and a hard stop after the verdict. Never create recursive review/fix loops.
 
 Combine reviewer legs with `scripts/review-gate.sh --author <implementing provider> --leg
-<provider>=<final-message-file>`: it returns the combined verdict and exits 3 when no leg is
+<provider>=<final-message-file>` (an agy leg uses `--leg agy/<model>=<final-message-file>`,
+e.g. `agy/claude-opus-5-5`): it returns the combined verdict and exits 3 when no leg is
 independent — only the advisory local engine, which cannot verify by execution, or only the
 author's own provider. Omit `--author` when a restriction requires a same-provider reviewer.
 

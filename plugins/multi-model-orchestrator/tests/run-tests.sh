@@ -1159,6 +1159,21 @@ contains "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" 'Fallback' 'Or
 absent "$PLUGIN_ROOT/skills/multi-model-orchestration/SKILL.md" 'tribunal-round' 'Orchestration skill references tribunal instead of duplicating its round protocol'
 pass 'Orchestrate uses the closing-tribunal-loop flow by default'
 
+# A bare `--leg <provider>=` placeholder (possibly line-wrapped) must never stand alone:
+# every markdown doc showing it also carries the qualified agy leg note.
+while IFS= read -r leg_doc; do
+  joined="$(tr '\n' ' ' <"$leg_doc")"
+  case "$joined" in
+    *'--leg <provider>='*)
+      case "$joined" in
+        *'agy/claude-opus-5-5'*) ;;
+        *) fail "doc shows bare --leg <provider>= without the agy qualification note: $leg_doc" ;;
+      esac
+      ;;
+  esac
+done < <(grep -rlF --include='*.md' -- '--leg' "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/README.md" || true)
+pass 'No doc shows a bare --leg <provider>= without the agy qualification note'
+
 META_CMD="$PLUGIN_ROOT/commands/meta-orchestrate.md"
 META_SKILL="$PLUGIN_ROOT/skills/meta-orchestration/SKILL.md"
 META_REFS="$PLUGIN_ROOT/skills/meta-orchestration/references"
