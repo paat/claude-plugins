@@ -1101,8 +1101,10 @@ EOF
 }
 
 test_vibe_leg() {
-  local label="vibe leg: auto toggle, read-only flags, max-price guard, stub run, failures" work fake ok=1
-  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake" "$work/nohome"
+  local label="vibe leg: auto toggle, read-only flags, zero-price gate, stub run, failures" work fake ok=1
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake" "$work/nohome" "$work/vibehome" "$work/vh-paid" "$work/vh-unknown"
+  printf '[[models]]\nname = "mistral-large-4"\ninput_price = 0\noutput_price = 0\n' > "$work/vibehome/config.toml"
+  printf '[[models]]\nname = "mistral-large-4"\ninput_price = 0.7\noutput_price = 2.1\n' > "$work/vh-paid/config.toml"
   cat > "$fake/vibe" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FIXTURE_VIBE_ARGS"
@@ -1120,7 +1122,9 @@ if [ "${FIXTURE_VIBE_FAIL:-off}" != off ]; then
 fi
 review='{"provider":"vibe","model":"placeholder","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
 jq -cn --arg t "$review" '{type:"message",role:"assistant",outcome:{type:"committed"},content:[{type:"text",text:$t}]}'
-jq -nc --arg m "${FIXTURE_VIBE_SERVED:-mistral-large-4}" '{outcome:"finished",config:{active_model:$m},usage:{total_tokens:10}}' > "$outdir/export.json"
+jq -nc --arg m "${FIXTURE_VIBE_SERVED:-mistral-large-4}" --arg mn "${FIXTURE_VIBE_MODEL_NAME:-}" \
+  '{outcome:"finished",config:{active_model:$m,model_name:(if $mn == "" then null else $mn end)},usage:{total_tokens:10}}' \
+  > "$outdir/export.json"
 EOF
   chmod +x "$fake/vibe"
   (
@@ -1131,19 +1135,30 @@ EOF
     printf 'two\n' > file.txt; git commit -q -am change
   ) || ok=0
   run_vibe() { (cd "$work" && PATH="$fake:/usr/bin:/bin" MISTRAL_API_KEY=fixture TRIBUNAL_VIBE=on TRIBUNAL_RISK=T2 TRIBUNAL_BASE_REF=HEAD~1 \
-    FIXTURE_VIBE_ARGS="$work/args" "$@" bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh"); }
+    VIBE_HOME="${VIBE_HOME:-$work/vibehome}" FIXTURE_VIBE_ARGS="$work/args" "$@" bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh"); }
   run_vibe env > "$work/ok.json" 2>/dev/null || ok=0
   jq -e '.provider=="vibe" and .model=="mistral-large-4" and .summary.verdict=="APPROVE" and (.diff_stat|type=="object")' \
     "$work/ok.json" >/dev/null || ok=0
   for flag in --prompt-file --output streaming --max-price 0 --max-turns 50 --enabled-tools read_file --model mistral-large-4 --thinking medium; do
     grep -qxF -- "$flag" "$work/args" || ok=0
   done
-  # --max-price is immediately followed by 0, so the run stops before paid credit.
+  # --max-price stays as a backstop; the pre-launch zero-price gate is the guarantee.
   awk '$0=="--max-price"{if ((getline line) <= 0 || line != "0") exit 1; found=1} END{exit !found}' "$work/args" || ok=0
   # Read-only posture: no trust or approval-bypass flags that would enable writes.
   for flag in --trust --auto-approve --yolo; do
     ! grep -qxF -- "$flag" "$work/args" || ok=0
   done
+  # Priced and unverified routes are refused before launch: disabled with a
+  # clear reason, and the CLI stub is never invoked.
+  (VIBE_HOME="$work/vh-paid" run_vibe env > "$work/paid.json" 2>/dev/null) || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled" and (.note|contains("paid route"))' "$work/paid.json" >/dev/null || ok=0
+  rm -f "$work/args"
+  (VIBE_HOME="$work/vh-paid" run_vibe env > /dev/null 2>&1)
+  [ ! -e "$work/args" ] || ok=0
+  (VIBE_HOME="$work/vh-unknown" run_vibe env > "$work/unverified.json" 2>/dev/null) || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled" and (.note|contains("no verified zero-price route"))' \
+    "$work/unverified.json" >/dev/null || ok=0
+  [ ! -e "$work/args" ] || ok=0
   run_vibe env TRIBUNAL_RISK= FIXTURE_VIBE_SERVED=mistral-large-4 > "$work/noeffort.json" 2>/dev/null || ok=0
   jq -e '.provider=="vibe" and .model=="mistral-large-4" and .summary.verdict=="APPROVE"' \
     "$work/noeffort.json" >/dev/null || ok=0
@@ -1152,14 +1167,56 @@ EOF
   jq -e '.provider=="vibe" and .model=="mistral-large-4-0" and .summary.verdict=="APPROVE"' "$work/alias.json" >/dev/null || ok=0
   run_vibe env FIXTURE_VIBE_SERVED=other-model > "$work/mismatch.json" 2>/dev/null || ok=0
   jq -e '.provider=="vibe" and (.error|contains("not the requested mistral-large-4"))' "$work/mismatch.json" >/dev/null || ok=0
+  # Session evidence wins for identity: model_name is stamped, not the alias.
+  run_vibe env FIXTURE_VIBE_SERVED=mistral-large-4 FIXTURE_VIBE_MODEL_NAME=mistral-large-4-0 > "$work/modelname.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .model=="mistral-large-4-0" and .summary.verdict=="APPROVE"' "$work/modelname.json" >/dev/null || ok=0
+  # A loopback-style provider name and a preview build both fail the leg.
+  run_vibe env FIXTURE_VIBE_SERVED=mistral-large-4 FIXTURE_VIBE_MODEL_NAME=mistral-fixture > "$work/fixture.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and (.error|contains("Vibe served model mistral-fixture, not the requested mistral-large-4"))' \
+    "$work/fixture.json" >/dev/null || ok=0
+  run_vibe env FIXTURE_VIBE_SERVED=mistral-large-4-0-preview > "$work/preview.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and (.error|contains("not the requested mistral-large-4"))' "$work/preview.json" >/dev/null || ok=0
   run_vibe env FIXTURE_VIBE_FAIL=boom FIXTURE_VIBE_OUTCOME=price_limit > "$work/limit.json" 2>/dev/null || ok=0
   jq -e '.provider=="vibe" and (.error|startswith("plan limit:"))' "$work/limit.json" >/dev/null || ok=0
   run_vibe env TRIBUNAL_VIBE_EFFORT=xhigh > "$work/effort.json" 2>/dev/null || ok=0
   jq -e '.provider=="vibe" and (.error|contains("invalid TRIBUNAL_VIBE_EFFORT"))' "$work/effort.json" >/dev/null || ok=0
   (cd "$work" && PATH="$fake:/usr/bin:/bin" MISTRAL_API_KEY=fixture TRIBUNAL_VIBE=on TRIBUNAL_BASE_REF=HEAD~1 \
-    FIXTURE_VIBE_ARGS="$work/args" bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh" --smoke) > "$work/smoke.json" 2>/dev/null || ok=0
+    VIBE_HOME="$work/vibehome" FIXTURE_VIBE_ARGS="$work/args" bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh" --smoke) > "$work/smoke.json" 2>/dev/null || ok=0
   jq -e '.provider=="vibe" and .model=="mistral-large-4" and .summary.verdict=="APPROVE" and (has("diff_stat")|not)' \
     "$work/smoke.json" >/dev/null || ok=0
+  # The smoke is a short transport probe: it claims no file review.
+  smoke_prompt="$(awk '$0=="--prompt-file"{getline; print}' "$work/args")"
+  [ -n "$smoke_prompt" ] && ! grep -q "smoke.txt\|files_examined" "$smoke_prompt" || ok=0
+  # dotenv-mirroring credential cases (auto mode: no key => disabled, no error).
+  mkdir -p "$work/vh-dotenv"
+  printf '[[models]]\nname = "mistral-large-4"\ninput_price = 0\noutput_price = 0\n' > "$work/vh-dotenv/config.toml"
+  printf 'export MISTRAL_API_KEY=dummy\n' > "$work/vh-dotenv/.env"
+  (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" VIBE_HOME="$work/vh-dotenv" \
+    env -u TRIBUNAL_VIBE TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/dotenv-export.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .summary.verdict=="APPROVE"' "$work/dotenv-export.json" >/dev/null || ok=0
+  for content in 'MISTRAL_API_KEY=""' 'MISTRAL_API_KEY=   ' 'MISTRAL_API_KEY="   "' 'MISTRAL_API_KEY="dummy'; do
+    printf '%s\n' "$content" > "$work/vh-dotenv/.env"
+    (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" VIBE_HOME="$work/vh-dotenv" \
+      env -u TRIBUNAL_VIBE TRIBUNAL_BASE_REF=HEAD~1 \
+      bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/dotenv-blank.json" 2>/dev/null || ok=0
+    jq -e '.provider=="vibe" and .status=="disabled"' "$work/dotenv-blank.json" >/dev/null || ok=0
+  done
+  : > "$work/vh-dotenv/.env"
+  (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" VIBE_HOME="$work/vh-dotenv" \
+    env -u TRIBUNAL_VIBE TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/dotenv-zero.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled"' "$work/dotenv-zero.json" >/dev/null || ok=0
+  printf 'MISTRAL_API_KEY=\n' > "$work/vh-dotenv/.env"
+  (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" VIBE_HOME="$work/vh-dotenv" \
+    env -u TRIBUNAL_VIBE TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/dotenv-bare.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled"' "$work/dotenv-bare.json" >/dev/null || ok=0
+  # A blank environment value holds no key even when the file has one.
+  (cd "$work" && PATH="$fake:/usr/bin:/bin" MISTRAL_API_KEY="   " VIBE_HOME="$work/vh-dotenv" \
+    env -u TRIBUNAL_VIBE TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-vibe-review.sh") > "$work/dotenv-wsenv.json" 2>/dev/null || ok=0
+  jq -e '.provider=="vibe" and .status=="disabled"' "$work/dotenv-wsenv.json" >/dev/null || ok=0
   # No auth: on errors, auto (and missing CLI) disables without an error.
   (cd "$work" && env -u MISTRAL_API_KEY PATH="$fake:/usr/bin:/bin" HOME="$work/nohome" VIBE_HOME="$work/nohome/.vibe" \
     TRIBUNAL_VIBE=on TRIBUNAL_BASE_REF=HEAD~1 \

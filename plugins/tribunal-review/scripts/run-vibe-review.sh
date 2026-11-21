@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Vibe tribunal leg: repo-walking read-only review through `vibe` (headless).
 # --enabled-tools read_file leaves read_file as the only tool (no shell, no
-# search, no writes); --max-price 0 stops the run before any call can spend
-# paid credit. Flags verified against vibe 3.1.4.
+# search, no writes). A pre-launch zero-price gate refuses paid or unverified
+# routes before either mode runs; --max-price 0 stays only as a backstop
+# because vibe 3.1.4 enforces that limit after the first priced call.
+# Flags verified against vibe 3.1.4.
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
@@ -42,6 +44,13 @@ VIBE_MODEL="$(tribunal_vibe_model)"
 case "$VIBE_MODEL" in
   ''|*[!A-Za-z0-9._/-]*) tribunal_error vibe "invalid TRIBUNAL_VIBE_MODEL: $VIBE_MODEL"; exit 0 ;;
 esac
+# Zero-spend gate before either mode launches: --max-price 0 admits the first
+# priced call, so only a verified zero-price route may run. Refusals are
+# disabled markers, never errors, so an unverified route cannot cost quorum noise.
+if ! price_note="$(tribunal_vibe_free_route "$VIBE_MODEL")"; then
+  tribunal_disabled vibe "$price_note"
+  exit 0
+fi
 RISK_EFFORT="$(tribunal_risk_effort vibe 2>&1)" || { tribunal_error vibe "$RISK_EFFORT"; exit 0; }
 VIBE_EFFORT="${TRIBUNAL_VIBE_EFFORT:-$RISK_EFFORT}"
 case "$VIBE_EFFORT" in
@@ -68,18 +77,13 @@ EXPORT_PARENT="$TMPDIR/export"
 
 if [ "$MODE" = smoke ]; then
   RUN_TIMEOUT="${TRIBUNAL_SMOKE_TIMEOUT_SECONDS:-60}"
-  # The model refuses to emit an uninspected APPROVE, so smoke is an honest
-  # micro-review of one trivial file, not the canned no-inspection prompt.
-  printf 'tribunal smoke probe\n' > "$TMPDIR/smoke.txt"
+  # Transport probe: a short structured response with no file-review claim.
+  # File access is proven by read_file events in real reviews, not here.
   cat > "$PROMPT_FILE" <<'PROMPT'
-You are a senior code reviewer. Read the file smoke.txt in the working directory
-with read_file (your only tool) and review its one line.
-
-Report JSON only:
+You are a tribunal smoke probe. Reply with exactly this JSON object and nothing else:
 {
   "provider": "vibe",
   "model": "default",
-  "files_examined": ["smoke.txt"],
   "findings": [],
   "summary": {
     "total_findings": 0,
@@ -91,10 +95,6 @@ Report JSON only:
     "verdict": "APPROVE"
   }
 }
-
-Rules: report only actionable findings with confidence >= 0.7 in the schema
-above; when the file holds no defect, return it unchanged with an empty
-findings list. List smoke.txt under files_examined.
 PROMPT
   WALK_ROOT="$TMPDIR"
 else
@@ -131,7 +131,10 @@ rc=0
 terminal="$(jq -rs '[.[] | select(.type == "message" and .role == "assistant" and .outcome.type == "committed")] | last
   | [.content[]? | select(.type == "text") | .text] | join("")' "$OUT" 2>/dev/null)"
 outcome="$(jq -r '.outcome // empty' "$EXPORT_PARENT/export.json" 2>/dev/null)"
-actual_model="$(jq -r '.config.active_model // empty' "$EXPORT_PARENT/export.json" 2>/dev/null)"
+# Session evidence carries the resolved alias (active_model) and the executed
+# provider model (model_name); prefer the provider name, fall back to the alias.
+served_model="$(jq -r '.config.model_name // empty' "$EXPORT_PARENT/export.json" 2>/dev/null)"
+[ -n "$served_model" ] || served_model="$(jq -r '.config.active_model // empty' "$EXPORT_PARENT/export.json" 2>/dev/null)"
 if [ "$rc" -ne 0 ] || [ -z "$terminal" ]; then
   if [ "$outcome" = price_limit ] || grep -q 'Missing MISTRAL_API_KEY' "$ERR" 2>/dev/null; then
     tribunal_error_with_diagnostics vibe "plan limit: Vibe execution stopped before completing (outcome: ${outcome:-missing})" \
@@ -141,26 +144,42 @@ if [ "$rc" -ne 0 ] || [ -z "$terminal" ]; then
   fi
   exit 0
 fi
-# The CLI catalog may resolve an alias to a versioned id
-# (mistral-large-4 → mistral-large-4-0); accept that suffix, nothing else.
-if [ -n "$actual_model" ]; then
-  case "${actual_model,,}" in
-    "${VIBE_MODEL,,}"|"${VIBE_MODEL,,}"-[0-9]*|"${VIBE_MODEL,,}".[0-9]*) ;;
-    *)
-      tribunal_error_with_diagnostics vibe "Vibe configured model $actual_model, not the requested $VIBE_MODEL" \
-        model_family "$rc" "$OUT" "$ERR"
-      exit 0
-      ;;
-  esac
+# The served model must be the requested id or its documented versioned form
+# (mistral-large-4 → mistral-large-4-0 or mistral-large-4-0-3). Anything else —
+# including preview builds — fails the leg, and the served name (not the
+# requested alias) is stamped as the reviewer identity.
+if [ -n "$served_model" ]; then
+  want_lower="$(printf '%s' "$VIBE_MODEL" | tr '[:upper:]' '[:lower:]')"
+  got_lower="$(printf '%s' "$served_model" | tr '[:upper:]' '[:lower:]')"
+  version_ok=0
+  if [ "$got_lower" = "$want_lower" ]; then
+    version_ok=1
+  else
+    case "$got_lower" in
+      "$want_lower"-*)
+        tail="${got_lower#"$want_lower"-}"
+        case "$tail" in
+          [0-9]*)
+            case "$tail" in *[!0-9.-]*) ;; *) version_ok=1 ;; esac
+            ;;
+        esac
+        ;;
+    esac
+  fi
+  if [ "$version_ok" -ne 1 ]; then
+    tribunal_error_with_diagnostics vibe "Vibe served model $served_model, not the requested $VIBE_MODEL" \
+      model_family "$rc" "$OUT" "$ERR"
+    exit 0
+  fi
 fi
 if [ "$MODE" = smoke ]; then
   printf '%s\n' "$terminal" | tribunal_extract_json_object \
     | tribunal_emit_review vibe "" "$OUT" "$ERR" "$rc" \
-    | tribunal_stamp_executed_model vibe "$actual_model" "$OUT" "$ERR" "$rc"
+    | tribunal_stamp_executed_model vibe "$served_model" "$OUT" "$ERR" "$rc"
 else
   printf '%s\n' "$terminal" | tribunal_extract_json_object \
     | tribunal_emit_review vibe "" "$OUT" "$ERR" "$rc" \
-    | tribunal_stamp_executed_model vibe "$actual_model" "$OUT" "$ERR" "$rc" \
+    | tribunal_stamp_executed_model vibe "$served_model" "$OUT" "$ERR" "$rc" \
     | tribunal_line_check "$REPO_ROOT" "$DIFF_STAT" \
     | tribunal_stamp_diff_stat "$DIFF_STAT"
 fi

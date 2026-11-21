@@ -214,7 +214,7 @@ without `TRIBUNAL_<PROVIDER>=on`; Gemini emits one only when unsigned and not fo
 Verifies you're on a feature branch (not the resolved default branch) and that there are changes to review against `origin/<default>`, then runs `scripts/preflight.sh`. The default branch is resolved from GitHub first, then `git remote show origin`, then `origin/HEAD`, with `TRIBUNAL_BASE_BRANCH` / `TRIBUNAL_BASE_REF` as overrides. Preflight checks each enabled reviewer leg and free disk space. DeepSeek needs `dsh` on PATH and a configured API key. With `TRIBUNAL_SMOKE_PROBE=on`, it also exercises the real non-interactive default transports using minimal structured responses. Problems are reported up front so a missing CLI, full disk, missing credential, or immediately broken transport fails fast here instead of hanging a launched reviewer; affected reviewers are marked skipped/failed and the run degrades to the available quorum. Preflight stops when zero reviewer legs are usable, or when fewer are usable than `TRIBUNAL_MIN_OK_LEGS`.
 
 ### Step 2: Parallel Review
-Selects the active panel via `tribunal_select_panel` (`scripts/review-panel.tsv`) and runs Codex, Gemini, DeepSeek, Qwen, Grok, Muse, and Claude as **seven parallel Bash calls** through their `scripts/run-<provider>-review.sh` runners. Unselected legs emit `disabled` markers. Codex, Claude, Grok, Muse, DeepSeek, and Qwen walk the repo with the controls described above; Gemini is a diff-only lens.
+Selects the active panel via `tribunal_select_panel` (`scripts/review-panel.tsv`) and runs Codex, Gemini, DeepSeek, Qwen, Grok, Muse, Claude, and Vibe as **eight parallel Bash calls** through their `scripts/run-<provider>-review.sh` runners. Unselected legs emit `disabled` markers. Codex, Claude, Grok, Muse, DeepSeek, Qwen, and Vibe walk the repo with the controls described above; Gemini is a diff-only lens.
 
 DeepSeek runs `dsh --profile headless --patch <overlay> --json -` from the review checkout, with the prompt on stdin and a scrubbed environment. The committed overlay enforces a read-only sandbox and `approval: never`, disables the permission plugin, session-log uploads, telemetry, and web tools, and sets the model and effort. The wrapper generates a per-run overlay outside the checkout for model overrides. The review prompt carries the JSON contract because dsh has no JSON-schema flag; the wrapper validates the final review and stamps `diff_stat` through the shared emitter.
 
@@ -269,7 +269,8 @@ The tribunal produces a JSON verdict:
     "qwen":     { "findings_accepted": 1, "findings_rejected": 0, "false_positives": [], "status": "ok" },
     "grok":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
     "muse":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" },
-    "claude":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" }
+    "claude":   { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "ok" },
+    "vibe":     { "findings_accepted": 0, "findings_rejected": 0, "false_positives": [], "status": "disabled" }
   },
   "conflicts_resolved": [],
   "summary": "Code quality is good with one medium-severity finding to address."
@@ -281,10 +282,10 @@ The tribunal produces a JSON verdict:
 ```
 Calling context (final decision, runs inline)
   |
-Codex · Gemini · DeepSeek · Qwen · Grok · Muse · Claude (equal advisory peers — verify findings)
+Codex · Gemini · DeepSeek · Qwen · Grok · Muse · Claude · Vibe (equal advisory peers — verify findings)
 ```
 
-The reviewers are equal peers (seven supported providers; 3 selected by default per tier from `scripts/review-panel.tsv`, with at least 2 `ok` legs required for `APPROVE`); a finding flagged by ≥2 is CONSENSUS. The calling context can override a reviewer finding, but must weigh claims on evidence rather than provider identity.
+The reviewers are equal peers (eight supported providers; 3 selected by default per tier from `scripts/review-panel.tsv`, with at least 2 `ok` legs required for `APPROVE`); a finding flagged by ≥2 is CONSENSUS. The calling context can override a reviewer finding, but must weigh claims on evidence rather than provider identity.
 
 Each review-shaped leg carries a `diff_stat` (`files_changed`, `insertions`,
 `deletions`, `base`, `base_oid`, `head_oid`, `truncated`) stamped by the runner

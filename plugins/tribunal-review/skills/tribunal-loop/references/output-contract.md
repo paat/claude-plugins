@@ -105,7 +105,7 @@ attributed to `repository-policy`. Sealed vacuous mutation signals must appear a
 `repository-policy` findings before APPROVE.
 
 Collections seal the selected panel and environment APPROVE floor as
-`panel_policy: {"min_ok_legs": <2..7>, "panel_size": <2..7>, "panel": [...], "source": "env"}`.
+`panel_policy: {"min_ok_legs": <2..8>, "panel_size": <2..8>, "panel": [...], "source": "env"}`.
 Finalize enforces that sealed floor for `APPROVE` — never the ambient env — so
 a later lower `TRIBUNAL_MIN_OK_LEGS` cannot weaken an already-sealed gate.
 Manifests without `panel_policy` use floor 2.

@@ -13,16 +13,139 @@ tribunal_vibe_model() {
 }
 
 # Vibe resolves its credential from MISTRAL_API_KEY in the environment or from
-# a KEY=value entry in ${VIBE_HOME:-$HOME/.vibe}/.env (written by `vibe --setup`).
+# a KEY=value entry in ${VIBE_HOME:-$HOME/.vibe}/.env (written by `vibe --setup`),
+# parsed with python-dotenv semantics: an `export` prefix is honored, while an
+# empty, whitespace-only, or unterminated-quoted value holds no key. A set but
+# non-empty environment value shadows the file, exactly like Vibe's loader.
 tribunal_vibe_available() {
-  if [ -n "${MISTRAL_API_KEY:+present}" ]; then
-    return 0
+  if [ -n "${MISTRAL_API_KEY:+x}" ] && [ -n "${MISTRAL_API_KEY}" ]; then
+    case "$MISTRAL_API_KEY" in
+      *[![:space:]]*) return 0 ;;
+    esac
+    printf 'vibe is not configured: MISTRAL_API_KEY is set but blank (run `vibe --setup` once)\n'
+    return 1
   fi
-  if grep -q '^MISTRAL_API_KEY=.' "${VIBE_HOME:-${HOME}/.vibe}/.env" 2>/dev/null; then
+  if tribunal_vibe_dotenv_key; then
     return 0
   fi
   printf 'vibe is not configured: MISTRAL_API_KEY is unset and no key entry exists in ${VIBE_HOME:-$HOME/.vibe}/.env (run `vibe --setup` once)\n'
   return 1
+}
+
+# True when the Vibe home .env holds a usable MISTRAL_API_KEY. Mirrors
+# python-dotenv (which Vibe uses): the last assignment wins, a line without
+# `=` or with an unterminated quote is skipped without clearing a prior
+# value, and an empty or whitespace-only value holds no key.
+tribunal_vibe_dotenv_key() {
+  local env_file="${VIBE_HOME:-${HOME}/.vibe}/.env"
+  [ -f "$env_file" ] && [ -r "$env_file" ] && [ ! -L "$env_file" ] || return 1
+  awk '
+    { line = $0; sub(/\r$/, "", line) }
+    {
+      s = line; sub(/^[ \t]+/, "", s)
+      sub(/^export[ \t]+/, "", s)
+      if (s !~ /^MISTRAL_API_KEY([ \t]*=|$)/) next
+      if (s !~ /=/) next
+      val = s; sub(/^[^=]*=[ \t]*/, "", val)
+      if (val ~ /^"/) {
+        rest = substr(val, 2); pos = index(rest, "\"")
+        if (pos == 0) next
+        val = substr(rest, 1, pos - 1)
+      } else if (val ~ /^'"'"'/) {
+        rest = substr(val, 2); pos = index(rest, "'"'"'")
+        if (pos == 0) next
+        val = substr(rest, 1, pos - 1)
+      } else {
+        sub(/[ \t]+#.*$/, "", val)
+        sub(/[ \t]+$/, "", val)
+      }
+      seen = 1; keyval = val
+    }
+    END { exit !(seen && keyval ~ /[^ \t]/) }
+  ' "$env_file"
+}
+
+# Zero-spend gate for the Vibe leg. `--max-price 0` only stops the SECOND
+# priced call (vibe 3.1.4 admits the first on a fresh budget), so refuse a paid
+# or unverified route before launching either mode: emit disabled, never an
+# error. Succeeds (quietly) only when the effective model has known zero
+# input and output prices in Vibe's own user config
+# (${VIBE_HOME:-$HOME/.vibe}/config.toml `[[models]]` entries, the shape `vibe
+# config schema` documents with input_price/output_price); the built-in
+# defaults are priced and the fetched catalog carries no prices, so anything
+# else is unverified. $1 = requested model alias. Prints the refusal reason.
+tribunal_vibe_free_route() {
+  local want="$1" home="${VIBE_HOME:-${HOME}/.vibe}" config prices in out
+  config="$home/config.toml"
+  prices="$(tribunal_vibe_model_prices "$want" "$home")"
+  in="${prices%%|*}"; out="${prices#*|}"
+  if tribunal_vibe_price_is_zero "$in" && tribunal_vibe_price_is_zero "$out"; then
+    return 0
+  fi
+  if [ -n "$in" ] && [ -n "$out" ]; then
+    printf 'vibe model %s is a paid route (input_price=%s output_price=%s per million tokens); refusing to launch (zero-spend guard)\n' \
+      "$want" "$in" "$out"
+  else
+    printf 'vibe model %s has no verified zero-price route in %s (zero-spend guard: refusing paid or unverified routes before launch)\n' \
+      "$want" "$config"
+  fi
+  return 1
+}
+
+tribunal_vibe_price_is_zero() {
+  case "$1" in
+    0|0.*) case "$1" in *[!0.]*) return 1 ;; *) return 0 ;; esac ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prints "input_price|output_price" for the requested model alias from Vibe's
+# user config; either side is empty when unknown. A `[[models]]` entry matches
+# on its name or alias, and a catalog alias (from the home catalog cache) also
+# matches the entry it resolves to.
+tribunal_vibe_model_prices() {
+  local want="$1" home="$2" config="$home/config.toml" catalog="$home/model_catalog_cache.json"
+  local candidates="|$want|" linked
+  if [ -f "$catalog" ] && [ ! -L "$catalog" ]; then
+    linked="$(jq -r --arg w "$want" '
+      [.[] | .payload.models[]? | select(.id == $w or ((.aliases // []) | index($w))) | .id, (.aliases[]?)]
+      | unique | join("|")
+    ' "$catalog" 2>/dev/null)" || linked=""
+    [ -z "$linked" ] || candidates="$candidates$linked|"
+  fi
+  [ -f "$config" ] && [ -r "$config" ] && [ ! -L "$config" ] || { printf '|\n'; return 0; }
+  awk -v cand="$candidates" '
+    function emit(  n, a) {
+      n = name; a = alias
+      sub(/^[ \t]+/, "", n); sub(/^[ \t]+/, "", a)
+      if ((n != "" && index(cand, "|" n "|")) || (a != "" && index(cand, "|" a "|"))) {
+        found_in = in_p; found_out = out_p
+      }
+    }
+    function tomlval(raw,   v) {
+      v = raw; sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+      if (v ~ /^".*"$/) { sub(/^"/, "", v); sub(/"$/, "", v) }
+      else if (v ~ /^'"'"'.*'"'"'$/) { sub(/^'"'"'/, "", v); sub(/'"'"'$/, "", v) }
+      else { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+      return v
+    }
+    /^[ \t]*\[/ {
+      if (in_section) emit()
+      in_section = 0; name = ""; alias = ""; in_p = ""; out_p = ""
+      if ($0 ~ /^[ \t]*\[\[[ \t]*models[ \t]*\]\]/) in_section = 1
+      else if ($0 ~ /^[ \t]*\[models\./) {
+        in_section = 1
+        key = $0; sub(/^[ \t]*\[models\./, "", key); sub(/\][ \t]*$/, "", key)
+        name = tomlval(key); alias = name
+      }
+      next
+    }
+    in_section && /^[ \t]*name[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); name = tomlval(v); next }
+    in_section && /^[ \t]*alias[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); alias = tomlval(v); next }
+    in_section && /^[ \t]*input_price[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); in_p = tomlval(v); next }
+    in_section && /^[ \t]*output_price[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); out_p = tomlval(v); next }
+    END { if (in_section) emit(); printf "%s|%s\n", found_in, found_out }
+  ' "$config"
 }
 
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 2; otherwise an

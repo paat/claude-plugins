@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "46a072c25227242b86581f6e7e30bc69c9390ba100d9761357cc12d2c4d32930"
+      "sha256": "ee000f1425dfbe3b7ec45ad2ac9593190182292fd91de1bdbeb410bfe2d35ab7"
     },
     {
       "path": "scripts/review-panel.tsv",
@@ -58,7 +58,7 @@
     },
     {
       "path": "scripts/run-vibe-review.sh",
-      "sha256": "538a77f64ad064e62c003399eecfed638b6e38fdea1eff1d709626f4b167fb41"
+      "sha256": "dd6692b72c8c20e77a7f704ac0b7b64854106c12ccde708390dfae909e1be878"
     }
   ],
   "plugin": "tribunal-review",
