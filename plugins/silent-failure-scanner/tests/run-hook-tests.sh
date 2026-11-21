@@ -119,6 +119,12 @@ if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.decision=="allow"' >/dev/null
 else
   echo "FAIL: agy PreToolUse non-commit allow — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
 fi
+OUT="$(cd "$PLUGIN_ROOT" && jq -nc --arg cmd_cwd "$bad_repo" --arg ws_cwd "$clean_cwd" '{hookEventName:"PreToolUse",toolCall:{id:"3",name:"run_command",args:{CommandLine:"git commit -m oops",Cwd:$cmd_cwd}},cwd:$ws_cwd}' | bash -c "$AGY_CMD" 2>/dev/null)"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.decision=="deny" and (.reason | contains("swallowed-exception"))' >/dev/null 2>&1; then
+  echo "PASS: agy PreToolUse honors toolCall.args.Cwd over workspace cwd"; PASS=$((PASS+1))
+else
+  echo "FAIL: agy PreToolUse toolCall.args.Cwd — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
+fi
 HJ="$PLUGIN_ROOT/hooks/hooks.json"
 STD_CMD="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$HJ" 2>/dev/null)"
 OUT="$(env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u MUSE_PLUGIN_ROOT GROK_PLUGIN_ROOT="$PLUGIN_ROOT" \

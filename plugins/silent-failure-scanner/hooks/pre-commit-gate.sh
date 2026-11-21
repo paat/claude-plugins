@@ -141,7 +141,7 @@ if printf '%s' "$input" | jq -e 'type == "object" and .toolInputTruncated == tru
   exit 0
 fi
 command="$(printf '%s' "$input" | jq -r '.toolCall.args.CommandLine // .toolCall.args.command // .tool_input.command // .toolInput.command // .tool_input.cmd // .toolInput.cmd // empty' 2>/dev/null)"
-cwd="$(printf '%s' "$input" | jq -r '.cwd // (.workspacePaths[0] // empty)' 2>/dev/null)"
+cwd="$(printf '%s' "$input" | jq -r '.toolCall.args.Cwd // .toolCall.args.cwd // .tool_input.cwd // .toolInput.cwd // .cwd // (.workspacePaths[0] // empty)' 2>/dev/null)"
 [[ -z "$command" ]] && allow
 
 analyze_command "$command" "$cwd"

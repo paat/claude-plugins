@@ -701,16 +701,28 @@ def _extract_payload(payload):
     command = args.get("CommandLine") or args.get("command") or args.get("cmd") or ""
     if not isinstance(command, str):
         command = ""
+    cmd_cwd = args.get("Cwd") or args.get("cwd")
     ws_paths = payload.get("workspacePaths")
     fallback_cwd = ws_paths[0] if isinstance(ws_paths, list) and ws_paths and isinstance(ws_paths[0], str) else None
-    cwd = payload.get("cwd") or fallback_cwd or os.getcwd()
+    cwd = (cmd_cwd if isinstance(cmd_cwd, str) and cmd_cwd else None) or payload.get("cwd") or fallback_cwd or os.getcwd()
     return is_agy, str(tool_name), command, cwd
+
+
+def _is_own_plugin_root(path):
+    if not path or not os.path.isfile(os.path.join(path, "hooks", "guard.sh")):
+        return False
+    manifest = os.path.join(path, ".claude-plugin", "plugin.json")
+    try:
+        with open(manifest, encoding="utf-8") as f:
+            return "irreversible-guard" in f.read()
+    except OSError:
+        return False
 
 
 def _resolve_plugin_root():
     for var in ("CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT", "PLUGIN_ROOT", "GROK_PLUGIN_ROOT", "MUSE_PLUGIN_ROOT"):
         val = os.environ.get(var)
-        if val:
+        if _is_own_plugin_root(val):
             return val
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

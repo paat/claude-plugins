@@ -1,12 +1,5 @@
 {
   "multi-model-orchestrator": {
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "HOOK_RUNTIME=agy bash ./hooks/reanchor.sh",
-        "timeout": 10
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "run_command",

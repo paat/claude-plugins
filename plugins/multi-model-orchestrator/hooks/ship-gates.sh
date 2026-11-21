@@ -763,7 +763,7 @@ case "$input" in
   *) allow ;;
 esac
 command="$(printf '%s' "$input" | jq -r '.toolCall.args.CommandLine // .toolCall.args.command // .tool_input.command // .toolInput.command // .tool_input.cmd // .toolInput.cmd // .command // empty' 2>/dev/null || true)"
-cwd="$(printf '%s' "$input" | jq -r '.cwd // (.workspacePaths[0] // empty)' 2>/dev/null || true)"
+cwd="$(printf '%s' "$input" | jq -r '.toolCall.args.Cwd // .toolCall.args.cwd // .tool_input.cwd // .toolInput.cwd // .cwd // (.workspacePaths[0] // empty)' 2>/dev/null || true)"
 [ -n "$command" ] || allow
 
 kind=none

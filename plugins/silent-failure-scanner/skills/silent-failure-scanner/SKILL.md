@@ -12,12 +12,13 @@ never edits code.
 
 ## Invoke
 
-Resolve `SCAN_ROOT` from `PLUGIN_ROOT`, `CLAUDE_PLUGIN_ROOT`, `CODEX_PLUGIN_ROOT`, `GROK_PLUGIN_ROOT`, or `MUSE_PLUGIN_ROOT` — or, when all are unset, set it to the directory two levels above this loaded `SKILL.md` (never `.`, which is the target repository) and verify `$SCAN_ROOT/scripts/scan.sh` exists:
+Set `SCAN_ROOT` from the harness plugin-root env var, or fall back to two directories above the path of this loaded `SKILL.md` (never `.`, which is the target repository):
 
 ```bash
 SCAN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-}}}}}"
-# If SCAN_ROOT is empty, set it to the installed plugin root (two dirs above this SKILL.md).
-test -f "$SCAN_ROOT/scripts/scan.sh" || { echo "silent-failure-scanner plugin root required" >&2; exit 1; }
+if [ -z "$SCAN_ROOT" ] || [ ! -f "$SCAN_ROOT/scripts/scan.sh" ]; then
+  SCAN_ROOT="$(cd "$(dirname "<path-to-this-SKILL.md>")/../.." && pwd)"
+fi
 # uncommitted changes (default)
 bash "$SCAN_ROOT/scripts/scan.sh"
 # branch vs base, machine-readable

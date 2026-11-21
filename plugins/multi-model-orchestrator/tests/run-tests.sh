@@ -3224,11 +3224,7 @@ cw_case() { printf '%s\n%s\n' "$cw_over" "$2" > "$CW/case.jsonl"; watch "$1" "$C
 [ -z "$(cw_case sl6 '{"type":"user","message":"Explain \"/multi-model-orchestrator:meta-orchestrate\" without running it"}')" ] || fail 'Context watch ignores a quoted mention of the command'
 contains "$PLUGIN_ROOT/hooks/hooks.json" 'hooks/context-watch.sh' 'Context watch runs as a PostToolUse hook'
 # Multi-harness hooks: agy (root hooks.json + protojson), Grok (camelCase + GROK_PLUGIN_ROOT), Muse (MUSE_PLUGIN_ROOT)
-case "$(printf '{"conversationId":"agy-s1","cwd":"%s","workspacePaths":["%s"]}' "$R" "$R" | HOOK_RUNTIME=agy bash "$REANCHOR")" in
-  *'"injectSteps"'*'"systemMessage"'*'handoff-2026-01-02T0000Z.md'*) ;;
-  *) fail 'Reanchor hook emits agy injectSteps systemMessage for fresh handoff' ;;
-esac
-[ "$(printf '{"conversationId":"agy-s2","cwd":"%s"}' "$WORK/no-handoffs" | HOOK_RUNTIME=agy bash "$REANCHOR")" = '{}' ] || fail 'Reanchor hook emits empty JSON on agy without fresh handoff'
+[ -z "$(jq -nc --arg r "$R" '{conversationId:"agy-s1",cwd:$r,workspacePaths:[$r]}' | bash "$REANCHOR")" ] || fail 'Reanchor hook stays silent without source=compact'
 printf '{"step_index":0,"source":"user","content":"/multi-model-orchestrator:meta-orchestrate epic"}\n{"step_index":1,"input_tokens":110000,"cache_read_tokens":20000}\n{"step_index":2,"source":"tool","content":"quoted \\"input_tokens\\": 5"}\n' > "$CW/agy.jsonl"
 case "$(printf '{"conversationId":"agy-c1","transcriptPath":"%s"}' "$CW/agy.jsonl" | HOOK_RUNTIME=agy MMO_CONTEXT_WARN_TOKENS=100000 bash "$WATCH")" in
   *'"injectSteps"'*'"systemMessage"'*'130000 tokens'*) ;;
@@ -3243,35 +3239,41 @@ case "$(printf '{"sessionId":"grok-s1","transcriptPath":"%s"}' "$CW/grok.jsonl" 
   *) fail 'Context watch parses Grok camelCase sessionId/transcriptPath/inputTokens' ;;
 esac
 # T-001: substring "conversationId" in a Claude/Codex compact payload must stay plain text (not agy JSON)
-case "$(printf '{"source":"compact","note":"has \"conversationId\" text"}' | CLAUDE_PROJECT_DIR="$R" bash "$REANCHOR")" in
+reanchor_sub="$(jq -nc '{source:"compact",note:"has \"conversationId\" text"}' | CLAUDE_PROJECT_DIR="$R" bash "$REANCHOR")"
+case "$reanchor_sub" in
   *'handoff-2026-01-02T0000Z.md'*) ;;
   *) fail 'Reanchor keeps plain-text output when conversationId is only a substring' ;;
 esac
-case "$(printf '{"source":"compact","note":"has \"conversationId\" text"}' | CLAUDE_PROJECT_DIR="$R" bash "$REANCHOR")" in
+case "$reanchor_sub" in
   *'"injectSteps"'*) fail 'Reanchor must not emit agy injectSteps on substring conversationId' ;;
 esac
-contains "$PLUGIN_ROOT/hooks.json" 'HOOK_RUNTIME=agy bash ./hooks/reanchor.sh' 'Root hooks.json wires agy SessionStart reanchor'
+absent "$PLUGIN_ROOT/hooks.json" 'reanchor.sh' 'Root hooks.json omits agy SessionStart reanchor (no compaction hook)'
 contains "$PLUGIN_ROOT/hooks.json" 'HOOK_RUNTIME=agy bash ./hooks/ship-gates.sh' 'Root hooks.json wires agy PreToolUse ship-gates'
 contains "$PLUGIN_ROOT/hooks.json" 'HOOK_RUNTIME=agy bash ./hooks/context-watch.sh' 'Root hooks.json wires agy PostInvocation context-watch'
-SG_REPO="$WORK/sg-agy"; mkdir -p "$SG_REPO/.claude"
+SG_REPO="$WORK/sg-agy"; SG_NONGIT="$WORK/sg-nongit"; mkdir -p "$SG_REPO/.claude" "$SG_NONGIT"
 git -C "$SG_REPO" init -q && git -C "$SG_REPO" config user.email t@t.t && git -C "$SG_REPO" config user.name t
 printf 'a\n' > "$SG_REPO/f" && git -C "$SG_REPO" add f && git -C "$SG_REPO" commit -qm init
 printf -- '---\npush_check: "false"\n---\n' > "$SG_REPO/.claude/multi-model-orchestrator.local.md"
-case "$(printf '{"hookEventName":"PreToolUse","toolCall":{"id":"1","name":"run_command","args":{"CommandLine":"git push origin main"}},"cwd":"%s"}' "$SG_REPO" | HOOK_RUNTIME=agy bash "$PLUGIN_ROOT/hooks/ship-gates.sh")" in
+case "$(jq -nc --arg cwd "$SG_REPO" '{hookEventName:"PreToolUse",toolCall:{id:"1",name:"run_command",args:{CommandLine:"git push origin main"}},cwd:$cwd}' | HOOK_RUNTIME=agy bash "$PLUGIN_ROOT/hooks/ship-gates.sh")" in
   *'"decision":"deny"'*'push_check exited 1'*) ;;
   *) fail 'ship-gates emits agy deny JSON for failing push_check' ;;
 esac
-[ "$(printf '{"hookEventName":"PreToolUse","toolCall":{"id":"2","name":"run_command","args":{"CommandLine":"echo hi"}},"cwd":"%s"}' "$SG_REPO" | HOOK_RUNTIME=agy bash "$PLUGIN_ROOT/hooks/ship-gates.sh")" = '{"decision":"allow"}' ] || fail 'ship-gates emits agy allow JSON for non-push commands'
+# T-201: toolCall.args.Cwd overrides non-git top-level cwd
+case "$(jq -nc --arg cmd_cwd "$SG_REPO" --arg ws_cwd "$SG_NONGIT" '{hookEventName:"PreToolUse",toolCall:{id:"1b",name:"run_command",args:{CommandLine:"git push origin main",Cwd:$cmd_cwd}},cwd:$ws_cwd}' | HOOK_RUNTIME=agy bash "$PLUGIN_ROOT/hooks/ship-gates.sh")" in
+  *'"decision":"deny"'*'push_check exited 1'*) ;;
+  *) fail 'ship-gates honors toolCall.args.Cwd over non-git session cwd' ;;
+esac
+[ "$(jq -nc --arg cwd "$SG_REPO" '{hookEventName:"PreToolUse",toolCall:{id:"2",name:"run_command",args:{CommandLine:"echo hi"}},cwd:$cwd}' | HOOK_RUNTIME=agy bash "$PLUGIN_ROOT/hooks/ship-gates.sh")" = '{"decision":"allow"}' ] || fail 'ship-gates emits agy allow JSON for non-push commands'
 sg_grok_rc=0
-printf '{"toolName":"run_terminal_command","toolInput":{"command":"git push origin main"},"cwd":"%s"}' "$SG_REPO" | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_grok_rc=$?
+jq -nc --arg cwd "$SG_REPO" '{toolName:"run_terminal_command",toolInput:{command:"git push origin main"},cwd:$cwd}' | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_grok_rc=$?
 [ "$sg_grok_rc" -eq 2 ] || fail "ship-gates blocks Grok camelCase push with exit 2 (got $sg_grok_rc)"
 # T-001: Claude payload whose command mentions "toolCall" must still exit 2 (not flip to agy exit 0)
 sg_spoof_rc=0
-printf '{"tool_name":"Bash","tool_input":{"command":"echo \"toolCall\" && git push origin main"},"cwd":"%s"}' "$SG_REPO" | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_spoof_rc=$?
+jq -nc --arg cwd "$SG_REPO" '{tool_name:"Bash",tool_input:{command:"echo \"toolCall\" && git push origin main"},cwd:$cwd}' | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_spoof_rc=$?
 [ "$sg_spoof_rc" -eq 2 ] || fail "ship-gates must exit 2 even when Claude command text contains toolCall (got $sg_spoof_rc)"
 # T-003: Grok toolInputTruncated=true fails closed
 sg_trunc_rc=0
-printf '{"toolName":"run_terminal_command","toolInput":{"command":"echo hi"},"toolInputTruncated":true,"cwd":"%s"}' "$SG_REPO" | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_trunc_rc=$?
+jq -nc --arg cwd "$SG_REPO" '{toolName:"run_terminal_command",toolInput:{command:"echo hi"},toolInputTruncated:true,cwd:$cwd}' | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_trunc_rc=$?
 [ "$sg_trunc_rc" -eq 2 ] || fail "ship-gates must block Grok toolInputTruncated=true with exit 2 (got $sg_trunc_rc)"
 pass 'Context watch warns a meta-orchestrator once past MMO_CONTEXT_WARN_TOKENS'
 
