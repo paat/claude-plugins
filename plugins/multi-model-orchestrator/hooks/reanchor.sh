@@ -4,7 +4,7 @@
 input=$(cat)
 is_agy=0
 [ "${HOOK_RUNTIME:-}" = agy ] && is_agy=1
-if [ "$is_agy" -eq 0 ] && printf '%s' "$input" | grep -q '"conversationId"'; then
+if [ "$is_agy" -eq 0 ] && command -v jq >/dev/null 2>&1 && printf '%s' "$input" | jq -e 'type == "object" and has("conversationId")' >/dev/null 2>&1; then
   is_agy=1
 fi
 

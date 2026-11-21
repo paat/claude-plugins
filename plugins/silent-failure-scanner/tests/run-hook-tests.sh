@@ -128,6 +128,13 @@ if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.decision=="deny" and (.reason
 else
   echo "FAIL: grok camelCase + GROK_PLUGIN_ROOT — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
 fi
+OUT="$(env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u MUSE_PLUGIN_ROOT GROK_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  bash -c "$STD_CMD" <<<"$(printf '{"toolName":"run_terminal_command","toolInput":{"command":"echo hi"},"toolInputTruncated":true,"cwd":%s}' "$(jq -Rn --arg c "$bad_repo" '$c')")" 2>/dev/null)"; RC=$?
+if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.decision=="deny" and (.reason | contains("toolInputTruncated"))' >/dev/null 2>&1; then
+  echo "PASS: grok toolInputTruncated=true emits top-level deny decision"; PASS=$((PASS+1))
+else
+  echo "FAIL: grok toolInputTruncated=true — rc=$RC out=$OUT"; FAIL=$((FAIL+1))
+fi
 OUT="$(env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u PLUGIN_ROOT -u GROK_PLUGIN_ROOT MUSE_PLUGIN_ROOT="$PLUGIN_ROOT" \
   bash -c "$STD_CMD" <<<"$(printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m oops"},"cwd":%s}' "$(jq -Rn --arg c "$bad_repo" '$c')")" 2>/dev/null)"; RC=$?
 if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1; then
@@ -137,7 +144,7 @@ else
 fi
 
 echo "== hooks.json manifest smoke test =="
-if jq -e '.hooks.PreToolUse[0].matcher | test("Bash") and test("run_command") and test("run_terminal_command")' "$HJ" >/dev/null 2>&1 \
+if jq -e '.hooks.PreToolUse[0].matcher | test("Bash") and test("execute_command") and test("run_command") and test("run_terminal_command")' "$HJ" >/dev/null 2>&1 \
    && jq -r '.hooks.PreToolUse[0].hooks[0].command' "$HJ" | grep -q 'pre-commit-gate.sh' \
    && jq -e '."silent-failure-scanner".PreToolUse[0].matcher=="run_command"' "$AGY_HJ" >/dev/null 2>&1 \
    && [[ -x "$HOOK" ]]; then

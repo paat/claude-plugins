@@ -744,17 +744,24 @@ close_gate() { # close_gate INDEX
 }
 
 input="$(cat || true)"
-if [ "$IS_AGY" -eq 0 ] && printf '%s' "$input" | grep -q '"toolCall"'; then
-  IS_AGY=1
-fi
 case "$input" in
-  *push*|*close*) ;;
+  *push*|*close*|*toolCall*|*toolInputTruncated*) ;;
   *) allow ;;
 esac
 if ! command -v jq >/dev/null 2>&1; then
   warn "jq not found; allowing"
   allow
 fi
+if [ "$IS_AGY" -eq 0 ] && printf '%s' "$input" | jq -e 'type == "object" and has("toolCall")' >/dev/null 2>&1; then
+  IS_AGY=1
+fi
+if printf '%s' "$input" | jq -e 'type == "object" and .toolInputTruncated == true' >/dev/null 2>&1; then
+  block "truncated shell command (toolInputTruncated=true) cannot be verified; shorten or split the command"
+fi
+case "$input" in
+  *push*|*close*) ;;
+  *) allow ;;
+esac
 command="$(printf '%s' "$input" | jq -r '.toolCall.args.CommandLine // .toolCall.args.command // .tool_input.command // .toolInput.command // .tool_input.cmd // .toolInput.cmd // .command // empty' 2>/dev/null || true)"
 cwd="$(printf '%s' "$input" | jq -r '.cwd // (.workspacePaths[0] // empty)' 2>/dev/null || true)"
 [ -n "$command" ] || allow

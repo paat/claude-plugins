@@ -12,13 +12,16 @@ never edits code.
 
 ## Invoke
 
-Resolve the plugin root from `CLAUDE_PLUGIN_ROOT`, `CODEX_PLUGIN_ROOT`, `PLUGIN_ROOT`, `GROK_PLUGIN_ROOT`, `MUSE_PLUGIN_ROOT`, or two directories above this skill file (`../..`):
+Resolve `SCAN_ROOT` from `PLUGIN_ROOT`, `CLAUDE_PLUGIN_ROOT`, `CODEX_PLUGIN_ROOT`, `GROK_PLUGIN_ROOT`, or `MUSE_PLUGIN_ROOT` — or, when all are unset, set it to the directory two levels above this loaded `SKILL.md` (never `.`, which is the target repository) and verify `$SCAN_ROOT/scripts/scan.sh` exists:
 
 ```bash
+SCAN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-}}}}}"
+# If SCAN_ROOT is empty, set it to the installed plugin root (two dirs above this SKILL.md).
+test -f "$SCAN_ROOT/scripts/scan.sh" || { echo "silent-failure-scanner plugin root required" >&2; exit 1; }
 # uncommitted changes (default)
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-.}}}}}/scripts/scan.sh"
+bash "$SCAN_ROOT/scripts/scan.sh"
 # branch vs base, machine-readable
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-.}}}}}/scripts/scan.sh" --base origin/main --format json
+bash "$SCAN_ROOT/scripts/scan.sh" --base origin/main --format json
 ```
 
 Or the command: `/silent-failure-scanner:scan [--staged | --base <ref> | <rev-range>]`

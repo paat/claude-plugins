@@ -3229,16 +3229,26 @@ case "$(printf '{"conversationId":"agy-s1","cwd":"%s","workspacePaths":["%s"]}' 
   *) fail 'Reanchor hook emits agy injectSteps systemMessage for fresh handoff' ;;
 esac
 [ "$(printf '{"conversationId":"agy-s2","cwd":"%s"}' "$WORK/no-handoffs" | HOOK_RUNTIME=agy bash "$REANCHOR")" = '{}' ] || fail 'Reanchor hook emits empty JSON on agy without fresh handoff'
-printf '{"step_index":0,"source":"user","content":"read skills/meta-orchestration/SKILL.md"}\n{"step_index":1,"input_tokens":110000,"cache_read_tokens":20000}\n' > "$CW/agy.jsonl"
+printf '{"step_index":0,"source":"user","content":"/multi-model-orchestrator:meta-orchestrate epic"}\n{"step_index":1,"input_tokens":110000,"cache_read_tokens":20000}\n{"step_index":2,"source":"tool","content":"quoted \\"input_tokens\\": 5"}\n' > "$CW/agy.jsonl"
 case "$(printf '{"conversationId":"agy-c1","transcriptPath":"%s"}' "$CW/agy.jsonl" | HOOK_RUNTIME=agy MMO_CONTEXT_WARN_TOKENS=100000 bash "$WATCH")" in
   *'"injectSteps"'*'"systemMessage"'*'130000 tokens'*) ;;
-  *) fail 'Context watch sums agy input_tokens + cache_read_tokens and emits injectSteps' ;;
+  *) fail 'Context watch sums agy input_tokens + cache_read_tokens even when a later tool result quotes input_tokens' ;;
 esac
 [ "$(printf '{"conversationId":"agy-c1","transcriptPath":"%s"}' "$CW/agy.jsonl" | HOOK_RUNTIME=agy MMO_CONTEXT_WARN_TOKENS=100000 bash "$WATCH")" = '{}' ] || fail 'Context watch warns once on agy then returns {}'
+printf '{"step_index":0,"source":"tool","content":"read plugins/multi-model-orchestrator/skills/meta-orchestration/SKILL.md"}\n{"step_index":1,"input_tokens":150000,"cache_read_tokens":0}\n' > "$CW/agy-read-only.jsonl"
+[ "$(printf '{"conversationId":"agy-c2","transcriptPath":"%s"}' "$CW/agy-read-only.jsonl" | HOOK_RUNTIME=agy MMO_CONTEXT_WARN_TOKENS=100000 bash "$WATCH")" = '{}' ] || fail 'Context watch ignores reading skills/meta-orchestration/SKILL.md outside an invocation'
 printf '{"type":"user","message":{"content":"/multi-model-orchestrator:meta-orchestrate go"}}\n{"usage":{"inputTokens":140000}}\n' > "$CW/grok.jsonl"
 case "$(printf '{"sessionId":"grok-s1","transcriptPath":"%s"}' "$CW/grok.jsonl" | MMO_CONTEXT_WARN_TOKENS=100000 bash "$WATCH")" in
   *'"hookEventName":"PostToolUse"'*'140000 tokens'*) ;;
   *) fail 'Context watch parses Grok camelCase sessionId/transcriptPath/inputTokens' ;;
+esac
+# T-001: substring "conversationId" in a Claude/Codex compact payload must stay plain text (not agy JSON)
+case "$(printf '{"source":"compact","note":"has \"conversationId\" text"}' | CLAUDE_PROJECT_DIR="$R" bash "$REANCHOR")" in
+  *'handoff-2026-01-02T0000Z.md'*) ;;
+  *) fail 'Reanchor keeps plain-text output when conversationId is only a substring' ;;
+esac
+case "$(printf '{"source":"compact","note":"has \"conversationId\" text"}' | CLAUDE_PROJECT_DIR="$R" bash "$REANCHOR")" in
+  *'"injectSteps"'*) fail 'Reanchor must not emit agy injectSteps on substring conversationId' ;;
 esac
 contains "$PLUGIN_ROOT/hooks.json" 'HOOK_RUNTIME=agy bash ./hooks/reanchor.sh' 'Root hooks.json wires agy SessionStart reanchor'
 contains "$PLUGIN_ROOT/hooks.json" 'HOOK_RUNTIME=agy bash ./hooks/ship-gates.sh' 'Root hooks.json wires agy PreToolUse ship-gates'
@@ -3255,6 +3265,14 @@ esac
 sg_grok_rc=0
 printf '{"toolName":"run_terminal_command","toolInput":{"command":"git push origin main"},"cwd":"%s"}' "$SG_REPO" | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_grok_rc=$?
 [ "$sg_grok_rc" -eq 2 ] || fail "ship-gates blocks Grok camelCase push with exit 2 (got $sg_grok_rc)"
+# T-001: Claude payload whose command mentions "toolCall" must still exit 2 (not flip to agy exit 0)
+sg_spoof_rc=0
+printf '{"tool_name":"Bash","tool_input":{"command":"echo \"toolCall\" && git push origin main"},"cwd":"%s"}' "$SG_REPO" | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_spoof_rc=$?
+[ "$sg_spoof_rc" -eq 2 ] || fail "ship-gates must exit 2 even when Claude command text contains toolCall (got $sg_spoof_rc)"
+# T-003: Grok toolInputTruncated=true fails closed
+sg_trunc_rc=0
+printf '{"toolName":"run_terminal_command","toolInput":{"command":"echo hi"},"toolInputTruncated":true,"cwd":"%s"}' "$SG_REPO" | bash "$PLUGIN_ROOT/hooks/ship-gates.sh" >/dev/null 2>&1 || sg_trunc_rc=$?
+[ "$sg_trunc_rc" -eq 2 ] || fail "ship-gates must block Grok toolInputTruncated=true with exit 2 (got $sg_trunc_rc)"
 pass 'Context watch warns a meta-orchestrator once past MMO_CONTEXT_WARN_TOKENS'
 
 USAGE_SH="$PLUGIN_ROOT/scripts/usage.sh"

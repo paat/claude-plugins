@@ -240,6 +240,18 @@ class AntigravityHooksLintTests(unittest.TestCase):
             CHECKER.lint_hooks(plugin, errors)
             self.assertTrue(any("flat handler objects" in err for err in errors))
 
+    def test_rejects_grouped_handler_missing_command(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = Path(directory) / "fixture"
+            plugin.mkdir(parents=True)
+            (plugin / "hooks.json").write_text(
+                '{"fixture":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command"}]}]}}\n',
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            CHECKER.lint_hooks(plugin, errors)
+            self.assertTrue(any("non-empty command" in err for err in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

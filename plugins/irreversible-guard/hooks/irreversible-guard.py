@@ -733,6 +733,17 @@ def main():
     is_agy, tool_name, command, cwd = _extract_payload(payload)
     if tool_name.lower() not in SHELL_TOOL_NAMES:
         return _allow(is_agy)
+    if payload.get("toolInputTruncated") is True:
+        msg = (
+            "[irreversible-guard] BLOCKED: truncated shell command "
+            "(toolInputTruncated=true) cannot be verified in full; "
+            "shorten or split the command and retry."
+        )
+        if is_agy:
+            print(json.dumps({"decision": "deny", "reason": msg}))
+            return 0
+        sys.stderr.write(msg + "\n")
+        return 2
     if not command.strip():
         return _allow(is_agy)
     plugin_root = _resolve_plugin_root()

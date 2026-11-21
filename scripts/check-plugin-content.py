@@ -241,11 +241,23 @@ def lint_antigravity_hooks(plugin_dir: Path, errors: list[str]) -> None:
                         )
                         continue
                     for handler in entry["hooks"]:
-                        if isinstance(handler, dict) and isinstance(handler.get("command"), str):
-                            commands.append(handler["command"])
+                        if (
+                            not isinstance(handler, dict)
+                            or not isinstance(handler.get("command"), str)
+                            or not handler["command"].strip()
+                        ):
+                            errors.append(
+                                f"{rel(hook_path)}: hook {hook_name!r}.{key} handler must be an object with a non-empty command"
+                            )
+                            continue
+                        commands.append(handler["command"])
             else:
                 for handler in value:
-                    if not isinstance(handler, dict) or not isinstance(handler.get("command"), str):
+                    if (
+                        not isinstance(handler, dict)
+                        or not isinstance(handler.get("command"), str)
+                        or not handler["command"].strip()
+                    ):
                         errors.append(
                             f"{rel(hook_path)}: hook {hook_name!r}.{key} entries must be flat handler objects with command"
                         )

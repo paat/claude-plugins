@@ -21,26 +21,27 @@ limit="${MMO_CONTEXT_WARN_TOKENS:-400000}"
 case "$limit" in ''|*[!0-9]*) noop ;; esac
 
 reverse="tac"; command -v tac >/dev/null 2>&1 || reverse="tail -r"
-tokens=$($reverse "$transcript" | grep -m 1 -E '"type":"assistant"|"last_token_usage"|"input_tokens"|"inputTokens"' | jq -R '
-  fromjson? |
+tokens=$($reverse "$transcript" | grep -E '"type":"assistant"|"last_token_usage"|"input_tokens"|"inputTokens"' | jq -R '
+  fromjson? | select(type == "object") |
   if (.message.usage? | type) == "object" then .message.usage
   elif (.payload.info.last_token_usage? | type) == "object" then .payload.info.last_token_usage
   elif (.usage? | type) == "object" then .usage
-  elif has("input_tokens") or has("inputTokens") then .
+  elif ((.step_index? | type) == "number") and (((.input_tokens? | type) == "number") or ((.inputTokens? | type) == "number")) then .
   else empty end
   | if has("cache_read_input_tokens") or has("cache_creation_input_tokens")
     then (.input_tokens // 0) + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)
     elif has("cache_read_tokens")
     then (.input_tokens // 0) + (.cache_read_tokens // 0)
-    else (.input_tokens // .inputTokens // 0) end' 2>/dev/null)
+    else (.input_tokens // .inputTokens // empty) end
+  | select(type == "number")' 2>/dev/null | head -n 1)
 case "$tokens" in ''|*[!0-9]*) noop ;; esac
 
 marker="${TMPDIR:-/tmp}/mmo-context-warned-$session"
 if [ "$tokens" -lt "$limit" ]; then rm -f "$marker"; noop; fi
 [ -e "$marker" ] && noop
 # An invocation, not a mention: every session's skill listing names the skill.
-# Skill tool input, a slash or $ command opening a message, loaded workflow heading, or agy skill read.
-grep -qE '"skill":"multi-model-orchestrator:meta-orchestrat|[^\\]"[/$]multi-model-orchestrator:meta-orchestrat|<command-name>/?multi-model-orchestrator:meta-orchestrat|# /multi-model-orchestrator:meta-orchestrate Codex Workflow|skills/meta-orchestration/SKILL\.md' "$transcript" || noop
+# Skill tool input, a slash or $ command opening a message, or the loaded workflow heading.
+grep -qE '"skill":"multi-model-orchestrator:meta-orchestrat|[^\\]"[/$]multi-model-orchestrator:meta-orchestrat|<command-name>/?multi-model-orchestrator:meta-orchestrat|# /multi-model-orchestrator:meta-orchestrate Codex Workflow' "$transcript" || noop
 : > "$marker"
 
 msg="Context is at $tokens tokens (MMO_CONTEXT_WARN_TOKENS=$limit). If this session is running /multi-model-orchestrator:meta-orchestrate: bring the handoff current now, and keep this item lean (legs return verdicts, no full-file reads here); compaction resumes from the handoff."

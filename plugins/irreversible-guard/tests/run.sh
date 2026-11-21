@@ -133,6 +133,13 @@ assert_grok_and_muse_contracts() {
   record_check "grok camelCase + GROK_PLUGIN_ROOT blocks" "$code" "2"
 
   (
+    unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT PLUGIN_ROOT MUSE_PLUGIN_ROOT
+    export GROK_PLUGIN_ROOT="$root"
+    printf '{"toolName":"run_terminal_command","toolInput":{"command":"echo hi"},"toolInputTruncated":true,"cwd":"%s"}' "$PWD" | bash -c "$HOOK_COMMAND" >/dev/null 2>&1
+  ); code=$?
+  record_check "grok toolInputTruncated=true blocks" "$code" "2"
+
+  (
     unset CLAUDE_PLUGIN_ROOT CODEX_PLUGIN_ROOT PLUGIN_ROOT GROK_PLUGIN_ROOT
     export MUSE_PLUGIN_ROOT="$root"
     printf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"},"cwd":"%s"}' "$PWD" | bash -c "$HOOK_COMMAND" >/dev/null 2>&1

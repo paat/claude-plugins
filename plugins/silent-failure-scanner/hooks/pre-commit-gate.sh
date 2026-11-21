@@ -131,6 +131,15 @@ if [[ -n "$tool_name" ]]; then
     *) allow ;;
   esac
 fi
+if printf '%s' "$input" | jq -e 'type == "object" and .toolInputTruncated == true' >/dev/null 2>&1; then
+  reason="silent-failure-scanner blocked this command — toolInputTruncated=true; shorten or split the command so the commit gate can inspect it in full."
+  if [[ "$IS_AGY" -eq 1 || "$IS_GROK" -eq 1 ]]; then
+    jq -nc --arg r "$reason" '{decision: "deny", reason: $r}'
+  else
+    jq -nc --arg r "$reason" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r},systemMessage:$r}'
+  fi
+  exit 0
+fi
 command="$(printf '%s' "$input" | jq -r '.toolCall.args.CommandLine // .toolCall.args.command // .tool_input.command // .toolInput.command // .tool_input.cmd // .toolInput.cmd // empty' 2>/dev/null)"
 cwd="$(printf '%s' "$input" | jq -r '.cwd // (.workspacePaths[0] // empty)' 2>/dev/null)"
 [[ -z "$command" ]] && allow
