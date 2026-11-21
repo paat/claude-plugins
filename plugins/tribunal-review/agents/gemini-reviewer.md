@@ -29,6 +29,7 @@ every mechanic — base-ref resolution, diff capture/truncation, context injecti
   fails, return `{"provider":"gemini","error":"<what actually happened>"}`. A
   hand-written review envelope lacks the wrapper-stamped `diff_stat` and is rejected
   downstream as a provider failure (issue #487).
-- Gemini is **off by default**: the script emits a `disabled` marker unless `TRIBUNAL_GEMINI=on`.
-  Honors `TRIBUNAL_GEMINI_MODEL` (default: agy's default model). If `agy` is missing or not signed in
-  (and `GEMINI_API_KEY` is unset) the script self-emits an error JSON — return it verbatim.
+- Gemini defaults to **auto**: the script runs when agy is signed in or `GEMINI_API_KEY`
+  is set, and emits a `disabled` marker otherwise; `TRIBUNAL_GEMINI=off` opts out,
+  `on` errors when unsigned. Honors `TRIBUNAL_GEMINI_MODEL` (default: agy's default
+  model). If `agy` is missing the script self-emits an error JSON — return it verbatim.

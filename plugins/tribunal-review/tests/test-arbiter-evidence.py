@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
 
     check('documented lookup fails visibly when pinned object is pruned', missing_pinned_object)
 
-    providers = ('codex', 'gemini', 'deepseek', 'qwen', 'grok', 'muse', 'opencode', 'claude')
+    providers = ('codex', 'gemini', 'deepseek', 'qwen', 'grok', 'muse', 'claude')
     (work / 'providers').mkdir()
 
     def verdict_case(statuses, decision, confidence, accepts=True, findings=[],
@@ -161,7 +161,7 @@ with tempfile.TemporaryDirectory(prefix='tribunal-arbiter-') as temporary:
           lambda: verdict_case({'codex': 'ok', 'grok': 'ok'}, 'APPROVE', 0.95, accepts=False,
                                panel_policy=floor3))
     check('sealed floor 3 accepts three-ok APPROVE',
-          lambda: verdict_case({'codex': 'ok', 'grok': 'ok', 'opencode': 'ok'}, 'APPROVE', 0.95,
+          lambda: verdict_case({'codex': 'ok', 'grok': 'ok', 'gemini': 'ok'}, 'APPROVE', 0.95,
                                panel_policy=floor3))
 
 print(f'{passed} PASS / {failed} FAIL')

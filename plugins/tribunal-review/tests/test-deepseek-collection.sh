@@ -23,7 +23,7 @@ else
   jq -nc --arg p "$provider" '{provider:$p,status:"disabled",note:"fixture disabled"}'
 fi
 FIXTURE
-for provider in codex gemini qwen grok muse opencode claude; do
+for provider in codex gemini qwen grok muse claude; do
   printf '#!/usr/bin/env bash\nbash "$(dirname "$0")/fixture-review.sh" %s\n' "$provider" > "$plugin/scripts/run-$provider-review.sh"
 done
 cat > "$fake/dsh" <<'FIXTURE'
@@ -69,7 +69,7 @@ collect() {
 }
 case=enabled
 collect
-jq -e '(.providers|length)==8 and all(.providers[]; .provider!="glm") and any(.providers[]; .provider=="deepseek" and .status=="ok" and (.wrapper.path|endswith("/run-deepseek-review.sh")))' "$work/$case/manifest.json" >/dev/null
+jq -e '(.providers|length)==7 and all(.providers[]; .provider!="glm") and any(.providers[]; .provider=="deepseek" and .status=="ok" and (.wrapper.path|endswith("/run-deepseek-review.sh")))' "$work/$case/manifest.json" >/dev/null
 jq -e '.provider=="deepseek" and .summary.verdict=="APPROVE" and (.diff_stat.base_oid|length)>0' "$work/$case/providers/deepseek.json" >/dev/null
 printf 'PASS: enabled DeepSeek seals its own artifact without a retired provider\n'
 case=backup

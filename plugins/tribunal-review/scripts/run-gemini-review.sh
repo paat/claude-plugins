@@ -3,15 +3,22 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
-if [ "${TRIBUNAL_GEMINI:-off}" != "on" ]; then tribunal_disabled gemini "Gemini leg disabled (default off); set TRIBUNAL_GEMINI=on to enable"; exit 0; fi
+case "${TRIBUNAL_GEMINI:-auto}" in
+  off) tribunal_disabled gemini "Gemini leg disabled via TRIBUNAL_GEMINI=off"; exit 0 ;;
+  on|auto|'') ;;
+  *) tribunal_error gemini "invalid TRIBUNAL_GEMINI: ${TRIBUNAL_GEMINI} (want on, off, or auto)"; exit 0 ;;
+esac
 command -v agy >/dev/null 2>&1 || { tribunal_error gemini "Antigravity CLI (agy) not on PATH"; exit 0; }
 AGY_TOKEN="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
 if [ -f "$AGY_TOKEN" ] && [ ! -L "$AGY_TOKEN" ]; then
   PROVIDER_SETTING=""
 elif [ -n "${GEMINI_API_KEY:-}" ]; then
   PROVIDER_SETTING=',"modelProvider":"gemini"'
-else
+elif [ "${TRIBUNAL_GEMINI:-auto}" = on ]; then
   tribunal_error gemini "agy is not signed in and GEMINI_API_KEY is unset"; exit 0
+else
+  tribunal_disabled gemini "Gemini leg idle (default auto; agy is not signed in and GEMINI_API_KEY is unset)"
+  exit 0
 fi
 MODEL="${TRIBUNAL_GEMINI_MODEL:-default}"
 

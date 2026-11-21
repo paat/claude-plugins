@@ -20,9 +20,6 @@ effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers ove
 
 - Codex (`codex` CLI): repo-walking with unrestricted execution inside the development-container
   security boundary; the review prompt prohibits changes.
-- OpenCode (`opencode` v2+ CLI on OpenCode Go): repo-walking via
-  `opencode run --standalone --format json --agent plan -m "opencode-go/<model>[#<effort>]"`
-  (`--agent plan` denies edit tools); OpenCode v1 is refused.
 - Claude (`claude` CLI): reads the complete captured diff and a scratch checkout pinned to
   its head through Read/Glob/Grep only; restricted/safe mode, empty settings sources,
   strict empty MCP, and `dontAsk` permissions. Repository content is untrusted data.
@@ -34,7 +31,9 @@ effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers ove
   (`TRIBUNAL_MUSE_MODEL=default` passes no `--model`).
 - DeepSeek (`dsh` CLI + `DEEPSEEK_API_KEY` or dsh credentials): repo-walking with read-only
   sandbox, approval disabled, and session uploads, telemetry, and web tools disabled.
-- Gemini (`agy` CLI): diff plus web/CVE lens.
+- Gemini (`agy` CLI): diff plus web/CVE lens. `TRIBUNAL_GEMINI` defaults to `auto`
+  (active when agy is signed in or `GEMINI_API_KEY` is set, `disabled` otherwise);
+  `off` opts out, `on` fails when unsigned.
 - Qwen (`qwen` CLI): repo-walking on its configured transport.
 
 ## Native review commands
@@ -55,9 +54,7 @@ stderr, and the verdict pass runs without it. `TRIBUNAL_NATIVE_REVIEW=off` skips
 | Claude Code 2.1.326 | `/review <level> <captured diff file>` under `claude -p` | yes; `/review` always runs the bundled `/code-review`; level is the leg effort capped at `high`; leads cite lines of the diff file; `--json-schema` suppresses the review |
 | Grok 1.0.88 | `/review --main` | no; reviews against `origin/main` on a clean tree only and needs write and shell tools the leg denies |
 | Qwen 0.25.3 | `qwen review run` | no; targets a PR or the working tree, defaults to `yolo` |
-| OpenCode 2.3.0 | `/review [commit\|branch\|pr]` | no; expansion under `opencode run` is unconfirmed |
 | Muse 1.4.20, agy 1.5.9, dsh 0.2.2 | none | no |
-
 ## Grok recovery
 
 `TRIBUNAL_GROK_RECOVERY=permit` (default) keeps low-effort finalization under the read-only tools
@@ -67,8 +64,8 @@ quorum; unknown phase on a nonempty diff also fails. Sealed at collect time as `
 
 ## Backups for plan-limited and sub-quorum runs
 
-A leg failing on a plan limit (402, usage limit, quota, resource/balance/credits exhausted, or
-OpenCode `provider.{go,free,budget,model-budget}-limit`; never a timeout) emits an error starting
+A leg failing on a plan limit (402, usage limit, quota, resource/balance/credits exhausted;
+never a timeout) emits an error starting
 with `plan limit:`. After the first pass, the collector runs idle installed backup legs — one per
 plan-limited leg, and enough to cover any shortfall when `ok` legs are below `TRIBUNAL_MIN_OK_LEGS`
 — using the selection's backup order (or `TRIBUNAL_BACKUP_LEGS`, comma-separated providers or
