@@ -81,9 +81,22 @@ case "$mode" in
   review) turns_cap=100 turns_default=60 ;;
   *) turns_cap=100 turns_default=30 ;;
 esac
+timeout_cap=0
 if [ -z "$max_turns" ]; then
   max_turns="${MMO_GROK_MAX_TURNS:-$turns_default}"
   if [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -gt "$turns_cap" ] && [ "$mode" != implement ]; then max_turns="$turns_cap"; fi
+  # Leave roughly half the clock for synthesis. High-effort reads took 28–43 s
+  # per round trip in #716. A resume needs at least 30 s of remaining time.
+  if { [ "$mode" = review ] || [ "$mode" = advise ]; } && [ -z "${MMO_GROK_MAX_TURNS:-}" ] &&
+     [ "$continue_n" != 0 ] && [ "$run_timeout" -ge 60 ]; then
+    case "$effort" in high|xhigh) seconds_per_turn=40 ;; *) seconds_per_turn=10 ;; esac
+    inspect_turns=$((run_timeout / (2 * seconds_per_turn)))
+    [ "$inspect_turns" -gt 0 ] || inspect_turns=1
+    if [ "$inspect_turns" -lt "$max_turns" ]; then
+      max_turns="$inspect_turns"
+      timeout_cap=1
+    fi
+  fi
 fi
 [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] && [ "$max_turns" -le "$turns_cap" ] || { printf 'run-grok: max turns must be an integer from 1 to %s for --mode %s\n' "$turns_cap" "$mode" >&2; exit 2; }
 if [ -z "$continue_n" ]; then
@@ -372,10 +385,14 @@ fi
 [ "$mode" != probe ] || tree_before="$(mmo_tree_state "$repo_dir" "${leg_paths[@]}")"
 started=$SECONDS
 run_grok_call "$run_timeout" "$prompt_file" ${inspect_args[@]+"${inspect_args[@]}"} ${session_id:+--session-id "$session_id"}
-if [ "$mode" != implement ] && [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+hit_turn_cap() {
+  case "$mode:$rc" in review:124|advise:124) return 1 ;; esac
+  [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"
+}
+if [ "$mode" != implement ] && hit_turn_cap; then
   truncated=turns
 fi
-while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max turns reached' "$call_err"; do
+while [ "$continues" -lt "$continue_n" ] && hit_turn_cap; do
   left=$((run_timeout - (SECONDS - started)))
   [ "$left" -ge 30 ] || break
   if [ "$mode" = implement ]; then
@@ -386,7 +403,7 @@ while [ "$rc" -ne 0 ] && [ "$continues" -lt "$continue_n" ] && grep -qi 'max tur
   continues=$((continues + 1))
   run_grok_call "$left" "$resume_prompt" ${resume_args[@]+"${resume_args[@]}"} --resume "$session_id"
 done
-if [ "$rc" -ne 0 ] && grep -qi 'max turns reached' "$call_err"; then
+if hit_turn_cap; then
   if [ "$mode" = implement ]; then
     printf 'run-grok: max turns reached (%s); work may be partial and uncommitted — salvage like a timeout, or raise --max-turns (--mode %s cap %s)\n' "$max_turns" "$mode" "$turns_cap" >&2
     rc=76
@@ -502,5 +519,10 @@ classify_file="$runtime_dir/provider-failure.txt"
 [ ! -s "${output_file}.stderr" ] || cp "${output_file}.stderr" "$classify_file"
 finish_kv=("model=$model" "effort=$effort" "mode=$mode" "log=$log_path")
 [ "$continues" -eq 0 ] || finish_kv+=("continues=$continues")
+case "$mode" in review|advise)
+  if [ "$rc" -eq 124 ] || { [ "$truncated" = turns ] && [ "$timeout_cap" -eq 1 ]; }; then
+    truncated=timeout
+  fi
+esac
 [ -z "$truncated" ] || finish_kv+=("truncated=$truncated")
 mmo_finish run-grok "$rc" "$classify_file" "${finish_kv[@]}"
