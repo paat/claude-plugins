@@ -23,9 +23,12 @@
 # or reset before redispatch). Any other runner exit is the result.
 # Exit 75 when no worker is left; the reason and the earliest reset go to stderr.
 # Implement runs only: contract flags (--allow-paths ... --cycle) are validated by leg-check.sh
-# before any worker runs; the HEAD and a snapshot of the dirty tree are captured before dispatch,
-# and a worker exit of 0 is followed by leg-check.sh against them. Its exit (0, 8 scope, 9 verify,
-# 10 no change, 11 check could not run) is the result; the final line adds check=<result>.
+# before any worker runs. leg-preflight.sh then refuses a dirty tree or a closed issue
+# (exit 56, check=preflight). The HEAD and a snapshot of the dirty tree are captured before
+# dispatch, and a worker exit of 0 is followed by leg-check.sh against them. Its exit (0, 8 scope,
+# 9 verify, 10 no change, 11 check could not run) is the result unless the tree is still dirty,
+# which exits 56 check=uncommitted. The final line adds check=<result>. Exit 55 and timeouts
+# are unchanged. A prompt that bars committing (the orchestrator commits) skips uncommitted.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -219,6 +222,15 @@ snapshot_file=""
 trap 'rm -f "$prompt_file" "$runner_stderr" "$snapshot_file"' EXIT
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'pool: empty prompt\n' >&2; exit 2; }
+if [ "$mode" = implement ]; then
+  pre_task=""
+  for ((pre_i=0; pre_i<${#contract[@]}; pre_i+=2)); do
+    [ "${contract[$pre_i]}" = --task ] && pre_task="${contract[$((pre_i + 1))]}"
+  done
+  pre_args=(--repo "$repo_dir" --prompt "$prompt_file")
+  [ -z "$pre_task" ] || pre_args+=(--task "$pre_task")
+  "$SCRIPT_DIR/leg-preflight.sh" "${pre_args[@]}"
+fi
 if [ "${#contract[@]}" -gt 0 ]; then
   leg_base="$(git -C "$repo_dir" rev-parse --verify -q HEAD)" || { printf 'pool: leg checks need a commit at HEAD\n' >&2; exit 2; }
   # Edits already in the tree are not the leg's: the check compares against this snapshot.
@@ -313,6 +325,20 @@ if [ "$rc" -eq 0 ] && [ "${#contract[@]}" -gt 0 ]; then
   # Under the signal supervisor, like a worker: cancelling the pool stops a long verify.
   mmo_run direct "" "" "$SCRIPT_DIR/leg-check.sh" "${check_args[@]}" || rc=$?
   case "$rc" in 0) check_note=" check=pass" ;; 8) check_note=" check=scope" ;; 9) check_note=" check=verify" ;; 10) check_note=" check=no_change" ;; *) check_note=" check=error" ;; esac
+fi
+if [ "$rc" -eq 0 ] && [ "$mode" = implement ]; then
+  post_args=(--after --repo "$repo_dir" --prompt "$prompt_file")
+  [ -z "$output_file" ] || post_args+=(--out "$output_file")
+  [ -z "$snapshot_file" ] || post_args+=(--out "$snapshot_file")
+  post_rc=0
+  "$SCRIPT_DIR/leg-preflight.sh" "${post_args[@]}" || post_rc=$?
+  if [ "$post_rc" -eq 56 ]; then
+    rc=56
+    check_note=" check=uncommitted"
+  elif [ "$post_rc" -ne 0 ]; then
+    rc=$post_rc
+    check_note=" check=error"
+  fi
 fi
 printf 'pool: exit=%s worker=%s model=%s effort=%s tier=%s%s\n' "$rc" "$r_provider" "$r_model" "$r_effort" "$r_tier" "$check_note" >&2
 exit "$rc"

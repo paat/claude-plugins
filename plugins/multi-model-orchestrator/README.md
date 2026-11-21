@@ -185,7 +185,7 @@ like me to", "shall I", "should I continue/proceed", "let me know if you") adds
 `pool.sh run --mode implement` takes `--allow-paths`, `--verify-cmd`, `--verify-pattern`, `--task`
 and `--cycle`, validates them before any worker runs, snapshots the tree and HEAD before dispatch,
 runs the check after a worker exit 0, exits with the check's code, and adds `check=` to its final
-line.
+line. A dirty tree or a closed issue number exits 56 before dispatch; see below.
 
 Each check appends a row to
 `${MMO_LEG_CHECKS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/multi-model-orchestrator/leg-checks.tsv}`
@@ -446,6 +446,22 @@ The routing policy was checked against current primary guidance for
 [Grok reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning), and the
 [Grok Build CLI](https://docs.x.ai/build/cli/reference). Existing Reddit evidence remains clearly
 marked as anecdotal and is used only as an operational signal.
+
+## Worker preflight and ship gates
+
+`pool.sh run --mode implement` exits 56 `check=preflight` on a dirty tree (`git status --porcelain`, so ignored and `info/exclude` paths do not count) or when `--task` is a closed GitHub issue. A missing GitHub remote is not a closed issue. `gh` failing to read the issue warns and allows. After a worker exit 0, a still-dirty tree exits 56 `check=uncommitted`, except when the prompt bars committing (`the orchestrator commits`, `leave the tree uncommitted`, `Do not edit any other path or commit`, or `Do not broaden scope or commit`) because that leg's contract says the orchestrator commits. A line that says `Commit on` without `when your leg's contract permits` still requires a commit. Escapes, printed on stderr, are `MMO_ALLOW_DIRTY`, `MMO_ALLOW_REDO`, and `MMO_ALLOW_UNCOMMITTED`, each `=<reason>`. `pick` and `--mode review` are not gated. Exit 55 and timeouts are unchanged.
+
+`hooks/ship-gates.sh` is a `PreToolUse` Bash hook (Claude and Codex share `hooks.json`). Every other command exits 0 without calling git or gh, and an unparseable command or a missing tool is allowed. Configure the target checkout in `.claude/multi-model-orchestrator.local.md` frontmatter:
+
+```yaml
+---
+push_check: "<bash -c command; absent allows, non-zero blocks>"
+test_path_regex: "<optional ERE; default matches common test layouts>"
+live_recheck: true
+---
+```
+
+On `git push` and `git -C <dir> push` (not a delete-ref push), `push_check` runs in the repo. A deleted test path blocks; a rename (`-M`) does not. Net removal of `def test_`, `func Test`, `it(`, or `test(` on test paths blocks. A commit in the push range may carry `Push-Gate: skip — <reason>` or `Test-Deletion: justified — <reason>`. `live_recheck: true` blocks `gh issue close` unless the close comment (`-c`/`--comment`) or an existing comment contains `VERIFIED LIVE:` plus a hex SHA, or `Live-Recheck: no-live-surface — <reason>`. Without that key, close is not checked. A `gh` read failure warns and allows. `gh pr merge` is not this hook.
 
 ## Installation
 

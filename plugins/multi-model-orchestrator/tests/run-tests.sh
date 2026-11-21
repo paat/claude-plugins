@@ -4161,6 +4161,8 @@ out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bas
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T3 --deny muse-wonder-full-1.0 --usage /dev/null 2>/dev/null)" || true
 case "$out" in *muse-wonder-full-1.0*) fail "deny muse-wonder-full-1.0 still listed it: $out" ;; esac
 [ "$(printf '%s\n' "$out" | cut -f3 | tr '\n' ' ')" = "gpt-6.2-astra claude-opus-5-5 claude-opus-5-5 gpt-6.2-sol gemini-4-argon gemini-4-hydrogen gemini-4-carbon gpt-6-astra gpt-6.1-sol " ] || fail "deny muse-wonder-full-1.0 keeps the other T3 workers: $out"
+# The agy review fixture leaves f.txt dirty; implement preflight would stop these runs.
+git -C "$AR" checkout -q -- f.txt
 rm -rf "$PL/muse-calls"; mkdir -p "$PL/muse-calls"
 printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" \
   STUB_MUSE_CALLS="$PL/muse-calls" STUB_MUSE_SERVED=muse-wonder-full-1.0 \
@@ -4534,12 +4536,12 @@ rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/outside.txt" \
 contains "$PL/err" 'pool: exit=8 worker=agy model=gemini-3.8-flash effort=low tier=T2 check=scope' 'pool final line carries check=scope'
 [ "$(lc_row | cut -f3-9)" = $'9\t1\tT2\tagy\tgemini-3.8-flash\tlow\tscope' ] || fail "pool passes the selected row to leg-check: $(lc_row)"
 rows_before="$(wc -l < "$MMO_LEG_CHECKS_FILE")"
-rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/outside.txt" \
+rm -f "$LCR/outside.txt"
+rc=0; printf 'task\n' | "${pool_env[@]}" \
   bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 >/dev/null 2>"$PL/err" || rc=$?
 [ "$rc" -eq 0 ] || fail "pool run without contract flags keeps the worker exit (got $rc)"
 tail -n 1 "$PL/err" | grep -Fxq 'pool: exit=0 worker=agy model=gemini-3.8-flash effort=low tier=T2' || fail "pool final line unchanged without contract flags: $(tail -n 1 "$PL/err")"
 [ "$(wc -l < "$MMO_LEG_CHECKS_FILE")" -eq "$rows_before" ] || fail 'pool run without contract flags runs no leg check'
-rm -f "$LCR/outside.txt"
 for bad in "pick --tier T2 --allow-paths f.txt" "run --tier T2 --mode review --base HEAD --verify-cmd true"; do
   rc=0
   # shellcheck disable=SC2086
@@ -4557,11 +4559,11 @@ done
 [ -z "$(ls -A "$PL/calls" 2>/dev/null)" ] || fail 'a malformed contract must not reach a worker'
 # Dirty start: the pool snapshots the tree, so edits made before dispatch are not the leg's.
 printf 'pre-existing\n' >> "$LCR/src/lib/a.txt"
-rc=0; printf 'task\n' | "${pool_env[@]}" bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" \
+rc=0; printf 'task\n' | "${pool_env[@]}" MMO_ALLOW_DIRTY=snapshot bash "$POOL" run --tier T2 --deny claude --usage "$PL/usage.txt" \
   --repo "$LCR" --timeout 30 --allow-paths 'f.txt' >/dev/null 2>"$PL/err" || rc=$?
 [ "$rc" -eq 10 ] || fail "a no-op worker on a dirty tree exits 10 (got $rc): $(cat "$PL/err")"
 contains "$PL/err" 'check=no_change' 'pool reports no_change on a dirty start'
-rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_TOUCH="$LCR/f.txt" bash "$POOL" run --tier T2 --deny claude \
+rc=0; printf 'task\n' | "${pool_env[@]}" MMO_ALLOW_DIRTY=snapshot MMO_ALLOW_UNCOMMITTED=snapshot STUB_AGY_TOUCH="$LCR/f.txt" bash "$POOL" run --tier T2 --deny claude \
   --usage "$PL/usage.txt" --repo "$LCR" --timeout 30 --allow-paths 'f.txt' >/dev/null 2>"$PL/err" || rc=$?
 [ "$rc" -eq 0 ] || fail "a pre-existing unrelated edit does not fail the pool's scope check (got $rc): $(cat "$PL/err")"
 contains "$PL/err" 'check=pass' 'pool passes a leg on a dirty start'
@@ -5007,5 +5009,6 @@ pass 'harness adjustments: matching, {budget}, runner modes, calendar dates, shi
 python3 "$PLUGIN_ROOT/tests/test-outcome-lifecycle.py" "$PLUGIN_ROOT/scripts" "$OUTCOMES/lifecycle" "$outcome_repo"
 python3 "$PLUGIN_ROOT/tests/test-stop-signals.py" "$PLUGIN_ROOT/scripts" "$WORK/stop-signals"
 python3 "$PLUGIN_ROOT/tests/test-runner-preservation.py" "$PLUGIN_ROOT/scripts"
+bash "$PLUGIN_ROOT/tests/test-ask88-gates.sh"
 
 printf 'All multi-model-orchestrator tests passed.\n'
