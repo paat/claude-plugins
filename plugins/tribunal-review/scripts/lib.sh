@@ -8,8 +8,148 @@ tribunal_deepseek_model() {
   printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek-v4-pro}"
 }
 
+tribunal_vibe_model() {
+  printf '%s\n' "${TRIBUNAL_VIBE_MODEL:-mistral-large-4}"
+}
+
+# Vibe resolves its credential from MISTRAL_API_KEY in the environment or from
+# a KEY=value entry in ${VIBE_HOME:-$HOME/.vibe}/.env (written by `vibe --setup`),
+# parsed with python-dotenv semantics: an `export` prefix is honored, while an
+# empty, whitespace-only, or unterminated-quoted value holds no key. A set but
+# non-empty environment value shadows the file, exactly like Vibe's loader.
+tribunal_vibe_available() {
+  if [ -n "${MISTRAL_API_KEY:+x}" ] && [ -n "${MISTRAL_API_KEY}" ]; then
+    case "$MISTRAL_API_KEY" in
+      *[![:space:]]*) return 0 ;;
+    esac
+    printf 'vibe is not configured: MISTRAL_API_KEY is set but blank (run `vibe --setup` once)\n'
+    return 1
+  fi
+  if tribunal_vibe_dotenv_key; then
+    return 0
+  fi
+  printf 'vibe is not configured: MISTRAL_API_KEY is unset and no key entry exists in ${VIBE_HOME:-$HOME/.vibe}/.env (run `vibe --setup` once)\n'
+  return 1
+}
+
+# True when the Vibe home .env holds a usable MISTRAL_API_KEY. Mirrors
+# python-dotenv (which Vibe uses): the last assignment wins, a line without
+# `=` or with an unterminated quote is skipped without clearing a prior
+# value, and an empty or whitespace-only value holds no key.
+tribunal_vibe_dotenv_key() {
+  local env_file="${VIBE_HOME:-${HOME}/.vibe}/.env"
+  [ -f "$env_file" ] && [ -r "$env_file" ] && [ ! -L "$env_file" ] || return 1
+  awk '
+    { line = $0; sub(/\r$/, "", line) }
+    {
+      s = line; sub(/^[ \t]+/, "", s)
+      sub(/^export[ \t]+/, "", s)
+      if (s !~ /^MISTRAL_API_KEY([ \t]*=|$)/) next
+      if (s !~ /=/) next
+      val = s; sub(/^[^=]*=[ \t]*/, "", val)
+      if (val ~ /^"/) {
+        rest = substr(val, 2); pos = index(rest, "\"")
+        if (pos == 0) next
+        val = substr(rest, 1, pos - 1)
+      } else if (val ~ /^'"'"'/) {
+        rest = substr(val, 2); pos = index(rest, "'"'"'")
+        if (pos == 0) next
+        val = substr(rest, 1, pos - 1)
+      } else {
+        sub(/[ \t]+#.*$/, "", val)
+        sub(/[ \t]+$/, "", val)
+      }
+      seen = 1; keyval = val
+    }
+    END { exit !(seen && keyval ~ /[^ \t]/) }
+  ' "$env_file"
+}
+
+# Zero-spend gate for the Vibe leg. `--max-price 0` only stops the SECOND
+# priced call (vibe 3.1.4 admits the first on a fresh budget), so refuse a paid
+# or unverified route before launching either mode: emit disabled, never an
+# error. Succeeds (quietly) only when the effective model has known zero
+# input and output prices in Vibe's own user config
+# (${VIBE_HOME:-$HOME/.vibe}/config.toml `[[models]]` entries, the shape `vibe
+# config schema` documents with input_price/output_price); the built-in
+# defaults are priced and the fetched catalog carries no prices, so anything
+# else is unverified. $1 = requested model alias. Prints the refusal reason.
+tribunal_vibe_free_route() {
+  local want="$1" home="${VIBE_HOME:-${HOME}/.vibe}" config prices in out
+  config="$home/config.toml"
+  prices="$(tribunal_vibe_model_prices "$want" "$home")"
+  in="${prices%%|*}"; out="${prices#*|}"
+  if tribunal_vibe_price_is_zero "$in" && tribunal_vibe_price_is_zero "$out"; then
+    return 0
+  fi
+  if [ -n "$in" ] && [ -n "$out" ]; then
+    printf 'vibe model %s is a paid route (input_price=%s output_price=%s per million tokens); refusing to launch (zero-spend guard)\n' \
+      "$want" "$in" "$out"
+  else
+    printf 'vibe model %s has no verified zero-price route in %s (zero-spend guard: refusing paid or unverified routes before launch)\n' \
+      "$want" "$config"
+  fi
+  return 1
+}
+
+tribunal_vibe_price_is_zero() {
+  case "$1" in
+    0|0.*) case "$1" in *[!0.]*) return 1 ;; *) return 0 ;; esac ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prints "input_price|output_price" for the requested model alias from Vibe's
+# user config; either side is empty when unknown. A `[[models]]` entry matches
+# on its name or alias, and a catalog alias (from the home catalog cache) also
+# matches the entry it resolves to.
+tribunal_vibe_model_prices() {
+  local want="$1" home="$2" config="$home/config.toml" catalog="$home/model_catalog_cache.json"
+  local candidates="|$want|" linked
+  if [ -f "$catalog" ] && [ ! -L "$catalog" ]; then
+    linked="$(jq -r --arg w "$want" '
+      [.[] | .payload.models[]? | select(.id == $w or ((.aliases // []) | index($w))) | .id, (.aliases[]?)]
+      | unique | join("|")
+    ' "$catalog" 2>/dev/null)" || linked=""
+    [ -z "$linked" ] || candidates="$candidates$linked|"
+  fi
+  [ -f "$config" ] && [ -r "$config" ] && [ ! -L "$config" ] || { printf '|\n'; return 0; }
+  awk -v cand="$candidates" '
+    function emit(  n, a) {
+      n = name; a = alias
+      sub(/^[ \t]+/, "", n); sub(/^[ \t]+/, "", a)
+      if ((n != "" && index(cand, "|" n "|")) || (a != "" && index(cand, "|" a "|"))) {
+        found_in = in_p; found_out = out_p
+      }
+    }
+    function tomlval(raw,   v) {
+      v = raw; sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+      if (v ~ /^".*"$/) { sub(/^"/, "", v); sub(/"$/, "", v) }
+      else if (v ~ /^'"'"'.*'"'"'$/) { sub(/^'"'"'/, "", v); sub(/'"'"'$/, "", v) }
+      else { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+      return v
+    }
+    /^[ \t]*\[/ {
+      if (in_section) emit()
+      in_section = 0; name = ""; alias = ""; in_p = ""; out_p = ""
+      if ($0 ~ /^[ \t]*\[\[[ \t]*models[ \t]*\]\]/) in_section = 1
+      else if ($0 ~ /^[ \t]*\[models\./) {
+        in_section = 1
+        key = $0; sub(/^[ \t]*\[models\./, "", key); sub(/\][ \t]*$/, "", key)
+        name = tomlval(key); alias = name
+      }
+      next
+    }
+    in_section && /^[ \t]*name[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); name = tomlval(v); next }
+    in_section && /^[ \t]*alias[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); alias = tomlval(v); next }
+    in_section && /^[ \t]*input_price[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); in_p = tomlval(v); next }
+    in_section && /^[ \t]*output_price[ \t]*=/ { v = $0; sub(/^[^=]*=/, "", v); out_p = tomlval(v); next }
+    END { if (in_section) emit(); printf "%s|%s\n", found_in, found_out }
+  ' "$config"
+}
+
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 2; otherwise an
-# integer in 2..7 (seven legs exist, so a floor of 8 could never pass).
+# integer in 2..8 (eight legs exist, so a floor of 9 could never pass).
 # A 1-leg APPROVE is never permitted.
 tribunal_min_ok_legs() {
   local raw="${TRIBUNAL_MIN_OK_LEGS:-}"
@@ -19,17 +159,17 @@ tribunal_min_ok_legs() {
   fi
   case "$raw" in
     1)
-      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..7)\n' >&2
+      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..8)\n' >&2
       return 1
       ;;
-    [2-7]) printf '%s\n' "$raw"; return 0 ;;
+    [2-8]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..7)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..8)\n' "$raw" >&2
   return 1
 }
 
-# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..7
-# (seven legs exist, so a panel of 8 could never seat).
+# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..8
+# (eight legs exist, so a panel of 9 could never seat).
 tribunal_panel_size() {
   local raw="${TRIBUNAL_PANEL_SIZE:-}"
   if [ -z "$raw" ]; then
@@ -37,9 +177,9 @@ tribunal_panel_size() {
     return 0
   fi
   case "$raw" in
-    [2-7]) printf '%s\n' "$raw"; return 0 ;;
+    [2-8]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..7)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..8)\n' "$raw" >&2
   return 1
 }
 
@@ -92,8 +232,8 @@ tribunal_backup_legs() {
   IFS=, read -r -a legs <<< "$raw"
   for leg in ${legs[@]+"${legs[@]}"}; do
     case "$leg" in
-      codex|gemini|deepseek|qwen|grok|muse|claude) ;;
-      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want codex, gemini, deepseek, qwen, grok, muse, claude, or off)\n' "$leg" >&2; return 1 ;;
+      codex|gemini|deepseek|qwen|grok|muse|claude|vibe) ;;
+      *) printf 'invalid TRIBUNAL_BACKUP_LEGS entry: %s (want codex, gemini, deepseek, qwen, grok, muse, claude, vibe, or off)\n' "$leg" >&2; return 1 ;;
     esac
     case "$seen" in *" $leg "*) printf 'duplicate TRIBUNAL_BACKUP_LEGS entry: %s\n' "$leg" >&2; return 1 ;; esac
     seen="$seen$leg "
@@ -151,12 +291,13 @@ tribunal_backup_installed() {
     deepseek) tribunal_deepseek_available >/dev/null ;;
     gemini) command -v agy >/dev/null 2>&1 && tribunal_gemini_available >/dev/null ;;
     qwen) command -v qwen >/dev/null 2>&1 ;;
+    vibe) command -v vibe >/dev/null 2>&1 && tribunal_vibe_available >/dev/null ;;
     *) return 1 ;;
   esac
 }
 
 # Select the active review panel and backup order from review-panel.tsv for the
-# effective risk tier (default T2). Exports TRIBUNAL_<P>=on|off for all 7 providers
+# effective risk tier (default T2). Exports TRIBUNAL_<P>=on|off for all 8 providers
 # and TRIBUNAL_<P>_MODEL / TRIBUNAL_<P>_EFFORT for selected and backup rows unless
 # already set by the operator. Sets TRIBUNAL_SELECTED_PANEL_SIZE,
 # TRIBUNAL_SELECTED_PANEL_JSON, TRIBUNAL_SELECTED_BACKUPS, and TRIBUNAL_EXPLICIT_OFF.
@@ -177,15 +318,15 @@ tribunal_select_panel() {
     return 1
   fi
 
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     upper="${p^^}"
     toggle_var="TRIBUNAL_${upper}"
     toggle_val="${!toggle_var:-}"
     case "$toggle_val" in
       '') ;;
       auto)
-        if [ "$p" != gemini ]; then
-          printf 'invalid %s value: auto (only TRIBUNAL_GEMINI accepts auto; want on or off)\n' "$toggle_var" >&2
+        if [ "$p" != gemini ] && [ "$p" != vibe ]; then
+          printf 'invalid %s value: auto (only TRIBUNAL_GEMINI and TRIBUNAL_VIBE accept auto; want on or off)\n' "$toggle_var" >&2
           return 1
         fi
         ;;
@@ -229,7 +370,7 @@ tribunal_select_panel() {
         ;;
     esac
     case "$row_provider" in
-      codex|gemini|deepseek|qwen|grok|muse|claude) ;;
+      codex|gemini|deepseek|qwen|grok|muse|claude|vibe) ;;
       *)
         printf 'invalid review panel row at %s:%d (bad provider: %s)\n' "$panel_file" "$lineno" "$row_provider" >&2
         return 1
@@ -259,7 +400,7 @@ tribunal_select_panel() {
   done
 
   local forced_count=0 remaining_seats=0
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     case "$forced_set" in *" $p "*) forced_count=$((forced_count + 1)) ;; esac
   done
   if [ "$panel_size" -gt "$forced_count" ]; then
@@ -287,7 +428,7 @@ tribunal_select_panel() {
     esac
   done
 
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     case "$forced_set" in
       *" $p "*)
         case "$selected_set" in
@@ -309,7 +450,7 @@ tribunal_select_panel() {
     active_or_backup="${active_or_backup}${p} "
   done
 
-  for p in codex gemini deepseek qwen grok muse claude; do
+  for p in codex gemini deepseek qwen grok muse claude vibe; do
     upper="${p^^}"
     case "$selected_set" in
       *" $p "*) export "TRIBUNAL_${upper}=on" ;;
@@ -1229,6 +1370,7 @@ tribunal_stamp_executed_model() {
   case "$provider" in
     grok) family='^grok([[:digit:]._-]|$)' ;;
     muse) family='^muse([[:digit:]._-]|$)' ;;
+    vibe) family='^mistral([[:digit:]._-]|$)' ;;
     qwen) family='^([[:alnum:]_.-]+/)?qwen([[:digit:]._-]|$)' ;;
     *) family='' ;;
   esac

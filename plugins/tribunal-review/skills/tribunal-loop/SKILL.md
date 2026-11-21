@@ -7,8 +7,8 @@ description: "Use for multi-provider code review with repo-walking reviewers, di
 
 Multi-provider code review with inline arbitration. By default the tribunal selects
 3 available legs for `TRIBUNAL_RISK` (default `T2`) from `scripts/review-panel.tsv`
-(e.g. Codex, Claude, Gemini, with Grok, Muse, DeepSeek, and Qwen in
-fallback order); `TRIBUNAL_<PROVIDER>=on|off` forces inclusion or exclusion. The calling context arbitrates
+(e.g. Codex, Claude, Gemini, with Grok, Muse, DeepSeek, Qwen, and Vibe in
+fallback order, Vibe last); `TRIBUNAL_<PROVIDER>=on|off` forces inclusion or exclusion. The calling context arbitrates
 inline and makes the final decision.
 
 This skill is intentionally orchestration-only. Provider shell mechanics live in
@@ -69,13 +69,14 @@ bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-qwen-review.sh" > "$RUN_DIR/qwen.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-grok-review.sh" > "$RUN_DIR/grok.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-muse-review.sh" > "$RUN_DIR/muse.json" &
 bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-claude-review.sh" > "$RUN_DIR/claude.json" &
+bash "$TRIBUNAL_PLUGIN_ROOT/scripts/run-vibe-review.sh" > "$RUN_DIR/vibe.json" &
 wait
 ```
 
 Each wrapper manages its own scratch dir, capped `AGENTS.md` / `reachability.md`
 injection, base-ref overrides, disabled markers, timeout, and output normalization.
 
-Collect Codex, Gemini, DeepSeek, Qwen, Grok, Muse, and Claude outputs. Treat disabled
+Collect Codex, Gemini, DeepSeek, Qwen, Grok, Muse, Claude, and Vibe outputs. Treat disabled
 markers as intentional absence. Treat malformed JSON or `{"error":...}` as
 provider failure and continue with remaining non-disabled providers. When a leg hits
 `plan limit:` or `ok` legs fall below `TRIBUNAL_MIN_OK_LEGS`, run backups per `references/provider-policy.md`.
@@ -253,5 +254,5 @@ conflicting arbitration for that collection fails.
 ## Trust Hierarchy
 
 The calling context makes the final decision. Codex, Gemini, DeepSeek,
-Qwen, Grok, Muse, and Claude are equal advisory peers. Verify reviewer claims against the
+Qwen, Grok, Muse, Claude, and Vibe are equal advisory peers. Verify reviewer claims against the
 diff and reachable code before accepting them.

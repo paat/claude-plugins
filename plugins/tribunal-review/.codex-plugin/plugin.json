@@ -1,14 +1,14 @@
 {
   "name": "tribunal-review",
-  "version": "0.31.0",
-  "description": "Multi-provider code review \u2014 three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek and Qwen, at least two must succeed, with calling-context arbitration",
+  "version": "0.32.0",
+  "description": "Multi-provider code review \u2014 three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek, Qwen and Mistral (Vibe), at least two must succeed, with calling-context arbitration",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Tribunal Review",
-    "shortDescription": "Multi-provider code review \u2014 three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek and Qwen, at least two must succeed, with calling-context arbitration",
-    "longDescription": "Multi-provider code review \u2014 three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek and Qwen, at least two must succeed, with calling-context arbitration",
+    "shortDescription": "Multi-provider code review \u2014 three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek, Qwen and Mistral (Vibe), at least two must succeed, with calling-context arbitration",
+    "longDescription": "Multi-provider code review \u2014 three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek, Qwen and Mistral (Vibe), at least two must succeed, with calling-context arbitration",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [

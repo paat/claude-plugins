@@ -22,7 +22,7 @@ jq -nc --arg p "$provider" --arg base "\$base" --arg head "\$head" --arg ref "\$
     diff_stat:{files_changed:1,insertions:1,deletions:0,base:\$ref,base_oid:\$base,head_oid:\$head,truncated:false}}'
 EOF
 done
-for provider in gemini deepseek qwen grok muse; do
+for provider in gemini deepseek qwen grok muse vibe; do
   printf '#!/usr/bin/env bash\nprintf '\''%%s\\n'\'' '\''{"provider":"%s","status":"disabled","note":"fixture disabled"}'\''\n' "$provider" \
     > "$plugin/scripts/run-$provider-review.sh"
 done
@@ -58,7 +58,7 @@ export PATH="$work/bin:$PATH" TRIBUNAL_PLUGIN_ROOT="$plugin" TRIBUNAL_MIN_OK_LEG
 export TRIBUNAL_CODEX=on TRIBUNAL_CLAUDE=on TRIBUNAL_BACKUP_LEGS=off TRIBUNAL_LEG_ENV='FIXTURE_*'
 jq -nc '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"Fixture review passed."},
   findings:[],scope_findings:[],conflicts_resolved:[],summary:"No blocking findings.",
-  provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","claude"] |
+  provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","claude","vibe"] |
     map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:(if (.=="codex" or .=="claude") then "ok" else "disabled" end)}}) | from_entries)}' \
   > "$work/arbitration.json"
 bash "$plugin/scripts/collect-review-evidence.sh" collect --repo-root "$repo" --pr 7 \

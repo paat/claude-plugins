@@ -95,7 +95,7 @@ STUB
     tr_check "#667 $provider stub receives rejected finding and execution-evidence reminder" \
       bash -c 'test -f "$1" && grep -Fq "Already rejected in earlier rounds — do not re-raise without NEW execution evidence:" "$1" && grep -Fq "Disproved splitlines claim —  — Disproved splitlines claim" "$1"' _ "$work/prompts/$provider"
   done
-  jq -n '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"All seven fixture legs reviewed the diff."},findings:[],scope_findings:[],provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","claude"]|map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:"ok"}})|from_entries),conflicts_resolved:[],summary:"All seven legs are clean."}' > "$work/arbitration.json"
+  jq -n '{tribunal_verdict:{decision:"APPROVE",confidence:0.95,rationale:"All eight fixture legs reviewed the diff."},findings:[],scope_findings:[],provider_assessment:(["codex","gemini","deepseek","qwen","grok","muse","claude","vibe"]|map({key:.,value:{findings_accepted:0,findings_rejected:0,false_positives:[],status:(if .=="vibe" then "disabled" else "ok" end)}})|from_entries),conflicts_resolved:[],summary:"All eight legs are clean."}' > "$work/arbitration.json"
   local clean_finalize=1 tamper_rc=0
   if [ "$rc" = 0 ]; then
     manifest_sha="$(jq -r .manifest_sha256 "$work/collect.json")"

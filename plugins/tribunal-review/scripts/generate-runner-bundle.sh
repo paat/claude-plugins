@@ -22,6 +22,7 @@ FILES=(
   scripts/run-muse-review.sh
   scripts/run-deepseek-review.sh
   scripts/run-qwen-review.sh
+  scripts/run-vibe-review.sh
 )
 
 mode="${1:-}"
