@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "f9deb6a88b607a2ca6905901038ac09a66537257493967dd6028be6137be61ab"
+      "sha256": "7a0c38dedcfc6b63f6da2411cbe8dbbcea50294e17944551a1c05564c3e7da12"
     },
     {
       "path": "scripts/review-panel.tsv",
@@ -30,35 +30,35 @@
     },
     {
       "path": "scripts/run-claude-review.sh",
-      "sha256": "7b7f09f8406a57c0f4c9bca90ada5429aa475b37f36c8b0b35b11a996960c4c4"
+      "sha256": "6e5d4b8f33f17c9466ddd8331e5cb9c8df9ca256334e892a947973d410282a9d"
     },
     {
       "path": "scripts/run-codex-review.sh",
-      "sha256": "4c4e1105d17da28a515a41076dbbe626041131bd40702bbee99563ac4e986c22"
+      "sha256": "e9ee93a0baaee1220e0e62a1ca24026a3cb02e196d4ddeb1250139b25b84d679"
     },
     {
       "path": "scripts/run-gemini-review.sh",
-      "sha256": "7b34251016c0da94066d62a1d73c8c10bdbb58c2fe5d45c470b199bab483df20"
+      "sha256": "5c850bbe8a782f9d48c0e10f829ede90e0fb7aa5cb17d1cb3933515c67b72ee6"
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "c5b366a7ae96841fc86dc8661087d9109d003a0f676e4113f90cbf3900449c88"
+      "sha256": "c0608186d387fba4752bfed9ca9a1d1ae68dbcefed3d1771b87bed6572903bfc"
     },
     {
       "path": "scripts/run-muse-review.sh",
-      "sha256": "3954ced1228df500ef95d172fb9fe734fcad440240196fb3ef63bc531d439a2a"
+      "sha256": "215de4bc12a2e4e930ca9af2e4e87366be47ea99f3a9b8c64ce8bc1f69aec223"
     },
     {
       "path": "scripts/run-opencode-review.sh",
-      "sha256": "620012550d21138dbd708cecd9a458656f5e4e608cdab21b61f6173b022135ca"
+      "sha256": "25c18a0c8652dd4dcf91c829f56e1ebf2335b28ac180a61059400200df234eb7"
     },
     {
       "path": "scripts/run-deepseek-review.sh",
-      "sha256": "f7a08521138dbde0f1e776e8056e9dfa9bd091dde25099370a6e1e981935b98f"
+      "sha256": "2e6e16ed7ca446ec0e7fd9775154175227cc76e5ca1de42e462692619f6e8bfd"
     },
     {
       "path": "scripts/run-qwen-review.sh",
-      "sha256": "ae2f9d2f074a874b841d40cb5946a883b8f4e3df47cb3e46742dbae18add8550"
+      "sha256": "be514060ec174a806cffd3a8cb006219eb78320caebb1159fd564a0927aaf760"
     }
   ],
   "plugin": "tribunal-review",

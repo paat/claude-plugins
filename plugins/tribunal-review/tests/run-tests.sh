@@ -5272,7 +5272,8 @@ assert_grep "Grok marks non-EndTurn stop as dead_leg" "scripts/run-grok-review.s
 assert_grep "Grok fails loud on missing schema" "scripts/run-grok-review.sh" "review schema missing"
 assert_grep "Grok resolves schema via plugin root helper" "scripts/lib.sh" "tribunal_plugin_root"
 assert_grep "Grok finalize re-inlines the authoritative diff" "scripts/run-grok-review.sh" "Base the verdict on the unified diff"
-assert_grep "Grok clamps inspect timeout upper bound" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=1800"
+assert_grep "Grok clamps T3 inspect timeout upper bound" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=2400"
+assert_grep "Grok clamps non-T3 inspect timeout at 1800" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=1800"
 assert_grep "Grok extracts camelCase structuredOutput" "scripts/lib.sh" "structuredOutput"
 assert_grep "Grok payload completeness helper" "scripts/lib.sh" "tribunal_review_payload_complete"
 assert_grep "Grok payload requires enum verdict" "scripts/lib.sh" 'APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"'
@@ -5298,6 +5299,7 @@ test_preflight_smoke_probe
 test_preflight_min_ok_legs
 test_claude_tmpdir_cleanup
 assert_json_field "Claude complete-diff read-only transport regressions" "python3 '$PLUGIN_ROOT/tests/test-claude-transport.py'"
+assert_json_field "scratch input paths and Grok T3 budget (#743 #726)" "bash '$PLUGIN_ROOT/tests/test-issue-743-726.sh'"
 assert_json_field "DeepSeek dsh runner, credentials, and preflight regressions" "bash '$PLUGIN_ROOT/tests/test-deepseek-runner.sh'"
 assert_json_field "DeepSeek sealed collection and quota backup regressions" "bash '$PLUGIN_ROOT/tests/test-deepseek-collection.sh'"
 test_codex_pins gpt-6.2-astra medium no "codex defaults pin Astra and medium in argv"
@@ -6033,11 +6035,11 @@ EOF
   tr_check "Grok T4 keeps the 30-turn inspect budget" pair grok --max-turns 30
   run_leg grok TRIBUNAL_RISK=T3
   tr_check "TRIBUNAL_RISK=T3 passes --reasoning-effort medium to the Grok leg" pair grok --reasoning-effort medium
-  tr_check "Grok T3 caps inspection at eight turns" pair grok --max-turns 8
+  tr_check "Grok T3 default inspect budget is at least 60 turns" pair grok --max-turns 60
   run_leg grok TRIBUNAL_RISK=T3 TRIBUNAL_GROK_MAX_TURNS=4
   tr_check "explicit Grok turn budget overrides the T3 cap" pair grok --max-turns 4
   run_leg grok TRIBUNAL_RISK=T3 TRIBUNAL_GROK_MAX_TURNS=invalid
-  tr_check "invalid Grok T3 turn budget falls back to eight" pair grok --max-turns 8
+  tr_check "invalid Grok T3 turn budget falls back to sixty" pair grok --max-turns 60
   run_leg grok TRIBUNAL_RISK=T3 TRIBUNAL_GROK_EFFORT=high
   tr_check "explicit Grok high effort overrides the T3 medium default" pair grok --reasoning-effort high
   run_leg grok TRIBUNAL_RISK=T4 TRIBUNAL_GROK_EFFORT=xhigh
@@ -6077,7 +6079,7 @@ printf '%s %s %s\n' "$phase" "$effort" "$max_turns" >> "$FIXTURE_STATE/phases"
 if [ "$phase" = inspect ] || [ "$effort" != low ] || [ "${FIXTURE_PROGRESS_ONLY:-}" = yes ]; then
   printf '%s\n' '{"text":"still reviewing...","sessionId":"44444444-4444-4444-4444-444444444444"}'
   # A reached turn cap can exit successfully without a schema verdict.
-  [ "$phase" != inspect ] || [ "$max_turns" != 8 ] || exit 0
+  [ "$phase" != inspect ] || [ "$max_turns" != 60 ] || exit 0
   exit 124
 fi
 [ "$tools_val" = "read_file,list_dir,grep" ] && [ "$sid" = 44444444-4444-4444-4444-444444444444 ] \
@@ -6100,7 +6102,7 @@ EOF
   }
   for tier in T3 T4; do
     override= expected=high expected_turns=30
-    if [ "$tier" = T3 ]; then expected=medium; expected_turns=8; fi
+    if [ "$tier" = T3 ]; then expected=medium; expected_turns=60; fi
     run_finalize_fixture
     tr_check "grok $tier inspect budget recovers a schema verdict at low finalize effort" recovered
   done

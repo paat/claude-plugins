@@ -10,8 +10,9 @@ QWEN_MODEL="${TRIBUNAL_QWEN_MODEL:-qwen3.8-max}"
 BASE_REF="$(tribunal_base_ref)"
 TMPDIR="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
-DIFF_FILE="$TMPDIR/review.diff"
-CONTEXT_FILE="$TMPDIR/context.md"
+tribunal_prepare_review_input "$TMPDIR" || exit 1
+DIFF_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/review.diff"
+CONTEXT_FILE="$TRIBUNAL_REVIEW_INPUT_DIR/context.md"
 REPO_ROOT="$(tribunal_repo_root)"
 WALK_ROOT="$(tribunal_walk_root "$TMPDIR/walk")" \
   || { tribunal_error qwen "cannot prepare a checkout without the repository's untracked .env files"; exit 0; }

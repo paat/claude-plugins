@@ -26,7 +26,7 @@ process before merge.
 - `flock` (used to make proof finalization concurrency- and crash-safe)
 - Sealed collection requires Bash 4.3+ (`wait -n`) and Linux: `setsid` (util-linux), procps `ps -o sid`, and GNU `stat -c` for session containment and Git directory identity/config checks. On macOS, run sealed collection in a Linux container; the `gtimeout` guidance below applies only to standalone reviewer legs.
 - Optional `unshare --map-current-user` (util-linux ≥ 2.38) with unprivileged user/PID namespaces gives each sealed leg its own PID namespace, preserving the caller's uid. Exiting PID 1 kills all descendants, including detached sessions, before normalization. The collector probes once; unavailable namespaces fall back to session cleanup with a `tribunal evidence: containment degraded:` stderr line. Grok's opt-in `TRIBUNAL_GROK_SANDBOX=read-only` also uses that fallback because its bubblewrap requires host PID visibility. The sealed manifest records `containment: pid-namespace|session` per provider and `session` for the collection if any leg degraded. No private proc mount is required. The PID namespace contains only the leg's own descendants; a leg can still start processes outside it through services reachable as the same user (docker group, tmux, systemd-run, ssh to localhost), so the dev container remains the security boundary.
-- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or the reviewer returns an error JSON) — caps Codex, Gemini, Qwen, Grok, Muse, Claude, and DeepSeek at 10 minutes. Each leg has an independent timeout; a failed leg degrades to the available quorum.
+- `timeout` (GNU coreutils; on macOS install coreutils for `gtimeout` or the reviewer returns an error JSON) — caps Codex, Gemini, Qwen, Muse, Claude, and DeepSeek at 10 minutes. Grok inspect is 10 minutes (600s), except at T3 where it is 2400 seconds (40 minutes) plus 120 seconds of finalize recovery (2520 seconds, 42 minutes). The standalone Grok reviewer is capped by the Claude Code Bash tool at 600000 ms and, unless `TRIBUNAL_GROK_TIMEOUT_SECONDS` is already set, shortens inspect so inspect, the finalize default, and a margin fit inside that cap; use sealed collection (`collect-review-evidence.sh`), which has no outer deadline, for the full T3 budget. Each leg has an independent timeout; a failed leg degrades to the available quorum.
 - Valid API keys / auth configured for each enabled CLI
 
 Each reviewer degrades gracefully: if a CLI is missing or a model fails, that reviewer emits an error object and the arbiter proceeds with the remaining reviewers.
@@ -165,10 +165,10 @@ DeepSeek uses the direct DeepSeek API and walks the repository with a read-only 
 | `TRIBUNAL_LEG_ENV` | empty | Space-separated variable names (or `PREFIX*` patterns) passed into scrubbed leg environments (`opencode`, `muse`, `qwen`, `deepseek`). |
 | `TRIBUNAL_ALLOW_ENV_FILES` | `0` | `1` lets repo-walking legs walk a checkout that holds untracked `.env*` files instead of a scratch clone of HEAD. |
 | `TRIBUNAL_GROK_PERMISSION_MODE` | `bypassPermissions` | Grok CLI `--permission-mode`. |
-| `TRIBUNAL_GROK_TIMEOUT_SECONDS` | `600` | Inspect-phase wall timeout (seconds). |
+| `TRIBUNAL_GROK_TIMEOUT_SECONDS` | `2400` at T3; otherwise `600` | Inspect-phase wall timeout in seconds (clamped `30..2400` at T3; `30..1800` on other tiers). |
 | `TRIBUNAL_GROK_RECOVERY` | `permit` | `permit` allows finalize recovery (read-only allowlist, instructed not to use tools); `reject` excludes recovery from quorum. Sealed at collect. |
 | `TRIBUNAL_GROK_FINALIZE_TIMEOUT_SECONDS` | `120` | Finalize-phase wall timeout after resume (read-only allowlist, instructed not to use tools). |
-| `TRIBUNAL_GROK_MAX_TURNS` | `8` at T3; otherwise `30` | Inspect-phase `--max-turns` budget. |
+| `TRIBUNAL_GROK_MAX_TURNS` | `60` at T3; otherwise `30` | Inspect-phase `--max-turns` budget. |
 | `TRIBUNAL_GROK_FINALIZE_MAX_TURNS` | `6` | Finalize-phase `--max-turns` budget. |
 | `TRIBUNAL_MUSE` | selected by panel (`on` standalone) | `on` forces the Muse leg into the panel; `off` excludes it. |
 | `TRIBUNAL_MUSE_MODEL` | tier row (`muse-spark-1.3`) | Model passed to `muse exec --model` (`default` passes no `--model`). |

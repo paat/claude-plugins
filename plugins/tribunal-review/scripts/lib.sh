@@ -700,6 +700,17 @@ tribunal_review_schema() {
   printf '%s/../schemas/review-output.json\n' "${SCRIPT_DIR:-.}"
 }
 
+# Scratch files the runner hands the model (diff, context). Paths under this
+# directory are not repository paths and must not fail the pinned-tree check.
+tribunal_prepare_review_input() {
+  local root="${1%/}" dir
+  [ -n "$root" ] || return 1
+  dir="$root/input"
+  mkdir -p "$dir" || return 1
+  TRIBUNAL_REVIEW_INPUT_DIR="$dir"
+  export TRIBUNAL_REVIEW_INPUT_DIR
+}
+
 # Grok CLI envelope stop reason (camelCase preferred; snake_case accepted).
 tribunal_grok_stop_reason() {
   jq -r '(.stopReason // .stop_reason // empty) | select(type == "string")' 2>/dev/null
@@ -1251,7 +1262,7 @@ tribunal_take_diff_stat() {
 # $1 pinned range from `tribunal_take_diff_stat`
 # stdin: one leg JSON object  stdout: same object with .diff_stat
 tribunal_stamp_diff_stat() {
-  local stat="$1" json provider root base_oid head_oid merge_base_oid files_changed tmpdir range absent
+  local stat="$1" json provider root base_oid head_oid merge_base_oid files_changed tmpdir range absent input_dir
   json="$(cat)"
   # Error and disabled legs carry no diff_stat.
   if printf '%s' "$json" | jq -e 'has("error") or (.status? == "disabled")' >/dev/null 2>&1; then
@@ -1270,6 +1281,25 @@ tribunal_stamp_diff_stat() {
     tribunal_error "$provider" \
       "files_examined missing or not an array of non-empty strings; excluded from quorum"
     return
+  fi
+  # Drop the runner's own scratch inputs before the pinned-tree existence check (issue #743).
+  input_dir="${TRIBUNAL_REVIEW_INPUT_DIR:-}"
+  input_dir="${input_dir%/}"
+  if [ -n "$input_dir" ] && [ "$input_dir" != "/" ]; then
+    json="$(printf '%s' "$json" | jq -c --arg dir "$input_dir" '
+      .files_examined |= map(
+        select(
+          . as $p
+          | ($p == $dir or (
+              ($p | startswith($dir + "/"))
+              and (($p[($dir | length) + 1:] | split("/") | index("..")) | not)
+            ) | not)
+        )
+      )')" || {
+      tribunal_error "$provider" \
+        "cannot verify files_examined against the pinned trees; excluded from quorum"
+      return
+    }
   fi
   files_changed="$(printf '%s' "$stat" | jq -r '.files_changed // empty')"
   # Empty-range exemption: tribunal_empty synthesizes APPROVE with files_examined:[].

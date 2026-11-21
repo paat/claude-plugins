@@ -13,14 +13,20 @@ You are a Grok CLI wrapper. Your ONLY job is to run ONE bash command and return 
 
 ## Run this
 
-One Bash call, with the Bash-tool `timeout` set to at least 600000 ms. The canonical script owns
+One Bash call, with the Bash-tool `timeout` set to 600000 ms. Claude Code caps a foreground
+Bash `timeout` at 600000 ms, so do not ask for a longer one. When `TRIBUNAL_GROK_TIMEOUT_SECONDS`
+is unset, the command below sets an inspect cap of 450 seconds, leaving a margin of 30 seconds
+after the 120-second finalize default so inspect plus finalize fit inside that 600-second cap.
+If `TRIBUNAL_GROK_TIMEOUT_SECONDS` is already set, leave that value unchanged. The long T3
+inspect budget (2400s plus finalize) applies on the sealed collector path
+(`collect-review-evidence.sh`), which has no outer deadline. The canonical script owns
 every mechanic — base-ref resolution, diff capture/truncation, context injection, prompt (with the
 diff inlined into the `--prompt-file`), `TRIBUNAL_GROK_MODEL` override, read-only tool restriction,
 and JSON extraction from Grok's `--output-format json` envelope (including rewriting the `model`
 field to the model that actually ran, read from `.modelUsage`):
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-grok-review.sh"
+TRIBUNAL_GROK_TIMEOUT_SECONDS="${TRIBUNAL_GROK_TIMEOUT_SECONDS:-450}" "${CLAUDE_PLUGIN_ROOT}/scripts/run-grok-review.sh"
 ```
 
 ## Rules
