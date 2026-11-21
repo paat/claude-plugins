@@ -326,7 +326,12 @@ case "$mode" in
     printf '%s\n' 'Stop inspecting. Do not use tools. Write the advice report now from what you have read.' > "$resume_prompt"
     ;;
   *)
-    printf '%s\n' 'Finish the remaining edits now. Do not start new exploration. Run the named test, then give the final message required by the task packet. Do not commit.' > "$resume_prompt"
+    # Implement resume uses mmo_commit_instruction, the same ownership value as the preamble.
+    if [ "$mode" = implement ]; then
+      printf '%s %s\n' 'Finish the remaining edits now. Do not start new exploration. Run the named test, then give the final message required by the task packet.' "$(mmo_commit_instruction)" > "$resume_prompt"
+    else
+      printf '%s\n' 'Finish the remaining edits now. Do not start new exploration. Run the named test, then give the final message required by the task packet. Do not commit.' > "$resume_prompt"
+    fi
     ;;
 esac
 

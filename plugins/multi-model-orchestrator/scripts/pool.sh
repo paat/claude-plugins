@@ -5,6 +5,7 @@
 #                [--prefer PROVIDER_OR_MODEL] [--usage FILE] [--timeout SECONDS]
 #   pool.sh run  <pick options> [--repo DIR] [--base REF] [--out FILE]   (prompt on stdin)
 #                [--allow-paths GLOBS] [--verify-cmd CMD] [--verify-pattern ERE] [--task ID] [--cycle N]
+#                [--worker-commits]
 #
 # The tier comes from the caller (route-model-task); the worker order per tier comes from
 # pool-tiers.tsv (or MMO_POOL_TIERS). This script only removes workers that cannot take the
@@ -23,9 +24,13 @@
 # or reset before redispatch). Any other runner exit is the result.
 # Exit 75 when no worker is left; the reason and the earliest reset go to stderr.
 # Implement runs only: contract flags (--allow-paths ... --cycle) are validated by leg-check.sh
-# before any worker runs; the HEAD and a snapshot of the dirty tree are captured before dispatch,
-# and a worker exit of 0 is followed by leg-check.sh against them. Its exit (0, 8 scope, 9 verify,
-# 10 no change, 11 check could not run) is the result; the final line adds check=<result>.
+# before any worker runs. leg-preflight.sh then refuses a dirty tree or a closed issue
+# (exit 56, check=preflight). The HEAD and a snapshot of the dirty tree are captured before
+# dispatch, and a worker exit of 0 is followed by leg-check.sh against them. Its exit (0, 8 scope,
+# 9 verify, 10 no change, 11 check could not run) is the result unless the tree is still dirty,
+# which exits 56 check=uncommitted only with --worker-commits (the worker is told to commit).
+# Without that flag the orchestrator commits, so a dirty tree is allowed. The final line adds
+# check=<result>. Exit 55 and timeouts are unchanged.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,7 +40,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mmo_signal_init
 
 usage() {
-  printf '%s\n' 'Usage: pool.sh pick|run --tier T1|T2|T3|T4 [--mode implement|review] [--allow LIST] [--deny LIST] [--prefer PROVIDER_OR_MODEL] [--usage FILE] [--timeout SECONDS] [--repo DIR] [--base REF] [--out FILE] [--allow-paths GLOBS] [--verify-cmd CMD] [--verify-pattern ERE] [--task ID] [--cycle N]'
+  printf '%s\n' 'Usage: pool.sh pick|run --tier T1|T2|T3|T4 [--mode implement|review] [--allow LIST] [--deny LIST] [--prefer PROVIDER_OR_MODEL] [--usage FILE] [--timeout SECONDS] [--repo DIR] [--base REF] [--out FILE] [--allow-paths GLOBS] [--verify-cmd CMD] [--verify-pattern ERE] [--task ID] [--cycle N] [--worker-commits]'
 }
 
 action="${1:-}"
@@ -51,6 +56,7 @@ repo_dir="$PWD"
 base_ref=""
 output_file=""
 contract=()
+worker_commits=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --tier) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; tier="$2"; shift 2 ;;
@@ -65,6 +71,7 @@ while [ "$#" -gt 0 ]; do
     --out) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; output_file="$2"; shift 2 ;;
     --allow-paths|--verify-cmd|--verify-pattern|--task|--cycle)
       [ "$#" -ge 2 ] || { usage >&2; exit 2; }; contract+=("$1" "$2"); shift 2 ;;
+    --worker-commits) worker_commits=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'pool: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -79,6 +86,10 @@ if [ "$action" = run ] && [ "$mode" = review ] && [ -z "$base_ref" ]; then
 fi
 if [ "${#contract[@]}" -gt 0 ] && { [ "$action" != run ] || [ "$mode" != implement ]; }; then
   printf 'pool: --allow-paths, --verify-cmd, --verify-pattern, --task and --cycle apply to run --mode implement only\n' >&2
+  exit 2
+fi
+if [ "$worker_commits" -eq 1 ] && { [ "$action" != run ] || [ "$mode" != implement ]; }; then
+  printf 'pool: --worker-commits applies to run --mode implement only\n' >&2
   exit 2
 fi
 # Reject a malformed contract before a worker spends a run on it (leg-check owns the rules).
@@ -219,6 +230,22 @@ snapshot_file=""
 trap 'rm -f "$prompt_file" "$runner_stderr" "$snapshot_file"' EXIT
 cat > "$prompt_file"
 [ -s "$prompt_file" ] || { printf 'pool: empty prompt\n' >&2; exit 2; }
+# One value for the worker preamble and for postflight. Unset when the flag is absent.
+if [ "$worker_commits" -eq 1 ]; then
+  export MMO_WORKER_COMMITS=1
+else
+  unset MMO_WORKER_COMMITS
+fi
+if [ "$mode" = implement ]; then
+  pre_task=""
+  for ((pre_i=0; pre_i<${#contract[@]}; pre_i+=2)); do
+    [ "${contract[$pre_i]}" = --task ] && pre_task="${contract[$((pre_i + 1))]}"
+  done
+  pre_args=(--repo "$repo_dir")
+  [ -z "$pre_task" ] || pre_args+=(--task "$pre_task")
+  [ -z "$output_file" ] || pre_args+=(--out "$output_file")
+  "$SCRIPT_DIR/leg-preflight.sh" "${pre_args[@]}"
+fi
 if [ "${#contract[@]}" -gt 0 ]; then
   leg_base="$(git -C "$repo_dir" rev-parse --verify -q HEAD)" || { printf 'pool: leg checks need a commit at HEAD\n' >&2; exit 2; }
   # Edits already in the tree are not the leg's: the check compares against this snapshot.
@@ -313,6 +340,20 @@ if [ "$rc" -eq 0 ] && [ "${#contract[@]}" -gt 0 ]; then
   # Under the signal supervisor, like a worker: cancelling the pool stops a long verify.
   mmo_run direct "" "" "$SCRIPT_DIR/leg-check.sh" "${check_args[@]}" || rc=$?
   case "$rc" in 0) check_note=" check=pass" ;; 8) check_note=" check=scope" ;; 9) check_note=" check=verify" ;; 10) check_note=" check=no_change" ;; *) check_note=" check=error" ;; esac
+fi
+if [ "$rc" -eq 0 ] && [ "$mode" = implement ]; then
+  post_args=(--after --repo "$repo_dir")
+  [ -z "$output_file" ] || post_args+=(--out "$output_file")
+  [ -z "$snapshot_file" ] || post_args+=(--out "$snapshot_file")
+  post_rc=0
+  "$SCRIPT_DIR/leg-preflight.sh" "${post_args[@]}" || post_rc=$?
+  if [ "$post_rc" -eq 56 ]; then
+    rc=56
+    check_note=" check=uncommitted"
+  elif [ "$post_rc" -ne 0 ]; then
+    rc=$post_rc
+    check_note=" check=error"
+  fi
 fi
 printf 'pool: exit=%s worker=%s model=%s effort=%s tier=%s%s\n' "$rc" "$r_provider" "$r_model" "$r_effort" "$r_tier" "$check_note" >&2
 exit "$rc"

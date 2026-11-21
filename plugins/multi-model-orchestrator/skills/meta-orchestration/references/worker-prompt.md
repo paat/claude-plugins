@@ -44,8 +44,9 @@ carry on.
 
 ## Deliverable
 
-Commit on `<feat/NNN-slug>` when your leg's contract permits committing (explicit path adds,
-reference #<NNN>); otherwise leave the tree uncommitted and say so — the orchestrator commits.
+Commit on `<feat/NNN-slug>` when your leg's contract permits committing (only a
+`pool.sh run --worker-commits` leg; direct-route legs never commit — the orchestrator commits).
+Explicit path adds, reference #<NNN>. Otherwise leave the tree uncommitted and say so.
 **No push, no PR.**
 Final message: design summary (what you chose and why), per-requirement evidence, regression
 list, suite results with exact numbers, anything you were told to do that you did not do.

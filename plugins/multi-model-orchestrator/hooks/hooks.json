@@ -12,6 +12,18 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [ -f \"${CLAUDE_PLUGIN_ROOT:-}/hooks/ship-gates.sh\" ]; then exec bash \"${CLAUDE_PLUGIN_ROOT:-}/hooks/ship-gates.sh\"; fi; if [ -f \"${CODEX_PLUGIN_ROOT:-}/hooks/ship-gates.sh\" ]; then exec bash \"${CODEX_PLUGIN_ROOT:-}/hooks/ship-gates.sh\"; fi; cat >/dev/null 2>&1 || true; echo \"[multi-model-orchestrator] hook target not found: hooks/ship-gates.sh\" >&2; exit 0'",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "hooks": [
