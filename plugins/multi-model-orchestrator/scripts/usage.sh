@@ -5,7 +5,7 @@
 # logs from the last 8 days (free). Claude: newest rate_limit_event in a run-claude.sh --stream-log (free) or,
 # with --probe-claude, one tiny claude -p call. agy: its local /usage command (free; one
 # window per quota pool). Muse: newest run.usage allowance in --muse-log FILE (repeatable; newest
-# as_of_ms wins). weekly prints as 7d; the payload's window prints as 5h. Grok and OpenCode have
+# as_of_ms wins). weekly prints as 7d; the payload's window prints as 5h. Grok has
 # no source. A provider with no data prints "<provider> unknown <why>".
 # Always exits 0 unless misused.
 # claude-api uses monthly plan API credit, not these windows; pool.sh gates it separately.
@@ -262,5 +262,3 @@ if [ -n "$muse_out" ]; then
 else
   printf 'muse unknown (no stream log with run.usage; pass --muse-log)\n'
 fi
-
-printf 'opencode unknown (OpenCode exposes no plan-limit data; Go limits surface as exit 75)\n'

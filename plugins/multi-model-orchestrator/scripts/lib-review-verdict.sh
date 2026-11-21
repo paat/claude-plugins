@@ -52,7 +52,7 @@ mmo_adjustment_row_error() {  # mmo_adjustment_row_error ROW
   case "${f[0]}:${f[2]}" in
     claude:*|grok:*|muse:*|codex:implement|codex:review|codex:research|codex:'*') ;;
     vibe:implement|vibe:review|vibe:advise|vibe:'*') ;;
-    agy:implement|agy:review|agy:'*'|opencode:implement|opencode:review|opencode:'*'|qwen:implement|qwen:review|qwen:'*') ;;
+    agy:implement|agy:review|agy:'*'|qwen:implement|qwen:review|qwen:'*') ;;
     *) printf 'no runner %s takes mode %s\n' "${f[0]}" "${f[2]}"; return 0 ;;
   esac
   # Only Grok, Muse and Vibe always have a turn or step budget (Claude with --max-turns).
