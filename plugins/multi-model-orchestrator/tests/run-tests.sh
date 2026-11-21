@@ -4944,9 +4944,13 @@ for t in 300 1200; do
     ! grep -qF 'Your wall-clock limit' "$STUB_GROK_PROMPT" || fail 'a default-timeout high-effort Grok 4.7 review omits the short-review line'
   fi
 done
-printf '%s\n' $'codex\t*\treview\tWithin {timeout} s.\tev\t2026-11-01' > "$FR/adj-notimeout.tsv"
-! MMO_HARNESS_ADJUSTMENTS="$FR/adj-notimeout.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail 'check accepts {timeout} for a runner that passes none'
-contains "$FR/adj.err" 'passes no short timeout for {timeout}' 'the runner without {timeout} is named'
+for bad_row in $'codex\t*\treview\tWithin {timeout} s.\tev\t2026-11-01' $'grok\t*\tresearch\tWithin {timeout} s.\tev\t2026-11-01'; do
+  printf '%s\n' "$bad_row" > "$FR/adj-notimeout.tsv"
+  ! MMO_HARNESS_ADJUSTMENTS="$FR/adj-notimeout.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail "check accepts {timeout} for a leg that passes none: ${bad_row//$'\t'/|}"
+  contains "$FR/adj.err" 'passes no short timeout for {timeout}' 'the leg without {timeout} is named'
+done
+printf '%s\n' $'grok\t*\t*\tWithin {timeout} s.\tev\t2026-11-01' > "$FR/adj-timeout-any.tsv"
+MMO_HARNESS_ADJUSTMENTS="$FR/adj-timeout-any.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail "check rejects a Grok * {timeout} row: $(cat "$FR/adj.err")"
 # Fix 5: a row for a mode its runner does not take (or an unknown runner) can never apply.
 for bad_row in $'codex\t*\tadvise\tL\tev\t2026-11-01' $'qwen\t*\tresearch\tL\tev\t2026-11-01' $'agy\t*\tadvise\tL\tev\t2026-11-01' $'grokk\t*\t*\tL\tev\t2026-11-01'; do
   printf '%s\n' "$bad_row" > "$FR/adj-mode.tsv"

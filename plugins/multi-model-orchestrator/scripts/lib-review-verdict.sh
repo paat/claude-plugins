@@ -59,9 +59,9 @@ mmo_adjustment_row_error() {  # mmo_adjustment_row_error ROW
   if [[ "${f[3]}" == *'{budget}'* ]]; then
     case "${f[0]}" in claude|grok|muse|vibe) ;; *) printf '%s has no turn or step budget for {budget}\n' "${f[0]}"; return 0 ;; esac
   fi
-  # Only Grok passes a short wall-clock timeout for {timeout}.
-  if [[ "${f[3]}" == *'{timeout}'* ]] && [ "${f[0]}" != grok ]; then
-    printf '%s passes no short timeout for {timeout}\n' "${f[0]}"; return 0
+  # Only a Grok review leg passes a short wall-clock timeout for {timeout}.
+  if [[ "${f[3]}" == *'{timeout}'* ]]; then
+    case "${f[0]}:${f[2]}" in grok:review|grok:'*') ;; *) printf '%s %s passes no short timeout for {timeout}\n' "${f[0]}" "${f[2]}"; return 0 ;; esac
   fi
   [[ "${f[5]}" =~ ^([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$ ]] || { printf 'as_of %s is not an ISO date\n' "${f[5]}"; return 0; }
   local y=$((10#${BASH_REMATCH[1]})) m=$((10#${BASH_REMATCH[2]})) d=$((10#${BASH_REMATCH[3]})) last=31
