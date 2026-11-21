@@ -898,6 +898,62 @@ esac
         self.assertEqual((self.state / "catalog-changes.txt").read_text(), "")
         self.assertEqual((self.state / "catalog.txt").read_text(), catalog_before)
 
+    def opencode_mapped_baseline(self):
+        # ASK-76: state written before the drop maps a Go model through the opencode section.
+        self.prepare_main()
+        catalog_before = (self.state / "catalog.txt").read_text()
+        (self.state / "catalog.txt").write_text(
+            catalog_before + "## opencode (opencode models)\nglm-5.3\nqwen3.8-max\n")
+        self.add_openrouter_model("qwen/qwen3.8-max")
+        result, _ = self.main_script("--feeds-only")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = [line.split("\t") for line in (self.state / "evals.tsv").read_text().splitlines()[1:]]
+        self.assertIn(["qwen3.8-max", "qwen/qwen3.8-max"], [row[:2] for row in rows])
+        return catalog_before
+
+    def test_main_retired_opencode_mapping_alone_does_not_trigger(self):
+        catalog_before = self.opencode_mapped_baseline()
+        result, calls = self.main_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("0 new rows; 0 pending rows", result.stdout)
+        self.assertIn("no material model change; zero model calls", result.stdout)
+        self.assertNotIn("claude", calls)
+        self.assertEqual((self.state / "eval-pending.txt").read_text(), "")
+        self.assertEqual((self.state / "catalog.txt").read_text(), catalog_before)
+        rows = [line.split("\t") for line in (self.state / "evals.tsv").read_text().splitlines()[1:]]
+        self.assertIn(["", "qwen/qwen3.8-max"], [row[:2] for row in rows])
+        result, calls = self.main_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no material model change; zero model calls", result.stdout)
+        self.assertNotIn("claude", calls)
+
+    def test_main_genuine_feed_change_triggers_beside_retired_opencode_mapping(self):
+        self.opencode_mapped_baseline()
+        data = json.loads((self.fixtures / "openrouter.json").read_text())
+        row = copy.deepcopy(data["data"][0])
+        row.update(id="anthropic/unknown-model", canonical_slug="anthropic/unknown-model")
+        data["data"].append(row)
+        data["total_count"] += 1
+        self.write_fixture("openrouter", data)
+        binaries = self.temp / "home/.local/bin"
+        (binaries / "gh").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (binaries / "git").write_text(
+            '#!/usr/bin/env bash\n'
+            'if [[ $* == *"worktree add"* ]]; then mkdir -p "$XDG_STATE_HOME/model-refresh/worktree"; fi\n'
+            'exit 0\n')
+        (binaries / "claude").write_text(
+            '#!/usr/bin/env bash\n'
+            'cat >"$XDG_STATE_HOME/prompt"\n'
+            'echo NO_CHANGES\n')
+        result, _ = self.main_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("1 new rows; 1 pending rows", result.stdout)
+        self.assertIn("material model change; running refresh", result.stdout)
+        prompt = (self.temp / "prompt").read_text()
+        trigger_rows = prompt.split("<trigger_rows>", 1)[1].split("</trigger_rows>", 1)[0].strip()
+        self.assertEqual(len(trigger_rows.splitlines()), 1)
+        self.assertTrue(trigger_rows.startswith("unmapped\t\tanthropic/unknown-model\t"), trigger_rows)
+
     def test_main_carried_effort_block_stops_at_next_header(self):
         self.prepare_main()
         (self.state / "catalog.txt").write_text(

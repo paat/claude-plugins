@@ -83,6 +83,17 @@ if grep -qxF "## $efforts_h" "$STATE/catalog.new"; then
 elif grep -qxF "## $efforts_h" "$facts"; then
   section_block "$efforts_h" "$facts" >>"$STATE/catalog.new"
 fi
+# ASK-76: OpenCode Go left the fleet. Eval rows mapped only through its old catalog section lose
+# that mapping in the stored table too, so the retirement alone is no "unmapped" trigger.
+retired_h='opencode (opencode models)'
+if grep -qxF "## $retired_h" "$facts" && [[ -f $STATE/evals.tsv ]]; then
+  awk -F '\t' -v OFS='\t' -v h="## $retired_h" '
+    FILENAME == ARGV[1] { if (/^## /) f = $0 == h; else if (f) drop[$0]; next }
+    FILENAME == ARGV[2] { delete drop[$0]; next }
+    FILENAME == ARGV[3] { if (!/^#/ && NF >= 3) delete drop[$3]; next }
+    FNR > 1 && $1 in drop { $1 = "" } 1' "$facts" "$STATE/catalog.new" "$pool" "$STATE/evals.tsv" >"$STATE/evals.migrated"
+  mv "$STATE/evals.migrated" "$STATE/evals.tsv"
+fi
 stale_feeds=''
 refresh_feeds "$STATE/catalog.new" "$pool" || stale_feeds='openrouter, arena-webdev, arena-agent, terminal, bug-hunt'
 # A CLI addition must belong to a vendor family represented in the pool.
