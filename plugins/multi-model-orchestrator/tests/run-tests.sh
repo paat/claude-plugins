@@ -3016,7 +3016,12 @@ gate_author 2 '--author without a value' --leg codex="$gate_dir/codex.txt" --aut
 gate_author 0 'no --author keeps --leg codex independent' --leg codex="$gate_dir/codex.txt"
 gate_author 3 'agy is not a hosted label' --leg agy="$gate_dir/codex.txt"
 gate_author 3 'opencode is not a hosted label' --leg opencode="$gate_dir/codex.txt"
+gate_author 0 'agy/claude-opus-5-5 is an independent reviewer' --leg agy/claude-opus-5-5="$gate_dir/codex.txt"
+gate_author 3 'any other agy model stays advisory' --leg agy/gemini-4-argon="$gate_dir/codex.txt"
+gate_author 3 'agy/claude-opus-5-5 is not independent of a claude author' --author claude --leg agy/claude-opus-5-5="$gate_dir/codex.txt"
 pass 'review-gate --author requires a reviewer from another provider family'
+! grep -E -- '--model [^-"$]' "$PLUGIN_ROOT/commands/orchestrate.md" >/dev/null \
+  || fail 'fallback reviewer legs take the model from the route card, not a literal'
 
 # --- handoff-lease.sh ---
 LEASE="$PLUGIN_ROOT/scripts/handoff-lease.sh"
@@ -3933,8 +3938,8 @@ done
 printf 'two\n' > "$VR/f.txt"
 out="$(printf 'review it\n' | "${vibe_env[@]}" bash "$VIBE_RUN" --mode review --repo "$VR" --base HEAD --timeout 30 2>"$VB/err")" || fail "run-vibe review succeeds: $(cat "$VB/err")"
 exact_line "$VB/calls/call.2.args" '--enabled-tools' 'vibe review restricts tools'
-exact_line "$VB/calls/call.2.args" '--max-price' 'vibe review passes --max-price'
-exact_line "$VB/calls/call.2.args" '0' 'vibe review caps price at 0'
+[ "$(grep -Fx -A1 -- '--max-price' "$VB/calls/call.2.args" | sed -n 2p)" = '0' ] \
+  || fail 'vibe review caps price at 0 immediately after --max-price'
 exact_line "$VB/calls/call.2.args" 'read_file' 'vibe review enables read_file only'
 [ "$(grep -c -- '--enabled-tools' "$VB/calls/call.2.args")" -eq 1 ] || fail 'vibe review enables exactly one tool'
 absent "$VB/calls/call.2.args" '--auto-approve' 'vibe review does not auto-approve'
@@ -3945,8 +3950,8 @@ case "$out" in *APPROVE*) ;; *) fail "run-vibe review prints the verdict: $out" 
 printf 'x\n' | "${vibe_env[@]}" STUB_VIBE_RESPONSE='file map' bash "$VIBE_RUN" --mode advise --repo "$VR" --timeout 30 >/dev/null 2>"$VB/err" \
   || fail "run-vibe advise succeeds without a verdict: $(cat "$VB/err")"
 exact_line "$VB/calls/call.3.args" 'read_file' 'vibe advise enables read_file only'
-exact_line "$VB/calls/call.3.args" '--max-price' 'vibe advise passes --max-price'
-exact_line "$VB/calls/call.3.args" '0' 'vibe advise caps price at 0'
+[ "$(grep -Fx -A1 -- '--max-price' "$VB/calls/call.3.args" | sed -n 2p)" = '0' ] \
+  || fail 'vibe advise caps price at 0 immediately after --max-price'
 absent "$VB/calls/call.3.args" '--auto-approve' 'vibe advise does not auto-approve'
 
 vibe_rc() { local want="$1"; shift; local r=0; printf 'x\n' | "${vibe_env[@]}" "$@" >"$VB/out" 2>"$VB/err" || r=$?; [ "$r" -eq "$want" ] || fail "run-vibe want $want got $r: $* -- $(cat "$VB/err")"; }

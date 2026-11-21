@@ -16,7 +16,7 @@ the complexity/risk tier first; a task label never lowers it. Local records over
 | Sustained multi-file or multi-hour implementation | Muse Wonder Full 1.0 `high`; existing Opus/Astra T3 routes; Fable 5.2 `high` when unusually hard | Full is an explicit model, not Spark or plain Wonder with more effort. Fable remains a direct, outside-pool route after restriction/usage checks. Start with a bounded packet and checkpoints. |
 | Source research and evidence reconciliation | Grok 4.7 `medium`, Sonnet 5.5 `medium`, or Muse Spark 1.3 `medium`; escalate for conflicting evidence | Require the runner's research mode and web/source access. agy has no research mode in this plugin. Source verification matters more than unsupported provider stereotypes. |
 | Security, payments, destructive migration, subtle concurrency | Existing T4 Astra/Opus routes at `xhigh` | Preserve the high-risk floor, independent provider and executable validation. Vendor security anecdotes alone do not promote a new model to T4. |
-| Adversarial review | Eligible model from another provider, task tier and at least T2; `medium` for bounded diffs, `high` for deep reasoning, T4 as above | Pick by defect/tool requirements. agy and local reviews remain advisory; higher effort cannot turn them into executing reviewers. Different providers do not guarantee independent errors. |
+| Adversarial review | Eligible model from another provider, task tier and at least T2; `medium` for bounded diffs, `high` for deep reasoning, T4 as above | Pick by defect/tool requirements. agy (except `agy/claude-opus-5-5`) and local reviews remain advisory; higher effort cannot turn them into executing reviewers. Different providers do not guarantee independent errors. |
 
 ## Applying the choice
 

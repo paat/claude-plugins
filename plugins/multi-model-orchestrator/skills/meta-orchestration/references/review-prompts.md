@@ -80,7 +80,8 @@ has no shell and cannot run git itself, and it exits `75` when the one local slo
 substitute the card's allowed fallback at once rather than waiting.
 
 It reads the diff; it cannot run anything, and neither can an agy leg (`run-agy.sh --mode review
---base <range>`). Never hand either a template that requires verification by execution. Neither
+--base <range>`), except an `agy/claude-opus-5-5` leg, which counts as an independent reviewer.
+Never hand either a template that requires verification by execution. Otherwise neither
 may be the only reviewer, and that is enforced, not advisory: pass every leg
 through `scripts/review-gate.sh --leg <provider>=<final-message-file>`, which exits 3 on a set
 containing no independent provider. Use the local leg as an extra decorrelated lens beside a

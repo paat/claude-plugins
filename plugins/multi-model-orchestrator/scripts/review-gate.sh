@@ -15,7 +15,8 @@
 #
 # Fail-closed: only a label naming a hosted catalog provider or model counts as an
 # independent reviewer (claude/opus/sonnet/haiku/fable, codex/gpt/astra/terra/luna,
-# grok, muse). Anything else — `Local Qwen`, `qwen3.8-27b-local`, a typo — is advisory,
+# grok, muse, plus agy/claude-opus-5-5 as Claude). Anything else — `Local Qwen`,
+# `qwen3.8-27b-local`, plain `agy`, a typo — is advisory,
 # so a label the gate does not recognize can never satisfy independence.
 #
 # Exit codes:
@@ -58,6 +59,8 @@ mmo_provider_family() {
   label="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   # A local engine is advisory whatever else the label contains.
   case "$label" in *qwen*|*local*) return 0 ;; esac
+  # agy is advisory, except an Opus 5.5 leg, which reviews as Claude.
+  case "$label" in agy/claude-opus-5-5) printf 'claude\n'; return 0 ;; agy*) return 0 ;; esac
   case "$label" in
     claude*|opus*|sonnet*|haiku*|fable*) printf 'claude\n' ;;
     codex*|gpt*|astra*|terra*|luna*) printf 'codex\n' ;;
