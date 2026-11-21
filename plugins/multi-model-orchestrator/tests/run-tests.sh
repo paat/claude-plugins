@@ -17,6 +17,8 @@ unset MMO_HARNESS_ADJUSTMENTS
 unset MMO_CLAUDE_API_KEY_FILE
 REAL_GROK="${MMO_TEST_REAL_GROK-$(command -v grok || true)}"
 GROK_RESEARCH_TOOLS='web_search,web_fetch'
+# ASK-76 dropped this provider; split so the plugin tree never names it outside these regressions.
+gone_provider="open""code"
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 pass() { printf 'PASS: %s\n' "$1"; }
@@ -2101,9 +2103,9 @@ pass '#523l: empty stream under --stream-log exits 5, not malformed'
 absent "$PLUGIN_ROOT/README.md" 'No `jq` dependency is used' \
   'README must not claim no jq dependency'
 contains "$PLUGIN_ROOT/README.md" \
-  '`jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, `run-vibe.sh`, and the local-Qwen route' \
+  '`jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-vibe.sh`, and the local-Qwen route' \
   'README documents where jq is required'
-pass 'README documents jq for Claude --stream-log, agy, Muse, OpenCode, Vibe, and local Qwen'
+pass 'README documents jq for Claude --stream-log, agy, Muse, Vibe, and local Qwen'
 
 # Req 3: run-codex.sh resolves --dir/--repo to a git toplevel (match claude/grok).
 # Intentional behavior change vs 0.7.6: existing non-git directory exits 2.
@@ -2480,7 +2482,7 @@ done
 contains "$WORK/qwen-stdin.txt" 'QWEN_TASK_MARKER' 'Qwen packet follows the preamble'
 contains "$WORK/codex.prompt" 'CODEX_TASK_MARKER' 'Codex packet follows the preamble'
 [ "$(grep -l 'fresh, bounded implementation worker' "$PLUGIN_ROOT"/scripts/run-*.sh | wc -l)" -eq 0 ] || fail 'runners call mmo_implement_prompt instead of copying the preamble'
-[ "$(grep -l 'mmo_implement_prompt' "$PLUGIN_ROOT"/scripts/run-*.sh | wc -l)" -eq 8 ] || fail 'all eight implement runners use mmo_implement_prompt'
+[ "$(grep -l 'mmo_implement_prompt' "$PLUGIN_ROOT"/scripts/run-*.sh | wc -l)" -eq 7 ] || fail 'all seven implement runners use mmo_implement_prompt'
 pass 'shared implement preamble reaches Codex and local Qwen'
 
 rc=0
@@ -3074,7 +3076,7 @@ gate_author 3 '--author grok --leg qwen' --author grok --leg qwen="$gate_dir/cod
 gate_author 2 '--author without a value' --leg codex="$gate_dir/codex.txt" --author
 gate_author 0 'no --author keeps --leg codex independent' --leg codex="$gate_dir/codex.txt"
 gate_author 3 'agy is not a hosted label' --leg agy="$gate_dir/codex.txt"
-gate_author 3 'opencode is not a hosted label' --leg opencode="$gate_dir/codex.txt"
+gate_author 3 "dropped $gone_provider is not a hosted label" --leg "$gone_provider=$gate_dir/codex.txt"
 gate_author 0 'agy/claude-opus-5-5 is an independent reviewer' --leg agy/claude-opus-5-5="$gate_dir/codex.txt"
 gate_author 3 'any other agy model stays advisory' --leg agy/gemini-4-argon="$gate_dir/codex.txt"
 gate_author 3 'agy/claude-opus-5-5 is not independent of a claude author' --author claude --leg agy/claude-opus-5-5="$gate_dir/codex.txt"
@@ -3119,7 +3121,7 @@ lease_repo="$WORK/lease-repo"; mkdir -p "$lease_repo"; git -C "$lease_repo" init
 pass 'handoff-lease: claim, renew, release, expiry, usage, and default directories'
 # Fail-closed labels: the catalog names for the local engine, other casings, and
 # unknown providers are all advisory; only hosted catalog names count.
-for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local' 'opencode' 'kimi-k3.1-pro'; do
+for label in 'Local Qwen' 'qwen3.8-27b-local' 'Qwen-Local' 'gemini' 'codex-local' "$gone_provider" 'kimi-k3.1-pro'; do
   rc=0
   bash "$GATE" --leg "$label=$gate_dir/qwen.txt" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 3 ] || fail "label '$label' alone is advisory (got $rc)"
@@ -3226,7 +3228,8 @@ rl() { printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits"
 out=$(CODEX_HOME="$U/codex" PATH="$U/bin:$PATH" bash "$USAGE_SH")
 case "$out" in *"codex 5h 0% (reset at"*) ;; *) fail "usage.sh zeroes a Codex window whose reset passed: $out" ;; esac
 case "$out" in *"codex 7d 92% resets "*" in 1d1h0m as-of "*|*"codex 7d 92% resets "*" in 1d0h59m as-of "*) ;; *) fail "usage.sh reports the newest Codex secondary window: $out" ;; esac
-case "$out" in *"claude unknown (pass --claude-log or --probe-claude"*"grok unknown"*"muse unknown (no stream log with run.usage; pass --muse-log)"*"opencode unknown"*) ;; *) fail "usage.sh names providers it cannot read: $out" ;; esac
+case "$out" in *"claude unknown (pass --claude-log or --probe-claude"*"grok unknown"*"muse unknown (no stream log with run.usage; pass --muse-log)"*) ;; *) fail "usage.sh names providers it cannot read: $out" ;; esac
+case "$out" in *"$gone_provider"*) fail "usage.sh no longer reports the dropped provider: $out" ;; esac
 printf '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.014,"resetsAt":%s},"seven_day":{"utilization":0.86,"resetsAt":%s}}}}\n' "$future" "$future" > "$U/claude.jsonl"
 out=$(CODEX_HOME="$U/none" bash "$USAGE_SH" --claude-log "$U/claude.jsonl" --claude-log "$U/missing.jsonl")
 case "$out" in *"codex unknown"*"claude 5h 1% resets"*"claude 7d 86% resets"*) ;; *) fail "usage.sh reads Claude windows from a stream log: $out" ;; esac
@@ -3841,105 +3844,9 @@ git -C "$MR" checkout -q -- f.txt
 pass '#625: muse --out /dev/stdout: body once, verdict gate intact'
 pass 'run-muse: YOLO implement, read-only advise/review, web-only research, default model, pin check, write detection, exits'
 
-# --- run-opencode.sh against a stub opencode ---
-OC="$WORK/opencode"; mkdir -p "$OC/bin" "$OC/calls"
-OC_RUN="$PLUGIN_ROOT/scripts/run-opencode.sh"
-cat > "$OC/bin/opencode" <<'STUB'
-#!/usr/bin/env bash
-[ -z "${STUB_SECRET_SEEN:-}" ] || printf '%s %s\n' "${0##*/}" "${LEG_SECRET-unset}" >> "$STUB_SECRET_SEEN"
-if [ "${1:-}" = --version ]; then printf '%s\n' "${STUB_OPENCODE_VERSION:-opencode v2.2.4}"; exit 0; fi
-n=$(find "$STUB_OPENCODE_CALLS" -name 'call.*.args' | wc -l)
-printf '%s\n' "$@" > "$STUB_OPENCODE_CALLS/call.$n.args"
-pwd > "$STUB_OPENCODE_CALLS/call.$n.cwd"
-cat > "$STUB_OPENCODE_CALLS/call.$n.prompt"
-[ -z "${STUB_OPENCODE_TOUCH:-}" ] || printf 'touched\n' >> "$STUB_OPENCODE_TOUCH"
-if [ -n "${STUB_OPENCODE_ERROR_TYPE:-}" ]; then
-  printf '%s\n' '{"type":"step_start","part":{"messageID":"msg_A"}}'
-  jq -cn --arg t "$STUB_OPENCODE_ERROR_TYPE" --arg m "${STUB_OPENCODE_ERROR_MESSAGE:-}" --arg s "${STUB_OPENCODE_ERROR_STATUS:-}" \
-    '{type:"error",error:({type:$t,message:$m} + (if $s == "" then {} else {status:($s|tonumber)} end))}'
-  exit "${STUB_OPENCODE_EXIT:-1}"
-fi
-printf '%s\n' '{"type":"step_start","part":{"messageID":"msg_A"}}' \
-  '{"type":"tool_use","part":{"messageID":"msg_A","tool":"write","state":{"status":"completed"}}}' \
-  '{"type":"text","part":{"messageID":"msg_A","type":"text","text":"thinking aloud"}}' \
-  '{"type":"step_finish","part":{"messageID":"msg_A","reason":"tool-calls","tokens":{"input":100,"output":10,"reasoning":5,"cache":{"read":1,"write":2}}}}' \
-  '{"type":"step_start","part":{"messageID":"msg_B"}}'
-[ -z "${STUB_OPENCODE_DRAFT:-}" ] || jq -cn --arg t "$STUB_OPENCODE_DRAFT" '{type:"text",part:{id:"prt_B1",messageID:"msg_B",type:"text",text:$t}}'
-jq -cn --arg t "${STUB_OPENCODE_RESPONSE-done
-
-APPROVE}" '{type:"text",part:{id:"prt_B1",messageID:"msg_B",type:"text",text:$t}}'
-jq -cn --arg r "${STUB_OPENCODE_FINISH:-stop}" '{type:"step_finish",part:{messageID:"msg_B",reason:$r,tokens:{input:50,output:4,reasoning:1,cache:{read:0,write:0}}}}'
-STUB
-chmod +x "$OC/bin/opencode"
-OR="$OC/repo"; mkdir -p "$OR"; git -C "$OR" init -q
-printf 'one\n' > "$OR/f.txt"; git -C "$OR" add f.txt; git -C "$OR" -c user.email=t@t -c user.name=t commit -qm base
-oc_env=(env -u MMO_OPENCODE_MODEL -u MMO_OPENCODE_EFFORT PATH="$OC/bin:$PATH" STUB_OPENCODE_CALLS="$OC/calls")
-
-out="$(printf 'make f say two\n' | "${oc_env[@]}" bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30 2>"$OC/err")" || fail "run-opencode implement succeeds: $(cat "$OC/err")"
-for flag in run --standalone --format json --auto -m 'opencode-go/glm-5.3#high'; do
-  exact_line "$OC/calls/call.0.args" "$flag" "opencode implement passes $flag"
-done
-absent "$OC/calls/call.0.args" '--agent' 'opencode implement is not the plan agent'
-exact_line "$OC/calls/call.0.cwd" "$OR" 'opencode implement runs in the repository'
-contains "$OC/calls/call.0.prompt" 'make f say two' 'opencode prompt carries the task packet'
-case "$out" in *done*) ;; *) fail "run-opencode prints the final message: $out" ;; esac
-case "$out" in *thinking*) fail "run-opencode prints only the last step: $out" ;; esac
-contains "$OC/err" 'run-opencode: exit=0' 'run-opencode reports its exit line'
-
-printf 'x\n' | "${oc_env[@]}" bash "$OC_RUN" --mode implement --repo "$OR" --effort default --model glm-5.3-flash --timeout 30 >/dev/null 2>"$OC/err" \
-  || fail "run-opencode accepts --effort default: $(cat "$OC/err")"
-exact_line "$OC/calls/call.1.args" 'opencode-go/glm-5.3-flash' '--effort default passes the bare model'
-absent "$OC/calls/call.1.args" '#' '--effort default adds no variant'
-
-printf 'two\n' > "$OR/f.txt"
-out="$(printf 'review it\n' | "${oc_env[@]}" bash "$OC_RUN" --mode review --repo "$OR" --base HEAD --timeout 30 2>"$OC/err")" || fail "run-opencode review succeeds: $(cat "$OC/err")"
-exact_line "$OC/calls/call.2.args" 'plan' 'opencode review uses the plan agent'
-absent "$OC/calls/call.2.args" '--auto' 'opencode review does not auto-approve'
-[ "$(cat "$OC/calls/call.2.cwd")" != "$OR" ] || fail 'opencode review runs outside the repository'
-contains "$OC/calls/call.2.prompt" '+two' 'opencode review is handed the diff'
-case "$out" in *APPROVE*) ;; *) fail "run-opencode review prints the verdict: $out" ;; esac
-
-oc_rc() { local want="$1"; shift; local r=0; printf 'x\n' | "${oc_env[@]}" "$@" >/dev/null 2>"$OC/err" || r=$?; [ "$r" -eq "$want" ] || fail "run-opencode want $want got $r: $*"; }
-oc_rc 6 STUB_OPENCODE_RESPONSE='looks fine' bash "$OC_RUN" --mode review --repo "$OR" --base HEAD --timeout 30
-oc_rc 7 STUB_OPENCODE_TOUCH="$OR/f.txt" bash "$OC_RUN" --mode review --repo "$OR" --base HEAD --timeout 30
-printf 'two\n' > "$OR/f.txt"
-oc_rc 5 STUB_OPENCODE_RESPONSE='' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-r=0; printf 'x\n' | "${oc_env[@]}" STUB_OPENCODE_FINISH=length bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30 >/dev/null 2>"$OC/err" || r=$?
-[ "$r" -ne 0 ] && [ "$r" -ne 5 ] || fail "finish reason length must fail (got $r)"
-contains "$OC/err" 'finish reason length' 'run-opencode names the finish reason'
-oc_rc 77 STUB_OPENCODE_ERROR_TYPE=provider.auth STUB_OPENCODE_ERROR_STATUS=401 STUB_OPENCODE_ERROR_MESSAGE='Upstream request failed: Invalid credential' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-contains "$OC/err" 'failure=auth' 'opencode auth error is classified as auth'
-oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.go-limit STUB_OPENCODE_ERROR_MESSAGE='OpenCode Go rolling usage limit reached. Switch to a free model, or turn on Extra Usage on the Go page in OpenCode Console to keep going.' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-contains "$OC/err" 'failure=limit' 'opencode Go limit is classified as a plan limit'
-oc_rc 75 STUB_OPENCODE_EXIT=3 STUB_OPENCODE_ERROR_TYPE=provider.go-limit STUB_OPENCODE_ERROR_MESSAGE='OpenCode Go rolling usage limit reached.' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-contains "$OC/err" 'exit=75 failure=limit' 'opencode provider exit 3 cannot bypass Go limit classification'
-pass 'run-opencode: provider exit 3 with Go limit becomes 75 failure=limit'
-
-oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.no-route STUB_OPENCODE_ERROR_MESSAGE='Model unavailable: opencode-go/x' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-contains "$OC/err" 'not routable here' 'opencode no-route names the cause'
-oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.no-route STUB_OPENCODE_ERROR_STATUS=401 STUB_OPENCODE_ERROR_MESSAGE='Model unavailable: opencode-go/glm-5.3#medium' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-out="$(printf 'x\n' | "${oc_env[@]}" STUB_OPENCODE_DRAFT='partial draft' bash "$OC_RUN" --mode review --repo "$OR" --base HEAD --timeout 30 2>/dev/null)" \
-  || fail 'run-opencode review with a re-emitted text part succeeds'
-case "$out" in *'partial draft'*) fail "a re-emitted text part keeps only its last text: $out" ;; esac
-oc_rc 75 STUB_OPENCODE_ERROR_TYPE=provider.rate-limit STUB_OPENCODE_ERROR_STATUS=429 STUB_OPENCODE_ERROR_MESSAGE='Rate limit exceeded' bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-oc_n="$(find "$OC/calls" -name 'call.*.args' | wc -l | tr -d ' ')"
-oc_rc 127 STUB_OPENCODE_VERSION=1.19.5 bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30
-contains "$OC/err" 'needs OpenCode v2' 'run-opencode refuses v1'
-[ "$(find "$OC/calls" -name 'call.*.args' | wc -l | tr -d ' ')" = "$oc_n" ] || fail 'opencode v1 never reaches run'
-for bad in '--mode advise' '--mode implement --effort HIGH' '--mode implement --model Bad/Id' '--mode review' '--mode implement --base HEAD'; do
-  r=0
-  # shellcheck disable=SC2086
-  printf 'x\n' | "${oc_env[@]}" bash "$OC_RUN" $bad --repo "$OR" >/dev/null 2>&1 || r=$?
-  [ "$r" -eq 2 ] || fail "run-opencode rejects '$bad' as usage (got $r)"
-done
-printf 'x' | "${oc_env[@]}" bash "$OC_RUN" --mode review --repo "$OR" --base HEAD --out /dev/stdout --timeout 30 2>"$WORK/oc-devout.err" | cat > "$WORK/oc-devout.out"
-[ "${PIPESTATUS[1]}" -eq 0 ] || fail 'opencode --out /dev/stdout success rc want 0'
-[ "$(grep -c 'APPROVE' "$WORK/oc-devout.out")" -eq 1 ] || fail 'opencode --out /dev/stdout piped must hold the body exactly once'
-git -C "$OR" checkout -q -- f.txt
-printf 'x\n' | "${oc_env[@]}" MMO_OUTCOMES_FILE="$OC/outcomes.tsv" bash "$OC_RUN" --mode implement --repo "$OR" --timeout 30 >/dev/null 2>&1 \
-  || fail 'run-opencode records an outcome'
-awk -F '\t' 'NR == 2 {exit !($5 == "opencode" && $11 == 173)} END {if (NR != 2) exit 1}' "$OC/outcomes.tsv" || fail "opencode outcome row has provider and summed tokens: $(cat "$OC/outcomes.tsv")"
-pass 'run-opencode: --auto implement, plan-agent review outside the repo, variants, write detection, error mapping, v1 refusal, exits'
+# ASK-76: the dropped provider has no runner.
+[ ! -e "$PLUGIN_ROOT/scripts/run-$gone_provider.sh" ] || fail "run-$gone_provider.sh is removed"
+pass 'dropped provider has no runner'
 
 # --- run-vibe.sh against a stub vibe (stream and export shapes of vibe 3.1.3) ---
 VB="$WORK/vibe"; mkdir -p "$VB/bin" "$VB/calls"
@@ -4100,8 +4007,8 @@ printf '.env*\n' > "$SE/.gitignore"; printf 'x\n' > "$SE/f.txt"
 git -C "$SE" add .gitignore f.txt; git -C "$SE" -c user.email=t@t -c user.name=t commit -qm base
 printf 'TOKEN=1\n' > "$SE/.env.local"
 seen="$WORK/secret-seen"; : > "$seen"
-se_env=(env PATH="$WORK/bin:$AG/bin:$MU/bin:$OC/bin:$VB/bin:$PATH" STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" STUB_OPENCODE_CALLS="$OC/calls" STUB_VIBE_CALLS="$VB/calls" STUB_SECRET_SEEN="$seen" LEG_SECRET=leak)
-for runner in claude codex grok agy muse opencode vibe; do
+se_env=(env PATH="$WORK/bin:$AG/bin:$MU/bin:$VB/bin:$PATH" STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" STUB_VIBE_CALLS="$VB/calls" STUB_SECRET_SEEN="$seen" LEG_SECRET=leak)
+for runner in claude codex grok agy muse vibe; do
   rc=0; printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" || rc=$?
   [ "$rc" -eq 2 ] || fail "run-$runner refuses a repo holding an untracked .env file (got $rc)"
   contains "$WORK/secret.err" '.env.local' "run-$runner names the env file it refused"
@@ -4116,7 +4023,7 @@ printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-claude.sh" --mode r
 printf 'x\n' | "${se_env[@]}" MMO_ALLOW_ENV_FILES=1 bash "$PLUGIN_ROOT/scripts/run-codex.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>&1 \
   || fail 'MMO_ALLOW_ENV_FILES=1 opts out of the refusal'
 rm "$SE/.env.local"; : > "$seen"
-for runner in claude codex grok agy muse opencode vibe; do
+for runner in claude codex grok agy muse vibe; do
   printf 'x\n' | "${se_env[@]}" bash "$PLUGIN_ROOT/scripts/run-$runner.sh" --mode implement --repo "$SE" --timeout 30 >/dev/null 2>"$WORK/secret.err" \
     || fail "run-$runner runs in a repo without env files: $(cat "$WORK/secret.err")"
   exact_line "$seen" "$runner unset" "run-$runner scrubs an unlisted variable from the leg environment"
@@ -4392,11 +4299,18 @@ rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash \
 [ "$rc" -eq 75 ] || fail "pool exits 75 when every worker is unavailable (got $rc)"
 contains "$PL/err" 'every T2 worker was unavailable' 'pool names the exhausted tier'
 
-# The shipped table routes nothing to OpenCode, even with its CLI installed.
-cp "$OC/bin/opencode" "$PL/bin/opencode"
-rc=0; "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T1 --allow opencode --usage /dev/null >/dev/null 2>"$PL/err" || rc=$?
-[ "$rc" -eq 75 ] || fail "shipped table has no OpenCode route (got $rc)"
-rm -f "$PL/bin/opencode"
+# ASK-76: the shipped table has no row for the dropped provider, and a custom row for it is
+# skipped as an unknown provider even with an executable of that name on PATH.
+if awk -F '\t' -v p="$gone_provider" '$2 == p {found = 1} END {exit !found}' "$PLUGIN_ROOT/scripts/pool-tiers.tsv"; then
+  fail "shipped pool table still routes $gone_provider"
+fi
+printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/$gone_provider"; chmod +x "$PL/bin/$gone_provider"
+printf 'T2\t%s\tglm-5.3\thigh\n' "$gone_provider" > "$PL/gone-tiers.tsv"
+rc=0; "${pool_env[@]}" MMO_POOL_TIERS="$PL/gone-tiers.tsv" bash "$POOL" pick --tier T2 --usage /dev/null >"$PL/out" 2>"$PL/err" || rc=$?
+[ "$rc" -eq 75 ] || fail "pool rejects a $gone_provider row (got $rc): $(cat "$PL/out")"
+contains "$PL/err" "skip T2 $gone_provider/glm-5.3: unknown provider" "pool names the unknown $gone_provider provider"
+rm -f "$PL/bin/$gone_provider"
+pass 'pool: dropped provider has no shipped row and an unknown custom row is skipped'
 printf '#!/usr/bin/env bash\nexit 0\n' > "$PL/bin/vibe"
 chmod +x "$PL/bin/vibe"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow vibe --usage /dev/null 2>"$PL/err")" \
@@ -4407,6 +4321,28 @@ rc=0
 "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow vibe --mode review --usage /dev/null >/dev/null 2>"$PL/err" || rc=$?
 [ "$rc" -eq 75 ] || fail "vibe is not picked for review (got $rc)"
 contains "$PL/err" 'advisory reviewer' 'vibe stays an advisory reviewer'
+# ASK-76 spare pool: with every CLI installed, implement at T2/T3 reaches Muse, agy (Gemini and
+# Opus) and Mistral; a review can land on Muse and agy Opus, never on agy Gemini or Mistral.
+spare_rows() { "${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --usage /dev/null "$@" 2>/dev/null | cut -f1-3 | tr '\t' ' '; }
+out="$(spare_rows --tier T2)"
+for want in 'T2 muse muse-spark-1.3' 'T2 agy gemini-4-hydrogen' 'T2 agy gemini-3.8-flash' 'T2 vibe mistral-large-4' \
+  'T3 muse muse-wonder-full-1.0' 'T3 agy claude-opus-5-5' 'T3 agy gemini-4-argon' 'T3 vibe mistral-large-4'; do
+  printf '%s\n' "$out" | grep -qxF "$want" || fail "T2 implement pick reaches $want: $out"
+done
+out="$(spare_rows --tier T3)"
+for want in 'T3 muse muse-wonder-full-1.0' 'T3 agy claude-opus-5-5' 'T3 agy gemini-4-argon' 'T3 agy gemini-4-hydrogen' \
+  'T3 agy gemini-4-carbon' 'T3 vibe mistral-large-4'; do
+  printf '%s\n' "$out" | grep -qxF "$want" || fail "T3 implement pick reaches $want: $out"
+done
+[ "$(printf '%s\n' "$out" | tail -n1)" = 'T3 vibe mistral-large-4' ] || fail "Mistral stays last in T3: $out"
+out="$(spare_rows --tier T2 --mode review)"
+for want in 'T2 muse muse-spark-1.3' 'T3 muse muse-wonder-full-1.0' 'T3 agy claude-opus-5-5'; do
+  printf '%s\n' "$out" | grep -qxF "$want" || fail "T2 review pick can land on $want: $out"
+done
+case "$out" in *vibe*|*gemini*) fail "review keeps Mistral and agy Gemini advisory: $out" ;; esac
+[ "$(spare_rows --tier T3 --mode review --allow muse,agy)" = $'T3 agy claude-opus-5-5\nT3 muse muse-wonder-full-1.0' ] \
+  || fail "T3 review restricted to the spare pool lands on agy Opus, then Muse Wonder"
+pass 'pool: spare routes Muse, agy and Mistral reachable for implement at T2/T3; review lands on Muse and agy Opus'
 rm -f "$PL/bin/vibe"
 out="$("${pool_env[@]}" MMO_POOL_TIERS="$PLUGIN_ROOT/scripts/pool-tiers.tsv" bash "$POOL" pick --tier T2 --allow vibe --usage /dev/null 2>"$PL/err")" || true
 case "$out" in *vibe*) fail "pick skips vibe when the CLI is missing: $out" ;; esac
@@ -4676,8 +4612,8 @@ cat > "$OUTCOMES/bin/curl" <<'STUB'
 printf '%s\n' '[{"id":0,"is_processing":false}]' 200
 STUB
 chmod +x "$OUTCOMES/bin/curl"
-outcome_env=(env PATH="$OUTCOMES/bin:$WORK/bin:$AG/bin:$MU/bin:$OC/bin:$PATH" \
-  STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" STUB_OPENCODE_CALLS="$OC/calls" \
+outcome_env=(env PATH="$OUTCOMES/bin:$WORK/bin:$AG/bin:$MU/bin:$PATH" \
+  STUB_AGY_CALLS="$AG/calls" STUB_MUSE_CALLS="$MU/calls" \
   MMO_QWEN_LOCAL_RUN="$WORK/bin/qwen-wrapper.sh" OPENAI_BASE_URL=http://127.0.0.1:9/v1)
 # Worktree basename fallback is deliberately distinct from the parent repository.
 outcome_repo="$OUTCOMES/project"
@@ -4695,7 +4631,7 @@ outcome_row() {
     END { if (NR != 2) exit 1 }
   ' "$file"
 }
-for provider in codex claude grok agy muse opencode qwen; do
+for provider in codex claude grok agy muse qwen; do
   runner="run-$provider.sh"
   [ "$provider" != qwen ] || runner=run-qwen-local.sh
   for result in success failure; do
@@ -4709,7 +4645,6 @@ for provider in codex claude grok agy muse opencode qwen; do
         grok) failure_env=(STUB_GROK_RESULT=error); expected_rc=1 ;;
         agy) failure_env=(STUB_AGY_FAIL_MODEL=gemini-3.8-flash-medium); expected_rc=75 ;;
         muse) failure_env=(STUB_MUSE_FAIL='429 Too Many Requests'); expected_rc=75 ;;
-        opencode) failure_env=(STUB_OPENCODE_ERROR_TYPE=provider.go-limit STUB_OPENCODE_ERROR_MESSAGE='OpenCode Go rolling usage limit reached.'); expected_rc=75 ;;
         qwen) failure_env=(QL_STUB_EXIT=23); expected_rc=1 ;;
       esac
     fi
@@ -4978,7 +4913,7 @@ mmo_adjustment_rows check 2>"$FR/adj.err" || fail "shipped harness-adjustments.t
 case "$(mmo_adjustment_lines grok grok-4.7 review 9 300)" in 'Your wall-clock limit is 300 seconds:'*) ;; *) fail 'the shipped Grok 4.7 review row answers its short-timeout friction' ;; esac
 [ -z "$(mmo_adjustment_lines grok grok-4.7 review 9 2>"$FR/adj.err")" ] && [ ! -s "$FR/adj.err" ] \
   || fail 'the shipped Grok 4.7 short-review row stays out of a default-timeout review, silently'
-for provider in claude codex grok muse agy opencode vibe qwen; do
+for provider in claude codex grok muse agy vibe qwen; do
   for adj_mode in implement review research advise; do
     out="$(mmo_adjustment_lines "$provider" any-model "$adj_mode" 9)"
     if [ "$provider/$adj_mode" = grok/implement ]; then
@@ -5019,6 +4954,9 @@ contains "$FR/adj.err" 'want 6 tab-separated columns, got 7' 'column count is na
 printf '%s\n' $'grok\t*\timplement\tL\t\t2026-11-01' > "$FR/adj-ev.tsv"
 ! MMO_HARNESS_ADJUSTMENTS="$FR/adj-ev.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail 'missing evidence is rejected'
 contains "$FR/adj.err" 'missing evidence' 'missing evidence is named'
+printf '%s\t*\timplement\tL\tev\t2026-11-01\n' "$gone_provider" > "$FR/adj-gone.tsv"
+! MMO_HARNESS_ADJUSTMENTS="$FR/adj-gone.tsv" mmo_adjustment_rows check 2>"$FR/adj.err" || fail "a $gone_provider adjustment row is rejected"
+contains "$FR/adj.err" "no runner $gone_provider takes mode implement" "the dropped provider has no runner for adjustments"
 # Fix 6: {budget} is the leg's own cap, passed by the runner (Muse: --max-steps); no budget skips the line loudly.
 printf '%s\n' $'muse\t*\timplement\tAt most {budget} steps.\tev\t2026-11-01' $'claude\t*\treview\tAt most {budget} turns.\tev\t2026-11-01' > "$FR/adj-budget.tsv"
 mkdir -p "$FR/muse-calls"

@@ -59,7 +59,7 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 | T4 | Security, payments, destructive migration, concurrency | GPT-6.2 Astra xhigh, Opus 5.5 plan xhigh, GPT-6 Astra xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
-agy, OpenCode, Vibe; agy `claude-opus-5-5` excepted, paat/ai-overlord#474, 2026-11-18), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
+agy, Vibe; agy `claude-opus-5-5` excepted, paat/ai-overlord#474, 2026-11-18), or at 90%+ of a plan window that resets after the leg's timeout, then tries the rest in
 order and moves past any that exit 75 (busy, down, or at a limit), skipping a provider/model that already exited 75 later in the run. T1 and T2 fall back to the
 higher tiers' workers; T3 and T4 never fall to a weaker tier and exit 75 with the earliest reset
 instead.
@@ -129,7 +129,7 @@ stops pool fall-through. The default state location is outside the checkout.
 | 2 `repo` | Origin remote's `owner/name`, otherwise directory basename |
 | 3 `tier` | Attempted worker's pool tier; empty on direct runner calls |
 | 4 `role` | Runner mode, or `gate` |
-| 5 `provider` | `claude`, `codex`, `grok`, `muse`, `agy`, `opencode`, `vibe`, or `qwen`; empty for gate |
+| 5 `provider` | `claude`, `codex`, `grok`, `muse`, `agy`, `vibe`, or `qwen`; empty for gate |
 | 6 `requested_model` | Requested model, including aliases such as `default` |
 | 7 `served_model` | Model named by the captured provider output; empty when unknown |
 | 8 `effort` | Runner effort (`n/a` for Claude Haiku); empty when inapplicable |
@@ -147,8 +147,7 @@ Metadata coverage (2026-10-30, from the runner output formats): Claude `--stream
 assistant message model (or system/init model) and result usage, summing input, output, cache-read
 and cache-creation tokens. Codex reads the terminal stderr `tokens used` footer; its startup model
 is a requested setting, so served model stays empty. Muse reads `run.model.configured`'s model ID;
-local Qwen reads its wrapper's running-model stderr line. OpenCode sums every `step_finish`'s
-tokens (served model stays empty). Vibe reads its run export: `usage.total_tokens`, and `config.active_model`, which is empty when the default model is server-routed. Muse/Qwen token counts, agy/Grok metadata,
+local Qwen reads its wrapper's running-model stderr line. Vibe reads its run export: `usage.total_tokens`, and `config.active_model`, which is empty when the default model is server-routed. Muse/Qwen token counts, agy/Grok metadata,
 and plain-text Claude metadata stay empty because these captured formats expose no supported
 fields. Requested models are never substituted for missing served models.
 
@@ -305,7 +304,7 @@ except a command carrying per-command allowed domains still goes to the classifi
 of a compound command must match ([permissions](https://code.claude.com/docs/en/permissions.md), checked 2026-11-15: "Every subcommand must be allowed for a compound command to run without a prompt"), so a rule for the runner paths is not a reliable lever for the wrapped `…; echo $? > <marker>` dispatch.
 After 3 consecutive (or 20 total) classifier blocks, auto mode pauses and prompts. Example `autoMode.environment` entry — prose the classifier reads, not a pattern. Replace `<marketplace>` and `<version>`, or describe the directory in your own words, and write the home directory as an absolute path:
 "The multi-model-orchestrator runners at /home/yourname/.claude/plugins/cache/<marketplace>/multi-model-orchestrator/<version>/scripts/ and the
-codex, grok, muse, agy, opencode, vibe, and qwen CLIs they call are trusted for sending repository diffs."
+codex, grok, muse, agy, vibe, and qwen CLIs they call are trusted for sending repository diffs."
 
 ## Execution posture
 
@@ -322,8 +321,7 @@ codex, grok, muse, agy, opencode, vibe, and qwen CLIs they call are trusted for 
   `--mode probe` (`run-claude.sh`, `run-grok.sh`, `run-muse.sh`): it keeps its shell, must end
   with a verdict line (exit 6) and must leave the repository unchanged (exit 7). Claude and Grok research legs have web-only
   tool allowlists with no file access; Muse research has no write or shell tools and runs from an
-  empty directory but keeps read tools. OpenCode implement uses `--auto`; its review uses
-  `--agent plan` (edit tool denied) from an empty directory, is advisory, and exits 7 on writes. Vibe implement uses
+  empty directory but keeps read tools. Vibe implement uses
   `--trust --auto-approve`; its advise and review enable `read_file` only in an untrusted folder (no project `.vibe/` config or
   hooks, no shell, no search; a headless run denies every call that needs approval), are advisory, and exit 7 on writes. The Codex CLI has no per-tool allowlist and
   keeps shell access, so Codex research runs from a scratch working root instead of the repository,
@@ -353,7 +351,6 @@ codex, grok, muse, agy, opencode, vibe, and qwen CLIs they call are trusted for 
   passes no `--model` and the CLI selects one. Bounded work requests `muse-spark-1.3`; the T3
   pin is `muse-wonder-full-1.0`. Pool rows supply their own `--model`. A pinned leg that ran
   another model exits 7.
-- OpenCode legs keep `OPENCODE_*` and `XDG_*`; the Go credential is read from the OpenCode config.
 
 ## Review gate
 
@@ -365,8 +362,8 @@ does not count as independent either; omit it only for a run restricted to one p
 An agy worker passes `--author agy/<model>`; a bare `--author agy` conflicts with any Claude-family leg.
 Classification is fail-closed: only labels naming a hosted catalog provider or model (Claude, Codex,
 GPT, Grok, Muse and their model names) count as independent, plus the qualified `agy/claude-opus-5-5`
-leg, which counts as Claude; `Local Qwen`, `qwen3.8-27b-local`, a bare `agy`, `opencode`, `vibe`, or
-an unrecognized label are advisory. The local, OpenCode, and Vibe reviewers, and unqualified agy legs,
+leg, which counts as Claude; `Local Qwen`, `qwen3.8-27b-local`, a bare `agy`, `vibe`, or
+an unrecognized label are advisory. The local and Vibe reviewers, and unqualified agy legs,
 read the diff and cannot run probes, so none can be the only reviewer — the gate enforces that rather
 than trusting a prompt to say so. agy enforces no read-only mode in print mode, so `run-agy.sh --mode review` runs from an empty
 directory and exits 7 if the repository changed anyway.
@@ -387,14 +384,13 @@ one outcome with exit 143, 129, or 130 respectively.
   - latest Grok Build (`grok`), using Grok 4.7 by default
   - Meta Muse Code (`muse`); bounded work requests `muse-spark-1.3`, T3 pins `muse-wonder-full-1.0`, and `default` passes no `--model`
   - Google Antigravity CLI (`agy`) for the Gemini and Claude-overflow routes
-  - OpenCode v2 (`@opencode/cli`) with an OpenCode Go credential; v1 is not supported
   - Mistral Vibe 3 or newer (`vibe`, PyPI `mistral-vibe`) with `MISTRAL_API_KEY` in `~/.vibe/.env`; vibe 2 is not supported
 - Optional local engine: the `subagent-local-qwen3.8-27b` plugin, a llama.cpp endpoint, the `qwen`
   CLI, `curl`, `jq`, and `flock`. Missing any of them makes local routes report unavailable (exit 75) and
   the pool moves to the next worker.
 - `flock` (util-linux) for `handoff-lease.sh`
 
-Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-opencode.sh`, `run-vibe.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings.
+Only selected providers are required; `pool.sh` skips a provider whose CLI is not installed. `jq` is required for `run-claude.sh --stream-log`, `run-agy.sh`, `run-muse.sh`, `run-vibe.sh`, and the local-Qwen route, all of which extract a final message from a JSON stream; `usage.sh` also needs it. `run-claude.sh --mcp` also uses `jq` to encode each server URL. `run-claude.sh --api` requires `jq` for settings.
 
 ## Configuration
 
@@ -415,12 +411,10 @@ Check `truncated=` on the exit line of every Grok review or advise leg. Advice m
 | `MMO_MUSE_MODEL` | `muse-spark-1.3` | Direct runner default. `default` passes no `--model`. Pool rows supply their own `--model` |
 | `MMO_MUSE_EFFORT` | `medium` | Muse reasoning effort |
 | `MMO_MUSE_MAX_STEPS` | `50` | Muse model-step cap, from 1 to 200. A leg that uses its last step exits 76 (implement: work may be partial) or 78 (any other mode: no report) |
-| `MMO_OPENCODE_MODEL` | `glm-5.3` | OpenCode Go model id (the runner prefixes `opencode-go/`) |
-| `MMO_OPENCODE_EFFORT` | `high` | OpenCode model variant (`default` passes none) |
 | `MMO_VIBE_MODEL` | `default` | Vibe model alias; `default` passes no `--model` |
 | `MMO_VIBE_EFFORT` | `default` | Vibe thinking level (`off`, `low`, `medium`, `high`, `xhigh`, `max`; Mistral Large 4 only `low`–`high`); `default` passes no `--thinking` |
 | `MMO_VIBE_MAX_TURNS` | `50` | Vibe assistant-turn cap, from 1 to 200. A leg that uses its last turn exits 76 (implement: work may be partial) or 78 (any other mode: no report) |
-| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/OpenCode/Vibe/local-Qwen review |
+| `MMO_REVIEW_DIFF_MAX_BYTES` | `1048576` | Maximum diff supplied to Claude/Grok/Muse/agy/Vibe/local-Qwen review |
 | `MMO_CONTEXT_WARN_TOKENS` | `400000` | Context size at which the context-watch hook warns a meta-orchestrator |
 | `MMO_HANDOFF_DIR` | `.claude/handoffs` | Repo-relative handoff directory in the target repository |
 | `MMO_AGY_MODEL` | `gemini-3.8-flash` | agy worker/reviewer model |

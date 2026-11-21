@@ -60,7 +60,6 @@ grok_ids() { timeout 120 grok models </dev/null | sed -nE 's/^ +[-*] ([^ ]+).*/\
 # agy lists one id per model and effort (<model>-<effort>): the model section keeps the stem.
 agy_raw="$(timeout 120 agy models </dev/null | awk -F'\t' 'NF > 1 { print $1 }')" || agy_raw=''
 agy_ids() { sed -E "s/-($levels)\$//" <<<"$agy_raw"; }
-opencode_ids() { timeout 120 opencode models --standalone </dev/null | sed -n 's#^opencode-go/##p'; }
 effort_lines() { # "effort PROVIDER MODEL LEVEL": never mistaken for a model id (has spaces)
   jq -r '.models[] | .slug as $m | (.supported_reasoning_levels // [])[] | "effort codex \($m) \(.effort)"' "$codex_cache"
   sed -nE "s/^(.+)-($levels)\$/effort agy \1 \2/p" <<<"$agy_raw"
@@ -71,25 +70,19 @@ efforts_h='effort levels (codex cache, agy models)'
 section "codex (~/.codex/models_cache.json)" codex_ids
 section "grok (grok models)" grok_ids
 section "agy (agy models)" agy_ids
-section optional "opencode (opencode models)" opencode_ids
 section optional "$efforts_h" effort_lines
 # First sight of the effort section seeds it, and strips the effort suffix from the stored agy ids
 # so the new agy stems are not all "new"; the old suffixed ids made the same models.
-if grep -qxF "## $efforts_h" "$STATE/catalog.new" && ! grep -qxF "## $efforts_h" "$facts"; then
-  sed -i -E "/^## agy /,/^## /{/^## /!s/-($levels)\$//}" "$facts"
-fi
-# First sight of an optional section seeds state so current entries are not all "new";
-# a skipped sight carries the last block over so the baseline is not dropped.
-for name in 'opencode (opencode models)' "$efforts_h"; do
-  if grep -qxF "## $name" "$STATE/catalog.new"; then
-    if ! grep -qxF "## $name" "$facts"; then
-      section_block "$name" "$STATE/catalog.new" >>"$facts"
-      log "seeded ${name%% (*} catalog"
-    fi
-  elif grep -qxF "## $name" "$facts"; then
-    section_block "$name" "$facts" >>"$STATE/catalog.new"
+# A skipped sight carries the last block over so the baseline is not dropped.
+if grep -qxF "## $efforts_h" "$STATE/catalog.new"; then
+  if ! grep -qxF "## $efforts_h" "$facts"; then
+    sed -i -E "/^## agy /,/^## /{/^## /!s/-($levels)\$//}" "$facts"
+    section_block "$efforts_h" "$STATE/catalog.new" >>"$facts"
+    log "seeded ${efforts_h%% (*} catalog"
   fi
-done
+elif grep -qxF "## $efforts_h" "$facts"; then
+  section_block "$efforts_h" "$facts" >>"$STATE/catalog.new"
+fi
 stale_feeds=''
 refresh_feeds "$STATE/catalog.new" "$pool" || stale_feeds='openrouter, arena-webdev, arena-agent, terminal, bug-hunt'
 # A CLI addition must belong to a vendor family represented in the pool.
@@ -414,8 +407,8 @@ or a clear margin.
    agent and command frontmatter, README or doc lines stating a current default)
    where the catalog lists a newer version of the same family and tier, e.g.
    gpt-6-astra -> gpt-6.1-astra. The new ID must be listed for the CLI that
-   runs the pin: a Codex pin needs the codex section, an OpenCode pin the
-   opencode section. Leave pins for CLIs without a catalog section unchanged.
+   runs the pin: a Codex pin needs the codex section, an agy pin the agy
+   section. Leave pins for CLIs without a catalog section unchanged.
    For pool-tiers.tsv, apply the evidence rule above.
 2. Never change family or tier (opus -> fable, flash -> pro, sol -> astra), local
    model names, Muse pins (do not follow the CLI catalog default), changelog or history text, or
