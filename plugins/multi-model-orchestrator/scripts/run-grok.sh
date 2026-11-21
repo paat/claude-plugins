@@ -241,6 +241,10 @@ EOF
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-grok: empty prompt\n' >&2; exit 2; }
 
+# A {timeout} harness-adjustment line reaches only legs with a timeout below the 1200-second default.
+short_timeout=""
+[ "$run_timeout" -ge 1200 ] || short_timeout="$run_timeout"
+
 case "$mode" in
   review)
     mmo_review_diff run-grok "$repo_dir" "$base_ref" "$diff_file" "${leg_paths[@]}"
@@ -249,7 +253,7 @@ case "$mode" in
       printf 'You have at most %s agent turns: read the diff first, keep file and grep probes targeted, and write the report with turns to spare.\n' "$max_turns"
       printf '%s\n' 'Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.'
       printf '%s\n' 'End with APPROVE or NEEDS_WORK.'
-      mmo_adjustment_lines "$mmo_outcome_provider" "$model" review "$max_turns"
+      mmo_adjustment_lines "$mmo_outcome_provider" "$model" review "$max_turns" "$short_timeout"
       printf '\n## Task and acceptance\n'
       cat "$request_file"
       printf '\n## Unified diff from %s\n' "$base_ref"
