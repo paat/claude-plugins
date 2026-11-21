@@ -80,18 +80,18 @@ mechanism (Claude Code: Bash `run_in_background: true`) and continue on its comp
 after findings are arbitrated.
 
 ```bash
-legs=()   # one --leg per reviewer actually launched; each takes its model and effort from its reviewer route card
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model "$ROUTED_REVIEW_MODEL" --effort "$ROUTED_REVIEW_EFFORT" <<'PROMPT' > "$RUN_DIR/claude.txt" &
+legs=()   # one --leg per reviewer actually launched; each leg takes its model and effort from its own reviewer route card
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-claude.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model "$ROUTED_CLAUDE_REVIEW_MODEL" --effort "$ROUTED_CLAUDE_REVIEW_EFFORT" <<'PROMPT' > "$RUN_DIR/claude.txt" &
 <task and acceptance criteria; ask for architecture, intent, UX, scope, and integration defects>
 PROMPT
 claude_pid=$!; legs+=(--leg claude="$RUN_DIR/claude.txt")
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode review --dir "$REPO_ROOT" --model "$ROUTED_REVIEW_MODEL" --effort "$ROUTED_REVIEW_EFFORT" --timeout 1200 <<'PROMPT' > "$RUN_DIR/astra.txt" &
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-codex.sh" --mode review --dir "$REPO_ROOT" --model "$ROUTED_CODEX_REVIEW_MODEL" --effort "$ROUTED_CODEX_REVIEW_EFFORT" --timeout 1200 <<'PROMPT' > "$RUN_DIR/astra.txt" &
 Review the complete diff from BASE_SHA=<sha> to the working tree. Do not modify files.
 Return at most 10 actionable findings with severity, file:line, reachable failure, and a test.
 Ignore speculative edge cases without a realistic failure path. End with APPROVE or NEEDS_WORK.
 PROMPT
 astra_pid=$!; legs+=(--leg codex="$RUN_DIR/astra.txt")
-"${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model "$ROUTED_REVIEW_MODEL" --effort "$ROUTED_REVIEW_EFFORT" <<'PROMPT' > "$RUN_DIR/grok.txt" &
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-grok.sh" --mode review --repo "$REPO_ROOT" --base "$BASE_SHA" --model "$ROUTED_GROK_REVIEW_MODEL" --effort "$ROUTED_GROK_REVIEW_EFFORT" <<'PROMPT' > "$RUN_DIR/grok.txt" &
 <task and acceptance criteria; ask for reachable code defects and a verdict>
 PROMPT
 grok_pid=$!; legs+=(--leg grok="$RUN_DIR/grok.txt")
@@ -101,7 +101,7 @@ wait "$astra_pid" || review_failed=1
 wait "$grok_pid" || review_failed=1
 [ "$review_failed" -eq 0 ] || { printf '%s\n' 'One or more reviewers failed; do not arbitrate their output.' >&2; exit 1; }
 gate_rc=0
-# --author is the implementing provider; drop it only when the request restricts the run to one provider.
+# --author is the implementing provider (an agy worker: agy/<model> from the ledger); drop it only when the request restricts the run to one provider.
 verdict="$("${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh" --author "$WORKER_PROVIDER" "${legs[@]}")" || gate_rc=$?
 case "$gate_rc" in
   0) ;;                                   # APPROVE: continue to arbitration notes

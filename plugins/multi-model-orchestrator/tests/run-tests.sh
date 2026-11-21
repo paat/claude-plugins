@@ -3019,6 +3019,12 @@ gate_author 3 'opencode is not a hosted label' --leg opencode="$gate_dir/codex.t
 gate_author 0 'agy/claude-opus-5-5 is an independent reviewer' --leg agy/claude-opus-5-5="$gate_dir/codex.txt"
 gate_author 3 'any other agy model stays advisory' --leg agy/gemini-4-argon="$gate_dir/codex.txt"
 gate_author 3 'agy/claude-opus-5-5 is not independent of a claude author' --author claude --leg agy/claude-opus-5-5="$gate_dir/codex.txt"
+gate_author 3 '--author agy conflicts with a claude reviewer (model unknown)' --author agy --leg claude="$gate_dir/codex.txt"
+gate_author 0 '--author agy stays independent of a codex reviewer' --author agy --leg codex="$gate_dir/codex.txt"
+gate_author 3 '--author agy/claude-opus-5-5 conflicts with a direct claude reviewer' --author agy/claude-opus-5-5 --leg claude="$gate_dir/codex.txt"
+gate_author 0 '--author agy/claude-opus-5-5 stays independent of a codex reviewer' --author agy/claude-opus-5-5 --leg codex="$gate_dir/codex.txt"
+gate_author 3 '--author agy/claude-sonnet-5-5 conflicts with an agy opus reviewer' --author agy/claude-sonnet-5-5 --leg agy/claude-opus-5-5="$gate_dir/codex.txt"
+gate_author 3 "'claude-sonnet-5-5 (agy)' names the agy transport" --leg "claude-sonnet-5-5 (agy)=$gate_dir/codex.txt"
 pass 'review-gate --author requires a reviewer from another provider family'
 ! grep -E -- '--model [^-"$]' "$PLUGIN_ROOT/commands/orchestrate.md" >/dev/null \
   || fail 'fallback reviewer legs take the model from the route card, not a literal'
@@ -4278,6 +4284,18 @@ rc=0; printf 'task\n' | "${pool_env[@]}" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-lo
 contains "$PL/err" 'pool: agy unavailable (exit 75); next worker' 'pool reports the failed worker'
 contains "$PL/err" 'skip T2 agy/gemini-3.8-flash: already unavailable (exit 75)' 'pool skips the same-model retry at high'
 contains "$PL/err" 'every T2 worker was unavailable' 'pool names the exhausted tier'
+rm -f "$AR"/leg.out*
+
+# run: a quota (75) falls through to a different model, whose body reaches the caller.
+rm -f "$PL/calls"/*
+printf 'T2\tagy\tgemini-3.8-flash\tlow\nT2\tagy\tgemini-4-argon\thigh\n' > "$PL/fallback-tiers.tsv"
+out="$(printf 'task\n' | "${pool_env[@]}" MMO_POOL_TIERS="$PL/fallback-tiers.tsv" STUB_AGY_FAIL_MODEL=gemini-3.8-flash-low \
+  bash "$POOL" run --tier T2 --usage /dev/null --repo "$AR" --timeout 30 --out "$AR/leg.out" 2>"$PL/err")" \
+  || fail "pool run falls through to a different model: $(cat "$PL/err")"
+exact_line "$PL/calls/call.0.args" 'gemini-3.8-flash-low' 'pool tries the first worker first'
+exact_line "$PL/calls/call.1.args" 'gemini-4-argon-high' 'pool moves to the next model on exit 75'
+contains "$PL/err" 'pool: agy unavailable (exit 75); next worker' 'pool reports the fall-through'
+case "$out" in *done*) ;; *) fail "pool passes the worker's body through: $out" ;; esac
 rm -f "$AR"/leg.out*
 
 # run: a worker that changed the repo before failing is not replaced.

@@ -11,7 +11,9 @@
 #
 # --author names who wrote the change. A leg from the same provider family then no longer
 # counts as the independent reviewer (a model reviewing its own family's work shares its
-# blind spots). Omit it only when the run is restricted to one provider.
+# blind spots). Omit it only when the run is restricted to one provider. An agy worker
+# passes its model-qualified label (--author agy/<model>); a bare --author agy names no
+# model and conservatively conflicts with any Claude-family leg.
 #
 # Fail-closed: only a label naming a hosted catalog provider or model counts as an
 # independent reviewer (claude/opus/sonnet/haiku/fable, codex/gpt/astra/terra/luna,
@@ -53,14 +55,17 @@ done
 
 [ "${#legs[@]}" -gt 0 ] || { printf 'review-gate: no --leg given\n' >&2; usage >&2; exit 2; }
 
-# Prints the hosted provider family of a label, or nothing for a label outside the catalog.
+# Prints the hosted provider family of a reviewer-leg label, or nothing for a label
+# outside the catalog. Any label naming the agy transport is advisory, except the
+# canonical agy/claude-opus-5-5 leg, which reviews as Claude.
 mmo_provider_family() {
   local label
   label="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   # A local engine is advisory whatever else the label contains.
   case "$label" in *qwen*|*local*) return 0 ;; esac
-  # agy is advisory, except an Opus 5.5 leg, which reviews as Claude.
-  case "$label" in agy/claude-opus-5-5) printf 'claude\n'; return 0 ;; agy*) return 0 ;; esac
+  # The canonical Opus 5.5 leg reviews as Claude; every other agy label is advisory.
+  case "$label" in agy/claude-opus-5-5) printf 'claude\n'; return 0 ;; esac
+  case "$label" in *agy*) return 0 ;; esac
   case "$label" in
     claude*|opus*|sonnet*|haiku*|fable*) printf 'claude\n' ;;
     codex*|gpt*|astra*|terra*|luna*) printf 'codex\n' ;;
@@ -69,7 +74,23 @@ mmo_provider_family() {
   esac
 }
 
-author_family="$(mmo_provider_family "$author")"
+# Prints the hosted provider family of an --author label. An agy worker runs a catalog
+# model, so agy/<model> takes that model's family. A bare agy names no model and agy
+# can run Claude models, so it conservatively counts as Claude against any reviewer.
+mmo_author_family() {
+  local label rest
+  label="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$label" in *qwen*|*local*) return 0 ;; esac
+  case "$label" in agy) printf 'claude\n'; return 0 ;; "agy/"*) rest="${label#agy/}" ;; *) rest="$label" ;; esac
+  case "$rest" in
+    claude*|opus*|sonnet*|haiku*|fable*) printf 'claude\n' ;;
+    codex*|gpt*|astra*|terra*|luna*) printf 'codex\n' ;;
+    grok*) printf 'grok\n' ;;
+    muse*) printf 'muse\n' ;;
+  esac
+}
+
+author_family="$(mmo_author_family "$author")"
 independent=0
 needs_work=0
 

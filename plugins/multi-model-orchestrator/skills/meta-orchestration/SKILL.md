@@ -126,7 +126,7 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal: targeted read
    recording output or a memo is bookkeeping, not source editing.
 5. Adversarial review by a DIFFERENT provider than the worker, using the prompts AND the
    per-provider runner mode in `references/review-prompts.md`. Combine legs with
-   `${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh --author <worker>` (exit 3 = no independent reviewer); never hand-grep.
+   `${CLAUDE_PLUGIN_ROOT}/scripts/review-gate.sh --author <worker>` (agy workers pass `agy/<model>`); never hand-grep.
 6. On NEEDS_WORK: up to 5 fix cycles by the worker ("address exactly these, nothing else"), each
    followed by the SAME reviewer's bounded delta. From cycle 3, prefer simplify/descope over
    adding guards. If the fifth cycle's delta still returns NEEDS_WORK, report a blocker and park.

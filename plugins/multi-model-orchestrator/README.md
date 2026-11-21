@@ -362,11 +362,13 @@ into one verdict taken from each leg's last verdict line: `0` APPROVE, `1` NEEDS
 file or a leg without a terminal verdict, and `3` when no leg is from an independent hosted provider.
 With `--author`, a leg from the author's own provider family (a Codex reviewer for a GPT worker)
 does not count as independent either; omit it only for a run restricted to one provider.
+An agy worker passes `--author agy/<model>`; a bare `--author agy` conflicts with any Claude-family leg.
 Classification is fail-closed: only labels naming a hosted catalog provider or model (Claude, Codex,
-GPT, Grok, Muse and their model names) count as independent; `Local Qwen`, `qwen3.8-27b-local`, `agy`, `opencode`, `vibe`, or
-an unrecognized label are advisory. The local, agy, OpenCode, and Vibe reviewers read the diff and cannot run probes,
-so none can be the only reviewer — the gate enforces that rather than trusting a prompt to say
-so. agy enforces no read-only mode in print mode, so `run-agy.sh --mode review` runs from an empty
+GPT, Grok, Muse and their model names) count as independent, plus the qualified `agy/claude-opus-5-5`
+leg, which counts as Claude; `Local Qwen`, `qwen3.8-27b-local`, a bare `agy`, `opencode`, `vibe`, or
+an unrecognized label are advisory. The local, OpenCode, and Vibe reviewers, and unqualified agy legs,
+read the diff and cannot run probes, so none can be the only reviewer — the gate enforces that rather
+than trusting a prompt to say so. agy enforces no read-only mode in print mode, so `run-agy.sh --mode review` runs from an empty
 directory and exits 7 if the repository changed anyway.
 
 TERM, HUP, and INT to a runner or `pool.sh run` stop the active provider, including
