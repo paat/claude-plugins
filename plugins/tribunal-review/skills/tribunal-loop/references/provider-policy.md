@@ -3,7 +3,7 @@
 ## Panel selection and risk tiers
 
 By default the tribunal selects **3 distinct available reviewer legs** (`TRIBUNAL_PANEL_SIZE`,
-default `3`, range `2..8`) for the PR risk tier (`TRIBUNAL_RISK`: `T1`–`T4`; unset uses `T2`)
+default `3`, range `2..7`) for the PR risk tier (`TRIBUNAL_RISK`: `T1`–`T4`; unset uses `T2`)
 from `scripts/review-panel.tsv` (override with `TRIBUNAL_REVIEW_PANEL=<file>`, environment only).
 Rows are ranked in preference order (`tier<TAB>provider<TAB>model<TAB>effort`, where `-` passes no
 effort); only Codex reaches `xhigh` at `T4` because maximum-effort reviewers over-report.
@@ -73,7 +73,7 @@ plan-limited leg, and enough to cover any shortfall when `ok` legs are below `TR
 
 ## APPROVE quorum
 
-`TRIBUNAL_MIN_OK_LEGS` (default `2`, range `2..8`; `1` is rejected because a one-leg `APPROVE` is
+`TRIBUNAL_MIN_OK_LEGS` (default `2`, range `2..7`; `1` is rejected because a one-leg `APPROVE` is
 not allowed) is the per-environment floor of `ok` legs required for `APPROVE`. It is
 environment-only and sealed into `manifest.json` inside `panel_policy` alongside `panel_size` and
 the selected `panel`.

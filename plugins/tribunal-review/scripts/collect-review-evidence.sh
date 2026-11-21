@@ -1119,8 +1119,8 @@ validate_manifest_shape() {
           and .path=="mutation-gate.json" and (.sha256|sha) and (.bytes|uint and .>0)))
     and ((has("panel_policy")|not) or
          (.panel_policy | exact(["min_ok_legs","panel_size","panel","source"];["min_ok_legs","panel_size","panel","source"])
-          and (.min_ok_legs|type=="number" and .>=2 and .<=8 and .==floor)
-          and (.panel_size|type=="number" and .>=2 and .<=8 and .==floor)
+          and (.min_ok_legs|type=="number" and .>=2 and .<=7 and .==floor)
+          and (.panel_size|type=="number" and .>=2 and .<=7 and .==floor)
           and (.panel|type=="array"
                and ([.[].provider]|length)==([.[].provider]|unique|length)
                and all(.[]; exact(["provider","model","effort"];["provider","model","effort"])

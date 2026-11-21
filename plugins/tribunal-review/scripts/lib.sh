@@ -9,7 +9,8 @@ tribunal_deepseek_model() {
 }
 
 # Per-environment APPROVE floor (issue #519). Unset/empty ⇒ 2; otherwise an
-# integer in 2..8. A 1-leg APPROVE is never permitted.
+# integer in 2..7 (seven legs exist, so a floor of 8 could never pass).
+# A 1-leg APPROVE is never permitted.
 tribunal_min_ok_legs() {
   local raw="${TRIBUNAL_MIN_OK_LEGS:-}"
   if [ -z "$raw" ]; then
@@ -18,16 +19,17 @@ tribunal_min_ok_legs() {
   fi
   case "$raw" in
     1)
-      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..8)\n' >&2
+      printf 'invalid TRIBUNAL_MIN_OK_LEGS value: 1 (a one-leg APPROVE is not allowed; want integer 2..7)\n' >&2
       return 1
       ;;
-    [2-8]) printf '%s\n' "$raw"; return 0 ;;
+    [2-7]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..8)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_MIN_OK_LEGS value: %s (want integer 2..7)\n' "$raw" >&2
   return 1
 }
 
-# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..8.
+# Selected panel size (environment only). Unset/empty ⇒ 3; otherwise 2..7
+# (seven legs exist, so a panel of 8 could never seat).
 tribunal_panel_size() {
   local raw="${TRIBUNAL_PANEL_SIZE:-}"
   if [ -z "$raw" ]; then
@@ -35,9 +37,9 @@ tribunal_panel_size() {
     return 0
   fi
   case "$raw" in
-    [2-8]) printf '%s\n' "$raw"; return 0 ;;
+    [2-7]) printf '%s\n' "$raw"; return 0 ;;
   esac
-  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..8)\n' "$raw" >&2
+  printf 'invalid TRIBUNAL_PANEL_SIZE value: %s (want integer 2..7)\n' "$raw" >&2
   return 1
 }
 
@@ -120,10 +122,17 @@ tribunal_deepseek_available() {
   return 1
 }
 
+# A zero-byte OAuth token is not a sign-in: real agy prints
+# "Authentication required" and waits for login. Selection and execution share
+# this check so an empty token never takes a reviewer seat and never shadows
+# a configured GEMINI_API_KEY.
+tribunal_gemini_token_usable() {
+  local token="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
+  [ -n "${HOME:-}" ] && [ ! -L "$token" ] && [ -s "$token" ]
+}
+
 tribunal_gemini_available() {
-  local token
-  token="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
-  if [ -f "$token" ] && [ ! -L "$token" ]; then
+  if tribunal_gemini_token_usable; then
     return 0
   fi
   if [ -n "${GEMINI_API_KEY:+present}" ]; then
@@ -173,7 +182,13 @@ tribunal_select_panel() {
     toggle_var="TRIBUNAL_${upper}"
     toggle_val="${!toggle_var:-}"
     case "$toggle_val" in
-      ''|auto) ;;
+      '') ;;
+      auto)
+        if [ "$p" != gemini ]; then
+          printf 'invalid %s value: auto (only TRIBUNAL_GEMINI accepts auto; want on or off)\n' "$toggle_var" >&2
+          return 1
+        fi
+        ;;
       on) forced_set="${forced_set}${p} " ;;
       off) explicit_off="${explicit_off}${p} " ;;
       *)

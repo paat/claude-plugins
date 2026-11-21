@@ -1150,6 +1150,14 @@ EOF
   out="$(select_panel GEMINI_API_KEY=fixture)"
   tr_check "GEMINI_API_KEY alone re-enables the Gemini leg" jqe \
     '[.panel[].provider] == ["codex","claude","gemini"]' <<< "$out"
+  : > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  out="$(select_panel)"
+  tr_check "an empty OAuth token is not a sign-in and Grok fills the third seat" jqe '
+    [.panel[].provider] == ["codex","claude","grok"]
+    and .toggles.gemini == "off"' <<< "$out"
+  out="$(select_panel GEMINI_API_KEY=fixture)"
+  tr_check "an empty OAuth token yields to a configured API key" jqe \
+    '[.panel[].provider] == ["codex","claude","gemini"]' <<< "$out"
   printf 'token\n' > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
   out="$(select_panel TRIBUNAL_GEMINI=off)"
   tr_check "TRIBUNAL_GEMINI=off opts out even when signed in" jqe '
@@ -1202,6 +1210,102 @@ EOF
   tr_check "TRIBUNAL_GEMINI=off opts out even when signed in" jq -e \
     '.provider=="gemini" and .status=="disabled"' \
     "$work/opt-out.json"
+  (cd "$work" && env -u TRIBUNAL_GEMINI -u GEMINI_API_KEY PATH="/usr/bin:/bin" HOME="$home" \
+    TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-gemini-review.sh") > "$work/auto-missing.json" 2>/dev/null
+  tr_check "auto emits disabled (not an error) when agy is missing" jq -e \
+    '.provider=="gemini" and .status=="disabled"' \
+    "$work/auto-missing.json"
+  : > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  (cd "$work" && env -u TRIBUNAL_GEMINI -u GEMINI_API_KEY PATH="$fake:/usr/bin:/bin" HOME="$home" \
+    TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-gemini-review.sh") > "$work/auto-empty.json" 2>/dev/null
+  tr_check "auto disables the leg for an empty token without an error" jq -e \
+    '.provider=="gemini" and .status=="disabled"' \
+    "$work/auto-empty.json"
+  (cd "$work" && env -u TRIBUNAL_GEMINI PATH="$fake:/usr/bin:/bin" HOME="$home" \
+    GEMINI_API_KEY=key TRIBUNAL_BASE_REF=HEAD~1 \
+    bash "$PLUGIN_ROOT/scripts/run-gemini-review.sh") > "$work/auto-empty-key.json" 2>/dev/null
+  tr_check "an empty token yields to a configured API key in auto mode" jq -e \
+    '.provider=="gemini" and .summary.verdict=="APPROVE" and (has("error")|not)' \
+    "$work/auto-empty-key.json"
+  rm -rf "$work"
+}
+
+# The panel table selects per-tier models and efforts; the runners must pass
+# those exact values to the provider CLIs (not their standalone defaults).
+test_panel_selected_cli_argv() {
+  local work fake
+  work="$(mktemp -d)"; fake="$work/bin"; mkdir -p "$fake"
+  cat > "$fake/codex" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$FIXTURE_CODEX_ARGS"
+cat >/dev/null
+printf '%s\n' '{"provider":"codex","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}'
+EOF
+  cat > "$fake/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"fixture"}'
+  exit 0
+fi
+printf '%s\n' "$@" > "$FIXTURE_CLAUDE_ARGS"
+cat >/dev/null
+printf '%s\n' '{"structured_output":{"provider":"claude","model":"fixture","files_examined":["file.txt"],"findings":[],"summary":{"total_findings":0,"critical":0,"high":0,"medium":0,"low":0,"quality_score":10,"verdict":"APPROVE"}}}'
+EOF
+  chmod +x "$fake/codex" "$fake/claude"
+  (
+    set -e
+    cd "$work"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Test User"
+    printf 'one\n' > file.txt
+    git add file.txt
+    git commit -q -m base
+    printf 'two\n' > file.txt
+    git commit -q -am change
+  )
+  run_selected_tier() {
+    (
+      set -e
+      cd "$work"
+      local p upper
+      for p in codex claude grok muse deepseek gemini qwen; do
+        upper="${p^^}"
+        unset "TRIBUNAL_$upper" "TRIBUNAL_${upper}_MODEL" "TRIBUNAL_${upper}_EFFORT"
+      done
+      unset TRIBUNAL_PANEL_SIZE TRIBUNAL_BACKUP_LEGS TRIBUNAL_PANEL_SELECTED TRIBUNAL_REVIEW_PANEL
+      if [ -n "${1:-}" ]; then export TRIBUNAL_RISK="$1"; else unset TRIBUNAL_RISK; fi
+      export PATH="$fake:/usr/bin:/bin" TRIBUNAL_BASE_REF=HEAD~1 TRIBUNAL_NATIVE_REVIEW=off HOME="$work/home"
+      unset GEMINI_API_KEY DEEPSEEK_API_KEY XAI_API_KEY
+      mkdir -p "$work/home"
+      export FIXTURE_CODEX_ARGS="$work/codex.args" FIXTURE_CLAUDE_ARGS="$work/claude.args"
+      . "$PLUGIN_ROOT/scripts/lib.sh"
+      tribunal_select_panel
+      bash "$PLUGIN_ROOT/scripts/run-codex-review.sh" > "$work/codex.selected.json"
+      bash "$PLUGIN_ROOT/scripts/run-claude-review.sh" > "$work/claude.selected.json"
+    )
+  }
+  run_selected_tier "" || true
+  tr_check "default T2 selection runs the Codex leg successfully" jq -e \
+    '.provider=="codex" and .summary.verdict=="APPROVE"' "$work/codex.selected.json"
+  tr_check "default T2 selection runs the Claude leg successfully" jq -e \
+    '.provider=="claude" and .summary.verdict=="APPROVE"' "$work/claude.selected.json"
+  tr_check "default T2 selection sends Codex Sol medium to the CLI" bash -c '
+    grep -qxF -- gpt-6.2-sol "$1" && grep -qxF -- "model_reasoning_effort=\"medium\"" "$1"' _ "$work/codex.args"
+  tr_check "default T2 selection sends Claude Sonnet medium to the CLI" bash -c '
+    grep -qxF -- claude-sonnet-5-5 "$1" && grep -qxF -- --effort "$1" && grep -qxF -- medium "$1"' _ "$work/claude.args"
+  rm -f "$work/codex.args" "$work/claude.args"
+  run_selected_tier T3 || true
+  tr_check "T3 selection runs the Codex leg successfully" jq -e \
+    '.provider=="codex" and .summary.verdict=="APPROVE"' "$work/codex.selected.json"
+  tr_check "T3 selection runs the Claude leg successfully" jq -e \
+    '.provider=="claude" and .summary.verdict=="APPROVE"' "$work/claude.selected.json"
+  tr_check "T3 selection sends Codex Astra high to the CLI" bash -c '
+    grep -qxF -- gpt-6.2-astra "$1" && grep -qxF -- "model_reasoning_effort=\"high\"" "$1"' _ "$work/codex.args"
+  tr_check "T3 selection sends Claude Opus high to the CLI" bash -c '
+    grep -qxF -- claude-opus-5-5 "$1" && grep -qxF -- --effort "$1" && grep -qxF -- high "$1"' _ "$work/claude.args"
   rm -rf "$work"
 }
 
@@ -2004,6 +2108,24 @@ EOF
   jq -e '.provider=="gemini" and (.error|test("not signed in"))' "$work/out-c.json" >/dev/null \
     && [ ! -e "$state/ran" ] || rc=1
   gemini_leg_check "$rc" "gemini leg without agy sign-in fails before provider run"
+
+  # Scenario E: a zero-byte token yields to API-key mode instead of the OAuth seat.
+  : > "$home/.gemini/antigravity-cli/antigravity-oauth-token"
+  rm -f "$state/ran" "$state/token-mode"
+  gemini_leg_run PATH="$fake:$PATH" GEMINI_API_KEY=key > "$work/out-e.json"
+  rc=0
+  jq -e '.provider=="gemini" and .summary.verdict=="APPROVE" and (has("error")|not)' "$work/out-e.json" >/dev/null \
+    && jq -e '.modelProvider=="gemini"' "$state/settings.json" >/dev/null \
+    && [ ! -e "$state/token-mode" ] && [ -e "$state/ran" ] || rc=1
+  gemini_leg_check "$rc" "gemini leg with an empty token falls back to agy API-key mode"
+
+  # Scenario F: a zero-byte token with no key fails before agy runs.
+  rm -f "$state/ran"
+  gemini_leg_run -u GEMINI_API_KEY PATH="$fake:$PATH" > "$work/out-f.json"
+  rc=0
+  jq -e '.provider=="gemini" and (.error|test("not signed in"))' "$work/out-f.json" >/dev/null \
+    && [ ! -e "$state/ran" ] || rc=1
+  gemini_leg_check "$rc" "gemini leg with an empty token and no key fails before provider run"
 
   # Scenario D: agy missing from PATH.
   gemini_leg_run PATH="/usr/bin:/bin" > "$work/out-d.json"
@@ -3954,7 +4076,7 @@ EOF
 
   # Invalid values → exit 2 naming the key (including 1: one-leg APPROVE rejected); unset → floor 2.
   local bad
-  for bad in 0 1 abc 9; do
+  for bad in 0 1 8 abc 9; do
     ec=0
     (
       cd "$work"
@@ -5905,7 +6027,7 @@ EOF
   tr_check "TRIBUNAL_PANEL_SIZE=2 selects exactly two legs" jqe \
     '[.panel[].provider] == ["codex","claude"]' <<< "$out"
   invalid_panel_sizes() {
-    for bad in 1 9 invalid; do
+    for bad in 1 8 9 invalid; do
       if select_panel TRIBUNAL_PANEL_SIZE="$bad" > /dev/null 2> "$work/invalid.err"; then return 1; fi
       grep -q 'TRIBUNAL_PANEL_SIZE' "$work/invalid.err" || return 1
     done
@@ -5918,6 +6040,11 @@ EOF
     grep -Fq 'invalid TRIBUNAL_GROK value: yes (want on, off, or auto)' "$work/invalid.err"
   }
   tr_check "invalid provider toggle values still fail loudly" invalid_toggle
+  reject_non_gemini_auto() {
+    if select_panel TRIBUNAL_QWEN=auto > /dev/null 2> "$work/invalid.err"; then return 1; fi
+    grep -Fq 'invalid TRIBUNAL_QWEN value: auto' "$work/invalid.err"
+  }
+  tr_check "auto is rejected for non-Gemini provider toggles" reject_non_gemini_auto
   printf '# fixture\nT2\tcodex\tgpt-6.1-sol # trailing comment\tmedium\n' > "$work/bad-panel.tsv"
   reject_bad_model() {
     if select_panel TRIBUNAL_REVIEW_PANEL="$work/bad-panel.tsv" > /dev/null 2> "$work/invalid.err"; then return 1; fi
@@ -7170,6 +7297,7 @@ echo "Risk tier, effort, and backup legs"
 test_panel_selection
 test_gemini_tier_panel
 test_gemini_auto_runner
+test_panel_selected_cli_argv
 test_panel_contract_seven_legs
 test_risk_tier_and_backup_config
 test_risk_effort_reaches_claude_and_grok

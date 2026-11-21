@@ -8,9 +8,16 @@ case "${TRIBUNAL_GEMINI:-auto}" in
   on|auto|'') ;;
   *) tribunal_error gemini "invalid TRIBUNAL_GEMINI: ${TRIBUNAL_GEMINI} (want on, off, or auto)"; exit 0 ;;
 esac
-command -v agy >/dev/null 2>&1 || { tribunal_error gemini "Antigravity CLI (agy) not on PATH"; exit 0; }
+if ! command -v agy >/dev/null 2>&1; then
+  if [ "${TRIBUNAL_GEMINI:-auto}" = on ]; then
+    tribunal_error gemini "Antigravity CLI (agy) not on PATH"
+  else
+    tribunal_disabled gemini "Antigravity CLI (agy) not on PATH"
+  fi
+  exit 0
+fi
 AGY_TOKEN="${HOME:-}/.gemini/antigravity-cli/antigravity-oauth-token"
-if [ -f "$AGY_TOKEN" ] && [ ! -L "$AGY_TOKEN" ]; then
+if tribunal_gemini_token_usable; then
   PROVIDER_SETTING=""
 elif [ -n "${GEMINI_API_KEY:-}" ]; then
   PROVIDER_SETTING=',"modelProvider":"gemini"'
