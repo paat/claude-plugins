@@ -385,7 +385,7 @@ one outcome with exit 143, 129, or 130 respectively.
 - `awk` and `setsid` (util-linux) for forwarding stops through nested provider watchdogs
 - The authenticated CLI for each selected route:
   - Claude Code (`claude`)
-  - OpenAI Codex CLI (`codex`)
+  - OpenAI Codex CLI (`codex`), 2026-05 or newer: legs pass `--dangerously-bypass-hook-trust`, which an older CLI rejects
   - latest Grok Build (`grok`), using Grok 4.7 by default
   - Meta Muse Code (`muse`); bounded work requests `muse-spark-1.3`, T3 pins `muse-wonder-full-1.0`, and `default` passes no `--model`
   - Google Antigravity CLI (`agy`) for the Gemini and Claude-overflow routes

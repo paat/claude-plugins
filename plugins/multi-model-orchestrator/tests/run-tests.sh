@@ -651,7 +651,9 @@ out="$(printf 'bounded review\n' | "$PLUGIN_ROOT/scripts/run-codex.sh" --mode re
 contains "$WORK/codex.args" 'gpt-6.2-astra' 'Codex model pin'
 contains "$WORK/codex.args" 'model_reasoning_effort="ultra"' 'Codex Ultra pin'
 contains "$WORK/codex.args" '--dangerously-bypass-approvals-and-sandbox' 'Codex unrestricted posture'
-contains "$WORK/codex.args" '--dangerously-bypass-hook-trust' 'Codex leg runs plugin hooks without a TUI trust review'
+# One argument per line: both flags must belong to `codex exec`, before -C and the prompt.
+[ "$(sed -n 1,3p "$WORK/codex.args" | tr '\n' ' ')" = 'exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust ' ] \
+  || fail 'Codex leg passes the hook-trust bypass to codex exec'
 contains "$WORK/codex.prompt" 'bounded review' 'Codex stdin prompt'
 contains "$WORK/codex.prompt" 'semantically read-only reviewer' 'Codex review mode prepends the no-write contract'
 codex_review_root="$(awk 'previous == "-C" { print; exit } { previous = $0 }' "$WORK/codex.args")"
