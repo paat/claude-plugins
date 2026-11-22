@@ -30,8 +30,9 @@ tracks the latest Haiku 5.5 release instead of pinning an earlier dated snapshot
 | Muse Code | `default` | Explicit opt-in: passes no `--model`; the installed CLI selects its model | `minimal`–`max` |
 | Local Qwen | `default` | Runs whatever model the local endpoint serves (a pinned id must be served). Free bounded mechanical edits with a named test, and a cheap second review lens — only when the local endpoint answers | `n/a` (the wrapper pins `medium`) |
 | agy (Antigravity) | `gemini-3.8-flash` | Cheap, fast bounded edits; an advisory diff-only review lens | `low`, `medium`, `high` |
-| agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate; review remains advisory | `low`, `medium`, `high` |
-| agy (Antigravity) | `gemini-4-hydrogen` | T2 `medium` worker ahead of Flash `high`, and T3 behind Argon; added 2026-11-14 when `agy models` first listed it; review remains advisory | `low`, `medium`, `high` |
+| agy (Antigravity) | `gemini-4-neon` | First Gemini T3 candidate, ahead of Argon: Google places it between Carbon and Hydrogen for multi-file debugging and refactoring (released 2026-11-18; source `agy models` 2026-11-22, which also lists `xhigh`; the wrapper passes `low`–`high`). Review remains advisory | `low`, `medium`, `high` |
+| agy (Antigravity) | `gemini-4-argon` | Complex debugging/refactoring candidate behind Neon; review remains advisory | `low`, `medium`, `high` |
+| agy (Antigravity) | `gemini-4-hydrogen` | T2 `medium` worker ahead of Flash `high`, and T3 behind Neon and Argon; added 2026-11-14 when `agy models` first listed it; review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `gemini-4-carbon` | Available T3 candidate behind Hydrogen, not preferred. Gemini flagship, orchestrator-eligible (owner 2026-11-18 flagship rule), not the default agy model (owner correction 2026-11-19), source `agy models` 2026-11-20 (`gemini-4-carbon-low`/`medium`/`high`; no xhigh). Review remains advisory | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-sonnet-5-5` | Same-model overflow when the Claude plan window is spent; small pool; advisory in review | `low`, `medium`, `high` |
 | agy (Antigravity) | `claude-opus-5-5` | Same-model overflow when the Claude plan window is spent; small pool; eligible in review (paat/ai-overlord#474, 2026-11-18) | `low`, `medium`, `high` |
@@ -114,12 +115,12 @@ pinned model not served (or several served and none pinned), or no wrapper. Loca
 worker on `75`, `77`, or `127` (a provider/model that already exited `75` is not retried later in the run); if that leg changed the repository it exits `55` instead (salvage
 or reset first). Its own `75` means nobody in the tier chain was available. Local Qwen,
 agy, and Vibe reviews remain advisory except agy `claude-opus-5-5` (paat/ai-overlord#474, 2026-11-18). Local implementation stays bounded and mechanical; agy
-Flash stays in T1/T2 and remains the default agy model. Hydrogen is also a T2 `medium` worker; Argon, Hydrogen, and Carbon (behind Hydrogen, not preferred) are T3 implementation candidates. agy Sonnet 5.5 (T2) and Opus
+Flash stays in T1/T2 and remains the default agy model. Hydrogen is also a T2 `medium` worker; Neon, Argon, Hydrogen, and Carbon (behind Hydrogen, not preferred) are T3 implementation candidates, in that order. agy Sonnet 5.5 (T2) and Opus
 5.5 (T3) follow the same model's Claude plan/API rows: a tight usage window enables API overflow;
 a plan leg returning `75` with `failure=limit` enables matching API overflow; transient
 failures fall through to agy. agy's three
 quota pools (Gemini Flash, Claude, Argon) each gate only their own models; `/usage` reported no
-Hydrogen pool on 2026-11-14, so none of the three gates Hydrogen. The same three pools do not name Carbon, so none gates Carbon. None of agy's routes is
+Hydrogen pool on 2026-11-14, so none of the three gates Hydrogen. The same three pools do not name Carbon, so none gates Carbon. `/usage` reported no Neon pool on 2026-11-22, so none gates Neon. None of agy's routes is
 a T4 route. For reviewer independence an `agy/claude-*` worker counts as Claude: its reviewer must
 be another vendor.
 

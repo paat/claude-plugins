@@ -1,6 +1,6 @@
 {
   "name": "tribunal-review",
-  "version": "0.31.2",
+  "version": "0.31.3",
   "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek and Qwen, at least two must succeed, with calling-context arbitration",
   "author": {
     "name": "Andre Paat"

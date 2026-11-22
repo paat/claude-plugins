@@ -73,3 +73,22 @@ second source agrees or the margin is clear.
 Result: 6.2 Sol/Astra lead the Codex rows with 6.1 Sol and 6 Astra behind them as fallbacks;
 `gpt-6-sol`, both Sonnet 5 rows and both Terra rows left the pool (still pinnable); Hydrogen
 `medium` enters T2 ahead of Flash `high`; Muse Spark moves to the end of T2 before Vibe.
+
+## Gemini 4 Neon enters T3 (as of 2026-11-22)
+
+- Google's [launch post](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-neon/)
+  (2026-11-18): Neon sits between Carbon ("hardest, long-horizon projects") and Hydrogen ("fast
+  everyday execution"), "handles multi-file debugging and refactoring across repositories", four
+  thinking levels with `high` the default, and "a 32% lower cost per task than Carbon". Reported
+  scores: Terminal-Bench 4.1 65.2%, Artificial Analysis Coding Agent Index 58.6 (first), SWE-sweep
+  12.8% on mini-SWE and 39.0% inside Antigravity. The post publishes no Neon-vs-Argon or
+  Neon-vs-Hydrogen number, and its comparison tables are images that were not read.
+- The [Antigravity post](https://antigravity.google/blog/gemini-4-neon-in-google-antigravity/)
+  (2026-11-18): paid Pro and Ultra plans get Neon in the CLI; it states no rate limit or quota pool.
+- Live `agy models` on 2026-11-22 listed `gemini-4-neon-low`/`medium`/`high`/`xhigh`; a minimal
+  Neon-low request succeeded. `agy /usage` returned only the Gemini and Claude/GPT pools that day.
+
+Result: Neon `high` enters T3 ahead of Argon, as the newer model Google positions above Hydrogen
+for complex coding. This is vendor positioning, not a measured ranking; local records override it.
+Argon, Hydrogen and Carbon keep their relative order. No T2 or T4 row: Hydrogen stays the T2
+Gemini worker and agy has no T4 route.

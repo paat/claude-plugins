@@ -1140,7 +1140,7 @@ EOF
   out="$(select_panel TRIBUNAL_RISK=T3 TRIBUNAL_PANEL_SIZE=5)"
   tr_check "T3 selection tiers Codex Claude Gemini and pins Muse Wonder Full" jqe '
     [.panel[].provider] == ["codex","claude","gemini","grok","muse"]
-    and .panel[2] == {provider:"gemini",model:"gemini-4-argon-high",effort:null}
+    and .panel[2] == {provider:"gemini",model:"gemini-4-neon-high",effort:null}
     and .panel[4] == {provider:"muse",model:"muse-wonder-full-1.0",effort:"high"}' <<< "$out"
   rm -f "$home/.gemini/antigravity-cli/antigravity-oauth-token"
   out="$(select_panel)"
@@ -1348,7 +1348,7 @@ test_panel_contract_seven_legs() {
     tr_check "$tier leads with three distinct legs ahead of the fallbacks" bash -c '[ "$1" -eq 3 ]' _ "$first3"
   done
   gemini_models="$(awk -F$'\t' '$2=="gemini" {print $1 "=" $3}' "$tsv" | sort | tr '\n' ' ')"
-  tr_check "gemini rows use Hydrogen at T1/T2 and Argon at T3/T4" bash -c '[ "$1" = "T1=gemini-4-hydrogen-low T2=gemini-4-hydrogen-medium T3=gemini-4-argon-high T4=gemini-4-argon-high " ]' _ "$gemini_models"
+  tr_check "gemini rows use Hydrogen at T1/T2 and Neon at T3/T4" bash -c '[ "$1" = "T1=gemini-4-hydrogen-low T2=gemini-4-hydrogen-medium T3=gemini-4-neon-high T4=gemini-4-neon-high " ]' _ "$gemini_models"
   muse_models="$(awk -F$'\t' '$2=="muse" && ($1=="T3" || $1=="T4") {print $1 "=" $3}' "$tsv" | sort | tr '\n' ' ')"
   tr_check "muse rows use Wonder Full at T3/T4" bash -c '[ "$1" = "T3=muse-wonder-full-1.0 T4=muse-wonder-full-1.0 " ]' _ "$muse_models"
 }
@@ -6042,7 +6042,7 @@ EOF
   tr_check "T3 selection uses tiered Codex Claude and Gemini models and efforts" jqe '
     .panel == [{provider:"codex",model:"gpt-6.2-astra",effort:"high"},
       {provider:"claude",model:"claude-opus-5-5",effort:"high"},
-      {provider:"gemini",model:"gemini-4-argon-high",effort:null}]' <<< "$out"
+      {provider:"gemini",model:"gemini-4-neon-high",effort:null}]' <<< "$out"
   out="$(select_panel TRIBUNAL_CLAUDE=off TRIBUNAL_CODEX=off)"
   tr_check "explicitly disabled legs are replaced by Gemini Grok and Muse" jqe \
     '[.panel[].provider] == ["gemini","grok","muse"]' <<< "$out"

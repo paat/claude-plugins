@@ -31,13 +31,13 @@ Prior Claude generations (Opus 5, Sonnet 5, Fable 5.1, Fable 5, Haiku 4.5) are k
 | Grok Build | `grok-4.7` (default), `grok-4.6`, `grok-4.5` | Fast bounded implementation, reproduction, and independent review |
 | Muse Code (`muse`) | `muse-spark-1.3` (bounded default), `muse-wonder-full-1.0` (T3); `default` passes no `--model` | Bounded implementation, reproduction, research, and review. Plain `muse-wonder-1.0` is not routed |
 | Local Qwen | `default` (whatever the llama.cpp endpoint serves); explicit pin: a served model id | Free mechanical edits and a cheap second review lens; one GPU slot, skipped when busy, down, or not serving a pinned model (needs the `subagent-local-qwen3.8-27b` plugin) |
-| Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits (the default agy model); Argon for complex coding; Hydrogen as a T2 `medium` worker ahead of Flash `high` and a T3 route behind Argon; Carbon as an available T3 flagship behind Hydrogen, not preferred and not the default (owner correction 2026-11-19; `agy models` 2026-11-20 lists low/medium/high, no xhigh); Sonnet/Opus as small same-model overflow when the Claude plan window is spent; advisory in review mode except `claude-opus-5-5` (paat/ai-overlord#474, 2026-11-18) |
+| Antigravity (`agy`) | `gemini-3.8-flash`, `gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `claude-sonnet-5-5`, `claude-opus-5-5` | Flash for bounded edits (the default agy model); Neon then Argon for complex coding (Neon added 2026-11-22); Hydrogen as a T2 `medium` worker ahead of Flash `high` and a T3 route behind Argon; Carbon as an available T3 flagship behind Hydrogen, not preferred and not the default (owner correction 2026-11-19; `agy models` 2026-11-20 lists low/medium/high, no xhigh); Sonnet/Opus as small same-model overflow when the Claude plan window is spent; advisory in review mode except `claude-opus-5-5` (paat/ai-overlord#474, 2026-11-18) |
 | Mistral Vibe (`vibe`) | `mistral-large-4` (T2 `medium`, T3 `high`, lowest preference); `default` passes no `--model` | Worker-only. `run-vibe.sh` always passes `--max-price 0` and stops on the plan budget (2026-11-19, paat/ai-overlord#474). Review is advisory; vibe 3+ only |
 
 Haiku 5.5 is the latest Haiku; the wrapper runs it without `--effort`. Claude Fable 5.2,
 Fable 5.1, Fable 5, Opus 5.5, Opus 5, Sonnet 5.5, and Sonnet 5 support `low` through `max`; GPT-5.6 and GPT-6 support `low` through `max`, with
 Astra-only `ultra` available for bounded internal fan-out; Grok 4.7 and Grok 4.6 support `low`,
-`medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, Argon, Hydrogen, and Carbon support `low`, `medium`, and `high`; Muse catalog models support
+`medium`, `high`, and `xhigh`; Grok 4.5, Gemini 3.8 Flash, Neon, Argon, Hydrogen, and Carbon support `low`, `medium`, and `high`; Muse catalog models support
 `minimal` through `max`. Vibe's `default` passes no `--thinking`; Mistral Large 4 (`mistral-large-4-0`, or `mistral-large-4`) takes only `low`, `medium`, `high` (`off`, `xhigh`, `max` exit 2: API 400, mistral-vibe#1439, 2026-11-05); `default` and other aliases pass the level as written.
 
 ## Routing policy
@@ -46,7 +46,7 @@ The router applies provider/model restrictions, then assesses task family, ambig
 scope/coupling, risk, validation, modality, tools, latency, and duration. It chooses model and
 effort separately using the [task-fit matrix](skills/route-model-task/references/task-fit.md):
 Luna/low for mechanical work, Sonnet/medium for specified coding, Sol/xhigh for demanding
-visual systems, and Argon/high as a complex-debugging candidate. These are dated starting
+visual systems, and Neon/high as a complex-debugging candidate. These are dated starting
 recommendations, not universal winners; local acceptance and repair results decide preference.
 
 Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in order:
@@ -55,7 +55,7 @@ Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in or
 |---|---|---|
 | T1 | Exact rename, fixture, file map, focused check | Local Qwen, Gemini 3.8 Flash low, GPT-6 Luna low |
 | T2 | Well-specified change with known tests | Sonnet 5.5 plan/API, Sonnet 5.5 via agy, GPT-6.2 Sol, Grok 4.7, Gemini 4 Hydrogen, Gemini 3.8 Flash high, GPT-6.1 Sol, Muse `muse-spark-1.3`, Mistral Large 4 (all medium unless noted) |
-| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6.2 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.2 Sol, Gemini 4 Argon, Gemini 4 Hydrogen, Gemini 4 Carbon, GPT-6 Astra, GPT-6.1 Sol, Mistral Large 4 (all high unless noted) |
+| T3 | Cross-module work, hard debugging, ambiguous design | GPT-6.2 Astra, Opus 5.5 plan/API, Opus 5.5 via agy, Muse `muse-wonder-full-1.0`, GPT-6.2 Sol, Gemini 4 Neon, Gemini 4 Argon, Gemini 4 Hydrogen, Gemini 4 Carbon, GPT-6 Astra, GPT-6.1 Sol, Mistral Large 4 (all high unless noted) |
 | T4 | Security, payments, destructive migration, concurrency | GPT-6.2 Astra xhigh, Opus 5.5 plan xhigh, GPT-6 Astra xhigh |
 
 `pool.sh` drops workers that are not allowed, not installed, advisory on a review (local Qwen,
@@ -89,7 +89,7 @@ is not redacted, so treat it as sensitive.
 
 ```bash
 pool.sh pick --tier T2 --deny claude              # one "tier provider model effort" line per worker
-pool.sh pick --tier T3 --prefer gemini-4-argon     # task-fit preference, still subject to filters
+pool.sh pick --tier T3 --prefer gemini-4-neon      # task-fit preference, still subject to filters
 pool.sh run --tier T1 --repo . <<< "<task packet>" # run on the first available worker
 pool.sh run --tier T3 --mode review --base main --deny codex <<< "<review request>"
 ```

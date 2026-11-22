@@ -10,7 +10,7 @@ the complexity/risk tier first; a task label never lowers it. Local records over
 | Mechanical edits, extraction, triage with an exact check | GPT-6 Luna `low`; existing local/Flash T1 routes | Use the cheapest route that passes the check. Local `default` needs an identified served model; its name alone proves no capability. |
 | Well-specified implementation and tests | Sonnet 5.5 `medium` or GPT-6.2 Sol `medium` | Sonnet has explicit bounded-agent guidance; Sol has technical-work guidance. Use local results/headroom when neither is distinguished by the task. |
 | Tight tool loops, cost-sensitive subagents, bounded reproduction | Muse Spark 1.3 `medium`; Grok 4.7 `medium` | Spark is positioned for short economical workloads; Grok is another implementation/reproduction candidate. Use `low` for genuinely simple calls, not a whole ambiguous feature. |
-| Cross-module debugging, subtle root cause, refactor | GPT-6.2 Astra `high`, GPT-6.2 Sol `high`, Opus 5.5 `high`, or Argon `high` | Select from T3. Argon has engineering/debugging evidence; no inspected source proves it always beats the peers. Require executable reproductions and regression tests. |
+| Cross-module debugging, subtle root cause, refactor | GPT-6.2 Astra `high`, GPT-6.2 Sol `high`, Opus 5.5 `high`, Neon `high`, or Argon `high` | Select from T3. Neon and Argon have vendor engineering/debugging evidence; no inspected source proves either always beats the peers. Require executable reproductions and regression tests. |
 | Contained architecture advice vs broad delivery | Opus 5.5 `medium` for contained advice; Astra `medium` for broad-context delivery; `high` for harder integration | Do not inherit Opus 5's `high` merely from its name. Keep T3 eligibility even when choosing a lower effort for a clear task. |
 | Polished frontend, connected visual systems, conflicting design evidence | GPT-6.2 Sol `xhigh` when those demands are real; `medium` for ordinary frontend edits | OpenAI recommends this task/effort pairing for 6.1 Sol; carried to 6.2 Sol as its successor, not measured. It is not proof of a universal UI winner. Require screenshot/browser tools and rendered acceptance; text coding scores cannot establish visual fidelity. |
 | Sustained multi-file or multi-hour implementation | Muse Wonder Full 1.0 `high`; existing Opus/Astra T3 routes; Fable 5.2 `high` when unusually hard | Full is an explicit model, not Spark or plain Wonder with more effort. Fable remains a direct, outside-pool route after restriction/usage checks. Start with a bounded packet and checkpoints. |
@@ -37,8 +37,8 @@ the complexity/risk tier first; a task label never lowers it. Local records over
 Examples (restrictions and usage snapshot must also be forwarded):
 
 ```bash
-pool.sh pick --tier T3 --prefer gemini-4-argon --usage usage.txt
-pool.sh run --tier T3 --prefer gemini-4-argon --usage usage.txt --repo . < task.txt
+pool.sh pick --tier T3 --prefer gemini-4-neon --usage usage.txt
+pool.sh run --tier T3 --prefer gemini-4-neon --usage usage.txt --repo . < task.txt
 # A demanding visual task may choose Sol at xhigh after this eligibility check:
 pool.sh pick --tier T3 --prefer gpt-6.2-sol --usage usage.txt
 # Only if Sol was selected and the task justifies xhigh:
@@ -54,7 +54,7 @@ run-codex.sh --mode implement --repo . --model gpt-6.2-sol --effort xhigh < task
 - Grok: `low` for simple tool use, `medium` for analysis, `high` for difficult multistep work;
   `xhigh` on 4.6/4.7 only when its extra latency is justified.
 - agy: `low` for simple edits, `medium` for ordinary engineering, `high` for subtle bugs and
-  multi-file changes. Flash and Argon expose only those three levels here.
+  multi-file changes. Every agy model exposes only those three levels here.
 - Vibe: `default` passes no `--thinking`, so the model's configured level applies. Mistral Large 4
   by name (`mistral-large-4-0`, `mistral-large-4`) takes only `low`–`high`; `off`, `xhigh`, `max` exit
   2 (API 400, mistral-vibe#1439, 2026-11-05). `default` and other aliases pass the level unchecked.
