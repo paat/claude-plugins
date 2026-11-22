@@ -1,7 +1,8 @@
 # Reviewer panel: PR risk tier -> review legs in preference order (tab-separated).
 # Ranked by Terminal-Bench 4.0 and Arena agent benchmarks (checked 2026-10-30):
 # repo-walking legs first, three distinct vendors per tier; only Codex reaches xhigh at T4.
-# Gemini (diff plus web/CVE lens) holds the vacated third-leg slot; T3/T4 run Argon,
+# Gemini (diff plus web/CVE lens) holds the vacated third-leg slot; T3/T4 run Neon
+# (released 2026-11-18, above Hydrogen in Google's lineup; `agy models` 2026-11-22),
 # T1/T2 run Hydrogen. Muse runs Wonder Full at T3/T4, Spark at T1/T2.
 # Override the table with TRIBUNAL_REVIEW_PANEL=<file>; unset TRIBUNAL_RISK uses T2; effort - passes none.
 # tier	provider	model	effort
@@ -21,14 +22,14 @@ T2	deepseek	deepseek-v4-pro	high
 T2	qwen	qwen3.8-max	-
 T3	codex	gpt-6.2-astra	high
 T3	claude	claude-opus-5-5	high
-T3	gemini	gemini-4-argon-high	-
+T3	gemini	gemini-4-neon-high	-
 T3	grok	grok-4.7	medium
 T3	muse	muse-wonder-full-1.0	high
 T3	deepseek	deepseek-v4-pro	high
 T3	qwen	qwen3.8-max	-
 T4	codex	gpt-6.2-astra	xhigh
 T4	claude	claude-opus-5-5	high
-T4	gemini	gemini-4-argon-high	-
+T4	gemini	gemini-4-neon-high	-
 T4	grok	grok-4.7	high
 T4	muse	muse-wonder-full-1.0	high
 T4	deepseek	deepseek-v4-pro	high
