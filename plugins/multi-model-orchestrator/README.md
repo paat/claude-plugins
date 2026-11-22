@@ -46,7 +46,7 @@ The router applies provider/model restrictions, then assesses task family, ambig
 scope/coupling, risk, validation, modality, tools, latency, and duration. It chooses model and
 effort separately using the [task-fit matrix](skills/route-model-task/references/task-fit.md):
 Luna/low for mechanical work, Sonnet/medium for specified coding, Sol/xhigh for demanding
-visual systems, and Argon/high as a complex-debugging candidate. These are dated starting
+visual systems, and Neon/high as a complex-debugging candidate. These are dated starting
 recommendations, not universal winners; local acceptance and repair results decide preference.
 
 Complexity sets a tier; `scripts/pool-tiers.tsv` lists each tier's workers in order:
@@ -89,7 +89,7 @@ is not redacted, so treat it as sensitive.
 
 ```bash
 pool.sh pick --tier T2 --deny claude              # one "tier provider model effort" line per worker
-pool.sh pick --tier T3 --prefer gemini-4-argon     # task-fit preference, still subject to filters
+pool.sh pick --tier T3 --prefer gemini-4-neon      # task-fit preference, still subject to filters
 pool.sh run --tier T1 --repo . <<< "<task packet>" # run on the first available worker
 pool.sh run --tier T3 --mode review --base main --deny codex <<< "<review request>"
 ```

@@ -37,8 +37,8 @@ the complexity/risk tier first; a task label never lowers it. Local records over
 Examples (restrictions and usage snapshot must also be forwarded):
 
 ```bash
-pool.sh pick --tier T3 --prefer gemini-4-argon --usage usage.txt
-pool.sh run --tier T3 --prefer gemini-4-argon --usage usage.txt --repo . < task.txt
+pool.sh pick --tier T3 --prefer gemini-4-neon --usage usage.txt
+pool.sh run --tier T3 --prefer gemini-4-neon --usage usage.txt --repo . < task.txt
 # A demanding visual task may choose Sol at xhigh after this eligibility check:
 pool.sh pick --tier T3 --prefer gpt-6.2-sol --usage usage.txt
 # Only if Sol was selected and the task justifies xhigh:
