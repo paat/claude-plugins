@@ -342,6 +342,11 @@ codex, grok, muse, agy, vibe, and qwen CLIs they call are trusted for sending re
   installed or the run is explicitly local/no-PR; there, ordinary nontrivial work gets at most
   one independent provider review and a second must pay for itself through risk or conflicting
   evidence. User provider restrictions remain authoritative.
+- Codex legs pass `--dangerously-bypass-hook-trust` (Codex CLI since 2026-05, openai/codex#21768),
+  so the hooks of the plugins enabled in the leg's `CODEX_HOME` run without the TUI trust review
+  that Codex otherwise needs once per hook and again after each plugin update. Without it
+  `codex exec` skips an unreviewed hook silently and reports a hook changed since its review as
+  `Failed`. Install only plugins whose hooks you would run unreviewed.
 - Grok legs use an isolated configuration to avoid inheriting host agents, plugins, hooks, and
   MCPs. OAuth `auth.json`, `XAI_API_KEY`, and `GROK_*` variables are preserved; config-only
   enterprise authentication should use Grok's equivalent `GROK_*` environment variables.

@@ -148,8 +148,10 @@ else
   mv "$combined_file" "$prompt_file"
 fi
 
+# Codex skips a plugin hook until a person trusts it in the TUI and asks again after each plugin
+# update; a headless leg has nobody to ask, so the guard and gate hooks would stay off.
 codex_args=(
-  exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check
+  exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust --skip-git-repo-check
 )
 if [ "$mode" = research ]; then
   codex_args+=(-C "$research_dir")
