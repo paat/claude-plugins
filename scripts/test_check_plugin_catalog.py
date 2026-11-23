@@ -81,5 +81,36 @@ class CodexManifestVersionTests(unittest.TestCase):
         self.assertEqual(self.check_versions("1.2.3", "1.2.3", None), [])
 
 
+class TestEntrypointTests(unittest.TestCase):
+    def run_check(self, create_runner: bool, mode: int = 0o755) -> list[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = Path(directory) / "plugins" / "fixture"
+            plugin.mkdir(parents=True)
+            if create_runner:
+                runner = plugin / "tests" / "run-tests.sh"
+                runner.parent.mkdir(parents=True)
+                runner.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+                runner.chmod(mode)
+            errors: list[str] = []
+            CHECKER.check_test_entrypoint("fixture", plugin, errors)
+            return errors
+
+    def test_rejects_missing_test_entrypoint(self) -> None:
+        errors = self.run_check(create_runner=False)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("fixture: missing", errors[0])
+        self.assertIn("tests/run-tests.sh", errors[0])
+
+    def test_rejects_non_executable_test_entrypoint(self) -> None:
+        errors = self.run_check(create_runner=True, mode=0o644)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("fixture:", errors[0])
+        self.assertIn("tests/run-tests.sh", errors[0])
+        self.assertIn("executable", errors[0])
+
+    def test_accepts_executable_test_entrypoint(self) -> None:
+        self.assertEqual(self.run_check(create_runner=True, mode=0o755), [])
+
+
 if __name__ == "__main__":
     unittest.main()

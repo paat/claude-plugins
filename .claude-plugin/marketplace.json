@@ -75,7 +75,7 @@
     {
       "name": "silent-failure-scanner",
       "description": "Deterministic diff-time detector for swallowed errors & ghost transactions — flags empty catch / except:pass, removed await, dropped non-2xx responses, and narrative-prose comments across TS/JS, Python, C#, and PHP, with a global PreToolUse commit-gate hook across Claude Code, Codex, Antigravity (agy), Grok, and Muse",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "author": {
         "name": "Andre Paat"
       },
@@ -97,7 +97,7 @@
     {
       "name": "irreversible-guard",
       "description": "PreToolUse gate that blocks shell commands with no practical local undo across Claude Code, Codex, Antigravity (agy), Grok, and Muse — de-obfuscates ssh/docker-exec transports, heredocs, chains, and env prefixes before matching a tiered deny-set",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "author": {
         "name": "Andre Paat"
       },
@@ -152,7 +152,7 @@
     {
       "name": "proton-bridge",
       "description": "Proton Mail Bridge skills — reply drafts over IMAP with reply-all recipients, a \"Re:\" subject and the original mail quoted (stored in Drafts, never sent), and emails from named senders turned into deduplicated GitHub issues",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": {
         "name": "Andre Paat"
       },

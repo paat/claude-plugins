@@ -61,6 +61,7 @@ def main() -> int:
 
     manifest_by_name: dict[str, Path] = {}
     for plugin_dir in sorted(path for path in PLUGINS_DIR.iterdir() if path.is_dir()):
+        check_test_entrypoint(plugin_dir.name, plugin_dir, errors)
         manifest_path = plugin_dir / ".claude-plugin" / "plugin.json"
         if not manifest_path.is_file():
             continue
@@ -227,6 +228,15 @@ def check_documented_dependencies(
                 f"{plugin_name}: dependency {dep!r} is referenced by scripts/hooks but "
                 f"not documented in {rel(readme_path)}"
             )
+
+
+def check_test_entrypoint(plugin_name: str, plugin_dir: Path, errors: list[str]) -> None:
+    runner_path = plugin_dir / "tests" / "run-tests.sh"
+    if not runner_path.is_file():
+        errors.append(f"{plugin_name}: missing {rel(runner_path)}")
+        return
+    if not (runner_path.stat().st_mode & 0o111):
+        errors.append(f"{plugin_name}: {rel(runner_path)} must be executable")
 
 
 def rel(path: Path) -> str:
