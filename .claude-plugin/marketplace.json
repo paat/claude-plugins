@@ -31,7 +31,7 @@
     {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "author": {
         "name": "Andre Paat"
       },
@@ -53,7 +53,7 @@
     {
       "name": "lawyer",
       "description": "On-demand Estonian/EU legal risk analysis for SaaS projects via est-saas-datalake and primary sources, with a law registry that flags load-bearing provisions when they change",
-      "version": "0.1.23",
+      "version": "0.1.24",
       "author": {
         "name": "Andre Paat"
       },

@@ -12,7 +12,7 @@
 
 ## Spec
 
-`plugins/saas-startup-team/docs/superpowers/specs/2026-05-29-goal-deliver-command-design.md` (lean revision). Read it first.
+`docs/superpowers/specs/2026-05-29-goal-deliver-command-design.md` (lean revision). Read it first.
 
 ## File Structure
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown agents/commands, bash hook scripts, bash test harness (`tests/run-tests.sh`), `jq`. No application code.
 
-**Spec:** `plugins/saas-startup-team/docs/superpowers/specs/2026-06-01-growth-ads-delegation-design.md`
+**Spec:** `docs/superpowers/specs/2026-06-01-growth-ads-delegation-design.md`
 
 ---
 
