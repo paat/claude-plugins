@@ -159,7 +159,7 @@ test_blind_approve_guard() {
     mk_leg '["file.txt"]' > "$work/ok.json"
     mk_leg '["/abs/file.txt"]' > "$work/abs.json"
     mk_leg '["../escape.txt"]' > "$work/dotdot.json"
-    eval "$(sed -n '/^validate_provider()/,/^}/p' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh")"
+    eval "$(sed -n '/^validate_provider()/,/^}/p' "$PLUGIN_ROOT/scripts/collector-validate.sh")"
     validate_provider codex "$work/ok.json"
     if validate_provider codex "$work/abs.json"; then exit 1; fi
     if validate_provider codex "$work/dotdot.json"; then exit 1; fi
@@ -176,8 +176,8 @@ test_blind_approve_guard() {
   local repo fake plugin collection manifest_sha base head ec=0
   repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
-  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/"collector-*.sh "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -596,8 +596,8 @@ test_sealed_panel_quorum() {
   local work repo fake plugin collection manifest_sha base head ec=0
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
-  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/"collector-*.sh "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"

@@ -6,8 +6,8 @@ test_trusted_evidence_collection() {
   local work repo fake plugin collection manifest_sha proof_sha base head host_codex real_git
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$work/tmp" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
-  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/"collector-*.sh "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"

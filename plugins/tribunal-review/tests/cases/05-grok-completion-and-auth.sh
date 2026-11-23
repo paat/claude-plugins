@@ -310,7 +310,7 @@ EOF
   # resolves schema when CLAUDE_PLUGIN_ROOT points at the real plugin.
   local orphan="$work/orphan-plugin/scripts"
   mkdir -p "$orphan"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$orphan/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$orphan/"
   cp "$PLUGIN_ROOT/scripts/run-grok-review.sh" "$orphan/run-grok-review.sh"
   cat > "$fake/grok" <<'EOF'
 #!/usr/bin/env bash
@@ -361,7 +361,7 @@ EOF
   # Scenario H: missing schema file fails before provider run (no silent empty schema).
   local bare="$work/bare-plugin"
   mkdir -p "$bare/scripts" "$bare/schemas"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$bare/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$bare/scripts/"
   cp "$PLUGIN_ROOT/scripts/run-grok-review.sh" "$bare/scripts/run-grok-review.sh"
   # Intentionally omit schemas/review-output.json
   cat > "$fake/grok" <<'EOF'

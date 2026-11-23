@@ -6,7 +6,7 @@ work="$(mktemp -d)"
 trap 'chmod -R u+w "$work"; rm -rf "$work"' EXIT
 plugin="$work/source-checkout"; other="$work/other-install"; repo="$work/repo"
 mkdir -p "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$work/bin" "$repo"
-for script in collect-review-evidence.sh lib.sh lib-provider.sh review-panel.tsv check-runner-bundle.sh generate-runner-bundle.sh dsh-review.patch.yml; do
+for script in collect-review-evidence.sh collector-git-surface.sh collector-containment.sh collector-validate.sh collector-proof.sh lib.sh lib-provider.sh lib-panel.sh lib-policy-gates.sh lib-prompt.sh lib-output.sh review-panel.tsv check-runner-bundle.sh generate-runner-bundle.sh dsh-review.patch.yml; do
   cp "$PLUGIN_ROOT/scripts/$script" "$plugin/scripts/"
 done
 cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"

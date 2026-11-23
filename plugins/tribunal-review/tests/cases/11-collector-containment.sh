@@ -26,7 +26,7 @@ test_collector_surface_leftovers() {
   git -C "$work/repo" worktree add -q --detach "$work/review-one"
   git -C "$work/repo" worktree add -q --detach "$work/review-two"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/"collector-*.sh "$work/"
   bash -c '
     . "$1/collector-functions.sh"
     SURFACE_ROOT="$1/repo"
@@ -73,7 +73,7 @@ test_collector_reap_rescan() {
   local work ec=0
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/"collector-*.sh "$work/"
   mkdir -p "$work/staging/wrappers"
   mkfifo "$work/a.go" "$work/b.go" "$work/child.ready"
   cat > "$work/a.sh" <<'LEG'
@@ -128,7 +128,7 @@ test_collector_pid_namespace() {
   fi
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/"collector-*.sh "$work/"
   cat > "$work/escape.py" <<'PY'
 import os, time
 if os.fork():
@@ -204,7 +204,7 @@ test_collector_namespace_failure_cleanup() {
   fi
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/"collector-*.sh "$work/"
   git init -q "$work/repo"
   git -C "$work/repo" -c user.name=Fixture -c user.email=fixture@example.test commit -qm initial --allow-empty
   cat > "$work/blocked.sh" <<'LEG'
@@ -268,7 +268,7 @@ test_collector_completion_order() {
   local work ec=0
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/"collector-*.sh "$work/"
   mkdir -p "$work/staging/wrappers"
   mkfifo "$work/ready"
   cat > "$work/slow.sh" <<'EOF'

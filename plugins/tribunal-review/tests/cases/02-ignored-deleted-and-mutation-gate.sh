@@ -195,7 +195,7 @@ test_ignored_path_validation() {
   local work artifact value label
   work="$(mktemp -d)"; artifact="$work/ignored-paths.json"
   source <(sed -n '/^validate_ignored_paths() {/,/^}/p' \
-    "$PLUGIN_ROOT/scripts/collect-review-evidence.sh")
+    "$PLUGIN_ROOT/scripts/collector-validate.sh")
 
   for value in '""' null 5; do
     jq -n --argjson path "$value" '[{line:2,path:$path,pattern:"scratch/",source:".gitignore"}]' > "$artifact"
@@ -380,8 +380,8 @@ test_deleted_policy_paths_gate() {
   local work repo fake plugin collection manifest_sha base head ec=0 mutated
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
-  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/"collector-*.sh "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -498,7 +498,7 @@ EOF
   # Without that gate, forgotten-signal finalize must succeed (exit 0).
   mutated="$work/mutated-plugin"
   cp -a "$plugin" "$mutated"
-  python3 - "$mutated/scripts/collect-review-evidence.sh" <<'PY'
+  python3 - "$mutated/scripts/collector-validate.sh" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
@@ -581,8 +581,8 @@ test_mutation_gate() {
   local work repo fake plugin collection manifest_sha base head ec=0 mutated
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
-  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/"collector-*.sh "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/"lib-*.sh "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -767,7 +767,7 @@ EOF
   # 4) Mutation RED: strip only the vacuous-finding finalize requirement in a copy.
   mutated="$work/mutated-plugin"
   cp -a "$plugin" "$mutated"
-  python3 - "$mutated/scripts/collect-review-evidence.sh" <<'PY'
+  python3 - "$mutated/scripts/collector-validate.sh" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()

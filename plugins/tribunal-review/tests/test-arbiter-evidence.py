@@ -9,7 +9,7 @@ import tempfile
 
 plugin = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
 skill = (plugin / 'skills/tribunal-loop/SKILL.md').read_text()
-collector = (plugin / 'scripts/collect-review-evidence.sh').read_text()
+collector = (plugin / 'scripts/collector-validate.sh').read_text()
 contract = (plugin / 'skills/tribunal-loop/references/output-contract.md').read_text()
 marked = skill.split('### Marked Positions (`line_check`)\n', 1)[1].split('\n### ', 1)[0]
 validator = re.search(r'^validate_arbitration\(\) \{\n.*?^\}', collector, re.M | re.S).group()

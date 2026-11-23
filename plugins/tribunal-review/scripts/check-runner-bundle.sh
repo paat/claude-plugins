@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 MANIFEST="$PLUGIN_ROOT/integrity/runner-bundle.json"
 EXPECTED=""
-REQUIRED='["schemas/review-output.json","scripts/check-runner-bundle.sh","scripts/collect-review-evidence.sh","scripts/dsh-review.patch.yml","scripts/generate-runner-bundle.sh","scripts/lib-provider.sh","scripts/lib.sh","scripts/review-panel.tsv","scripts/run-claude-review.sh","scripts/run-codex-review.sh","scripts/run-gemini-review.sh","scripts/run-grok-review.sh","scripts/run-muse-review.sh","scripts/run-deepseek-review.sh","scripts/run-qwen-review.sh"]'
+REQUIRED='["schemas/review-output.json","scripts/check-runner-bundle.sh","scripts/collect-review-evidence.sh","scripts/collector-containment.sh","scripts/collector-git-surface.sh","scripts/collector-proof.sh","scripts/collector-validate.sh","scripts/dsh-review.patch.yml","scripts/generate-runner-bundle.sh","scripts/lib-output.sh","scripts/lib-panel.sh","scripts/lib-policy-gates.sh","scripts/lib-prompt.sh","scripts/lib-provider.sh","scripts/lib.sh","scripts/review-panel.tsv","scripts/run-claude-review.sh","scripts/run-codex-review.sh","scripts/run-deepseek-review.sh","scripts/run-gemini-review.sh","scripts/run-grok-review.sh","scripts/run-muse-review.sh","scripts/run-qwen-review.sh"]'
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
