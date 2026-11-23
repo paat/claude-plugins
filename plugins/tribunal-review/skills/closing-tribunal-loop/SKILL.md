@@ -5,267 +5,83 @@ description: "PR-only close-out after tribunal-loop: triage findings, fix or fil
 
 # Closing the Tribunal Loop
 
-## Overview
-
-`tribunal-loop` is one round of review. **Closing the loop is iterative and PR-only**:
-after any code change, the diff has changed and findings can change with it. The loop
-closes when the arbiter returns a verdict with **zero critical and zero high findings**
-on the latest diff (medium/low go to YAGNI triage). Every code change re-opens the
-diff, so re-run after any fix.
-
-**Every round is documented on the open PR** — verdict, triage dispositions, commits,
-follow-ups, and checkpoint/ceiling notes land as PR comments. Session chat is not the
-audit trail.
-
-**Core principle:** Tribunal is a quality gate, not a checklist. The gate stays closed
-until the diff itself stops generating critical/high findings — including findings
-caused by your own fixes.
+`tribunal-loop` is one review round; **closing the loop is iterative and PR-only**. Every code change changes the diff, so re-run until the arbiter returns **zero `critical` and zero `high` findings** on the latest diff (medium/low go to YAGNI triage) **and** CI is proven green on `LOCAL_HEAD`. Every round is documented as a PR comment — session chat is not the audit trail. Be token-frugal: read only cited files and exit early if the latest diff already has a posted closing comment and green CI. Applicability & mistakes: `references/loop-playbook.md`.
 
 ## PR prerequisite (hard)
 
-This skill **requires an open GitHub PR** for the current branch. No branch-only or
-local-only close-out.
-
-**Before every round** (not only once): push local commits, refresh PR metadata, and
-require local HEAD == PR head:
-
-```bash
-git push
-PR_JSON="$(gh pr view --json number,url,headRefOid,baseRefName,headRefName,state)"
-PR_NUMBER="$(printf '%s' "$PR_JSON" | jq -r .number)"
-PR_URL="$(printf '%s' "$PR_JSON" | jq -r .url)"
-PR_HEAD="$(printf '%s' "$PR_JSON" | jq -r .headRefOid)"
-LOCAL_HEAD="$(git rev-parse HEAD)"
-```
-
-Stop if `gh pr view` fails, `state` is not `OPEN`, there is no PR for this branch, or
-`LOCAL_HEAD` ≠ `PR_HEAD`. Open (or re-open) a PR and push until they match, then resume.
-The round comment's **HEAD** field must be this same full sha.
+This skill **requires an open GitHub PR** for the current branch (no local-only close-out). Before every round: `git push`, refresh `gh pr view --json number,url,headRefOid,baseRefName,headRefName,state`, and require `state == OPEN` and `LOCAL_HEAD` (`git rev-parse HEAD`) == `PR_HEAD` (`headRefOid`). Stop and push/open a PR if they diverge. The round comment's **HEAD** must be this full sha (`references/loop-playbook.md`).
 
 ## Frozen Delivery Contract
 
-Before triage, freeze the original task outcome, acceptance checks, preserved invariants,
-and exclusions using only explicit user, issue, PR, or plan text. Never invent missing
-acceptance criteria, invariants, or exclusions. Findings may prove that the current diff
-violates that contract. They do not redefine the task. Expand the current PR only for a
-verified defect caused or exposed by the diff whose fix is required by the frozen
-acceptance checks or removes a material regression. Do not expand investigation for
-adjacent concerns beyond evidence already present. File a follow-up only when that
-evidence is sufficient; otherwise record or drop the concern **in the round PR comment**.
-
-## When to Use
-
-- Just ran `tribunal-loop` on a branch with an **open PR** and the verdict is
-  `NEEDS_WORK` or `BLOCK`
-- Made a code change in response to a tribunal finding (any change → re-run required)
-- About to mark the PR ready / merge / hand off, but haven't re-run tribunal since the
-  last commit
-
-**Don't use when:**
-- There is no open PR for the current branch (open one first)
-- Tribunal verdict is `APPROVE` with zero critical/high on the current diff **and** the
-  closing round comment is already posted
-- Reading findings only (no code change planned) and you are not documenting a round
-- Documentation-only change or you are not running tribunal at all
+Before triage, freeze the original task outcome, acceptance checks, preserved invariants, and exclusions using only explicit user, issue, PR, or plan text. Never invent missing acceptance criteria, invariants, or exclusions. Findings may prove the diff violates that contract; they do not redefine the task. Expand the PR only for a verified defect caused/exposed by the diff required by the frozen acceptance checks or removing a material regression. Do not expand investigation for adjacent concerns beyond evidence already present — file a follow-up only with sufficient evidence, else record or drop it in **the round PR comment**.
 
 ## The Loop
 
-```dot
-digraph close_tribunal {
-    "Resolve open PR" [shape=box];
-    "tribunal-loop on PR HEAD" [shape=doublecircle];
-    "Post round PR comment" [shape=box];
-    "Zero critical & high?" [shape=diamond];
-    "Per-finding triage" [shape=box];
-    "Apply fixes + tests" [shape=box];
-    "Push to PR branch" [shape=box];
-    "required-checks.sh on LOCAL_HEAD" [shape=diamond];
-    "DONE — ready to merge / hand off" [shape=doublecircle];
-    "Refuse merge; record CI JSON" [shape=box];
-
-    "Resolve open PR" -> "tribunal-loop on PR HEAD";
-    "tribunal-loop on PR HEAD" -> "Post round PR comment";
-    "Post round PR comment" -> "Zero critical & high?";
-    "Zero critical & high?" -> "required-checks.sh on LOCAL_HEAD" [label="yes"];
-    "Zero critical & high?" -> "Per-finding triage" [label="no"];
-    "required-checks.sh on LOCAL_HEAD" -> "DONE — ready to merge / hand off" [label="ok=true or recorded ci=none"];
-    "required-checks.sh on LOCAL_HEAD" -> "Refuse merge; record CI JSON" [label="all other failures"];
-    "Per-finding triage" -> "Apply fixes + tests";
-    "Apply fixes + tests" -> "Push to PR branch";
-    "Push to PR branch" -> "tribunal-loop on PR HEAD";
-}
-```
+Flow: Resolve open PR → `tribunal-loop` on PR HEAD → Post round PR comment → zero critical & high? (no → triage → fix + tests → push → repeat; yes → `required-checks.sh on LOCAL_HEAD` → `ok=true` or recorded `ci="none"` → **DONE**, else refuse to merge). Default panel: 3 legs from `scripts/review-panel.tsv` (`TRIBUNAL_MIN_OK_LEGS` floor default 2).
 
 ### Round number (resume-safe)
 
-Never hardcode “round 1” on a PR that already has trail comments. Before each round:
-
-```bash
-# Max N already posted on this PR (0 if none)
-PRIOR_MAX="$(gh api "repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/issues/${PR_NUMBER}/comments" \
-  --paginate -q '.[].body' | grep -oE '<!-- tribunal-round:[0-9]+ -->' \
-  | grep -oE '[0-9]+' | sort -n | tail -1)"
-PRIOR_MAX="${PRIOR_MAX:-0}"
-ROUND=$((PRIOR_MAX + 1))
-```
-
-- Reject posting a duplicate `(round, HEAD)` pair if a comment already carries both.
-- Ceiling is **cumulative on the PR**, not per session: if `PRIOR_MAX >= 5` and
-  critical/high still remain, you are already at/over the hard ceiling — stop and
-  escalate (do not reset to round 1).
-- Round 3 checkpoint / round 5 ceiling use this same cumulative `ROUND`.
+Never hardcode round 1 on a PR with prior comments. Before each round, derive `PRIOR_MAX` from existing `<!-- tribunal-round:N -->` markers across all PR comments (`references/loop-playbook.md`) and set `ROUND=$((PRIOR_MAX + 1))`. Reject duplicate `(round, HEAD)` posts. The ceiling is **cumulative on the PR**, not per session: if `PRIOR_MAX >= 5` with critical/high remaining, stop and escalate.
 
 ### Round lifecycle (order is mandatory)
 
-Before each re-collection, carry earlier entries in `$PRIOR_REJECTIONS` (initially `[]`), and save only rejected/dropped conflicts or triage outcomes as `{title,file,reason}` objects in `$ROUND_REJECTIONS` (empty list if none):
+Before each re-collection, carry earlier entries in `$PRIOR_REJECTIONS` (initially `[]`), and save rejected/dropped conflicts or triage outcomes as `{title,file,reason}` in `$ROUND_REJECTIONS`:
 ```bash
 jq -s '.[2] + [.[1].provider_assessment[].false_positives[] | select(length > 0) | {title:.,file:"",reason:.}] + .[0] | reduce .[] as $r ([]; if index($r) then . else . + [$r] end)' "$PRIOR_REJECTIONS" "$PREVIOUS_ARBITRATION" "$ROUND_REJECTIONS" > "$NEXT_REJECTIONS"
 ```
-Resolve original titles/files from retained provider findings where possible; keep rejection evidence in `reason`, and leave unknown files empty. Pass `--prior-rejections "$NEXT_REJECTIONS"` to `collect` and retain that list for the next round. Accepted conflicts must never enter it.
+Resolve original titles/files from retained provider findings where possible (leave unknown files empty), pass `--prior-rejections "$NEXT_REJECTIONS"` to `collect`, and retain it for the next round. Accepted conflicts must never enter it.
 
 After each `tribunal-loop` (including the final close):
-
-1. **Triage** findings (verify; decide fix-in-PR / follow-up / reject; file follow-ups
-   and record rejects).
-2. **Post and verify** the round PR comment for this `ROUND` + `LOCAL_HEAD` **before**
-   applying code fixes for that verdict. A round without a verified comment is not
-   complete. Load body from `references/round-comment.md` (`<!-- tribunal-round:N -->`,
-   `gh pr comment --body-file`). Every round comment includes a **CI:** line for the
-   exact HEAD (name+conclusion from the `required-checks.sh` JSON).
-3. If critical/high remain: apply fixes + tests, **push**, re-check HEAD == PR head,
-   run the next round (step 1 again).
-4. If zero critical/high: run CI-proven-green on `LOCAL_HEAD` (below). Only when that
-   gate passes may you stop at **DONE — ready to merge / hand off**.
-
-Disposition lines for still-uncommitted fixes are `will-fix` (no commit sha yet).
-After the fix lands, the next round's HEAD and trail show the result. Do not reverse
-the order to “fix then comment” — a failed fix/push must not leave the verdict
-undocumented on the PR.
-
-The loop only exits when the arbiter's verdict has **zero critical and zero high
-findings** on the current diff **and** the CI gate below passes on `LOCAL_HEAD`.
-Default panel: 3 legs selected per `TRIBUNAL_RISK` tier from `scripts/review-panel.tsv` (`TRIBUNAL_MIN_OK_LEGS` floor default 2).
+1. **Triage** findings (verify; decide fix-in-PR / follow-up / reject; file follow-ups and record rejects).
+2. **Post and verify** the round PR comment for `(ROUND, LOCAL_HEAD)` **before** applying code fixes for that verdict (use `will-fix` for uncommitted fixes; never reverse to fix-before-comment). Use `references/round-comment.md` (`<!-- tribunal-round:N -->`, `gh pr comment --body-file`), including a **CI:** line from `required-checks.sh` JSON.
+3. If critical/high remain: apply fixes + tests, **push**, re-check `LOCAL_HEAD == PR_HEAD`, run next round.
+4. If zero critical/high: run CI-proven green on `LOCAL_HEAD` below; stop at **DONE — ready to merge / hand off** only when it passes.
 
 ### CI-proven green (refuse-to-merge)
 
-Before declaring **DONE — ready to merge / hand off**, evaluate CI for the exact HEAD:
-
+Before declaring **DONE**, evaluate CI on `LOCAL_HEAD` (do not rely on `gh pr checks` alone — the script queries REST check-runs for the exact sha):
 ```bash
 OWNER_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 PLUGIN_ROOT="${TRIBUNAL_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${MUSE_PLUGIN_ROOT:-}}}}}}"
-# When unset (e.g. agy skill runs), set PLUGIN_ROOT to two directories above this loaded SKILL.md.
-if [ ! -f "${PLUGIN_ROOT}/scripts/required-checks.sh" ]; then
-  echo "PLUGIN_ROOT must point to the tribunal-review plugin directory containing scripts/required-checks.sh" >&2
-  exit 1
-fi
-CI_EC=0
-PR_BASE="$(printf '%s' "$PR_JSON" | jq -er .baseRefName)"
-CI_JSON="$(bash "${PLUGIN_ROOT}/scripts/required-checks.sh" \
-  --repo "$OWNER_REPO" --sha "$LOCAL_HEAD" --base "$PR_BASE")" || CI_EC=$?
-# Put name=conclusion (or status when conclusion is empty) from CI_JSON in the **CI:** line.
+[ -f "${PLUGIN_ROOT}/scripts/required-checks.sh" ] || { echo "Set PLUGIN_ROOT to tribunal-review dir" >&2; exit 1; }
+CI_EC=0; PR_BASE="$(printf '%s' "$PR_JSON" | jq -er .baseRefName)"
+CI_JSON="$(bash "${PLUGIN_ROOT}/scripts/required-checks.sh" --repo "$OWNER_REPO" --sha "$LOCAL_HEAD" --base "$PR_BASE")" || CI_EC=$?
 ```
-
-Repositories using an external CI check app that posts check-runs later must configure required checks so the gate waits for them; `ci="none"` cannot see checks not yet posted.
-
-- Only for exit 1 with `ok=false`, `ci="none"`, and `reason="no CI configured"`
-  (zero check-runs and no configured required names): copy **no CI configured**
-  verbatim from the JSON into the round comment's **CI:** line and include the full
-  `CI_JSON`. Post and verify that comment for `LOCAL_HEAD` before allowing merge;
-  this records absent CI, not a green check. All other review gates still apply.
-- For every other non-zero exit or `ok=false` (missing/pending/failed checks or unreadable requirements):
-  **refuse to merge**. Record the full `CI_JSON` in the round PR comment (and the
-  **CI:** summary line), stop the close-out, and do not merge or hand off as ready.
-- If it exits 0 (`ok=true`): proceed to **DONE — ready to merge / hand off**.
-- Do not use `gh pr checks` as the only source — the script queries REST check-runs
-  for the exact sha.
+Repos using external CI check apps that post later must configure required checks (`ci="none"` cannot see unposted checks).
+- Exit 0 (`ok=true`): proceed to **DONE — ready to merge / hand off**.
+- Exit 1 ONLY when `ok=false`, `ci="none"`, and `reason="no CI configured"`: copy **no CI configured** verbatim into the **CI:** line, include full `CI_JSON`, and post/verify the comment for `LOCAL_HEAD` before allowing merge (records absent CI, not green).
+- Any other non-zero exit or `ok=false` (missing/pending/failed checks or unreadable requirements): **refuse to merge**; record full `CI_JSON` and **CI:** summary in the round PR comment and stop.
 
 ## Per-Finding Triage
 
-Triage the **arbiter's findings** (`T-001`, …) — already deduplicated with
-`consensus` (`CONSENSUS` or `SINGLE_PROVIDER`) and `providers`. For each finding, decide
-one outcome and record it in the round PR comment:
+Triage the arbiter's deduplicated findings (`T-001`, …) against actual code (or a 30s repro; never trust consensus alone) and record one outcome per finding in the round PR comment:
 
 | Outcome | When |
 |---|---|
-| **Fix in this PR** | Verified bug caused/exposed by this diff and required by the frozen acceptance checks or to remove a material regression |
-| **File follow-up issue** | Verified, plausibly actionable bug that is pre-existing or explicitly out of PR scope |
-| **Reject** | False positive (verified against actual code) |
+| **Fix in this PR** | Verified bug caused/exposed by this diff, required by frozen acceptance checks or removing a material regression |
+| **File follow-up issue** | Verified, actionable bug that is pre-existing or out of PR scope (`references/follow-up-issue.md`, cross-link PR ↔ issue) |
+| **Reject** | Verified false positive |
 
-Before filing a product-code follow-up, run `work-item-triage`'s proposed-item check when
-installed (else comment on a covering open issue, or skip when filing is not the smallest
-adequate response); the round comment records the covering-issue link or the skip reason as
-the outcome; tribunal/review-machinery follow-ups bypass that gate (biased toward filing;
-still dedupe). Verify against the cited code (or a 30s repro). Don't trust consensus/confidence alone.
-Use the smallest causal fix consistent with the existing architecture. Validate the
-reproduced finding and the original acceptance checks; no broader audit or generalized
-machinery for hypothetical variants.
-
-**One commit per finding (or related cluster)** with the finding ID in the message body
-— `tribunal T-001`. Trail is readable in `git log` and in the round comment.
-
-Follow-up issue body: `references/follow-up-issue.md`. Cross-link PR ↔ issue both ways.
+Before filing a product-code follow-up, run `work-item-triage`'s proposed-item check when installed (else comment on a covering open issue, or skip when filing is not the smallest adequate response); the round comment records the covering-issue link or the skip reason as the outcome. Note: tribunal/review-machinery follow-ups bypass that gate (biased toward filing; still dedupe). Use the smallest causal fix consistent with the existing architecture; validate the reproduced finding and original acceptance checks only. Use one commit per finding (or related cluster) tagged `tribunal T-001` in the message body.
 
 ## Stop Condition
 
-Closes on **zero `critical` and zero `high`** on the latest diff **and** the CI gate
-above passing for `LOCAL_HEAD` (green or the recorded no-CI exception). Medium/low do not hold the
-finding gate — YAGNI triage below. Unearned CI green does not close the loop: refuse
-to merge when required checks are missing, pending, or failed.
+Closes on **zero `critical` and zero `high`** on the latest diff **and** the CI gate above passing for `LOCAL_HEAD` (green or recorded `ci="none"`). Refuse to merge when required checks are missing, pending, or failed. A `high` is cleared when fixed, re-rated below high by the arbiter (failed 3b-0), or descoped (mechanism removed + follow-up or covering issue linked). Always post a final round comment on close (even round 1) with the **CI:** line.
 
-A `high` is **cleared** when it is fixed, re-rated below high by the arbiter (failed
-3b-0), or **descoped** (mechanism removed from the diff + follow-up issue filed or covering issue linked).
-
-Post a final round comment on close (even if round 1 is already zero-crit/high),
-including the **CI:** line from `required-checks.sh`.
-
-### YAGNI triage (leftover medium/low at close)
-
-- File a follow-up **only if** reachable/real **and** worth acting on.
-- Otherwise drop it in the **closing round PR comment** (never silent). Optional PR-body
-  mirror: `Tribunal: N low findings dropped (YAGNI) — <reason>`.
-
-### Retry, checkpoint, ceiling
-
-- **Retry** while any critical/high remains (never YAGNI-drop them).
-- **Round 3 — checkpoint:** PR comment + progress note to caller; do not stop.
+- **YAGNI triage (leftover medium/low at close):** File a follow-up only if reachable/real and worth acting on; otherwise drop it in the **closing round PR comment** (never silent; optional PR-body mirror `Tribunal: N low findings dropped (YAGNI) — <reason>`).
+- **Retry:** While any critical/high remains (never YAGNI-drop them).
+- **Round 3 — checkpoint:** Post PR comment + progress note to caller; do not stop.
 - **Round 5 — hard ceiling:** STOP, post ceiling PR comment, escalate with standing finding.
 
 ## Step-back workflow (anti-spiral)
 
-- **Rounds 1–2:** address findings directly.
-- **Round 3+ while gate open:** **step-back mode** — stop adding guards; if findings
-  share a *class* (design problem, not bug), choose exactly one:
-  - **Simplify** within original acceptance criteria and existing architecture so the
-    class disappears. Broader redesign → descope or escalate.
+- **Rounds 1–2:** Address findings directly.
+- **Round 3+ while gate open:** Enter step-back mode — stop adding guards; if findings share a *class* (design problem), choose one and record it in the round PR comment:
+  - **Simplify** within original acceptance criteria and existing architecture so the class disappears (broader redesign → descope or escalate).
   - **Descope** — remove contested mechanism + file follow-up or link covering issue.
-  - **Confirm-unreachable** — arbiter down-rates under 3b-0 / reachability.md.
-- Stay in step-back on later stalled rounds; do not guard-pile. Record the choice in
-  the round PR comment.
-
-**Falsifiable output:** a step-back round must produce (a) collapsed class with
-defensive-mechanism count not increased (added ≤ removed), or (b) descope + linked
-follow-up or covering issue, or (c) arbiter ruling the class fails 3b-0. "Added another guard, relabeled
-as re-architecture" is invalid (no-net-increase check).
-
-## Common Mistakes
-
-- **No open PR** — chat-only close-out is not this skill.
-- **Reviewing unpushed HEAD** — local `HEAD` ≠ PR `headRefOid`; push and re-check first.
-- **Resetting round count on resume** — always derive `ROUND` from existing markers.
-- **Skipping the round PR comment** — no `<!-- tribunal-round:N -->` means no audit trail.
-- **Fix-before-comment** — post the verdict/dispositions before applying fixes.
-- **Stopping after round 1** — fixes are a new diff; re-run.
-- **Bundling out-of-scope fixes** — file a separate issue/PR.
-- **One-line follow-up issues** — use `references/follow-up-issue.md`.
-- **Stale verdict** — only the arbiter result on current HEAD counts, after its round
-  comment is posted.
-- **Merging without CI-proven green** — never skip `scripts/required-checks.sh` on
-  `LOCAL_HEAD`; only the recorded `ci="none"` exception permits a non-zero exit.
+  - **Confirm-unreachable** — arbiter down-rates under 3b-0 / `reachability.md`.
+- **Falsifiable output:** Must produce (a) collapsed class with no-net-increase in defensive mechanisms (added ≤ removed), (b) descope + linked follow-up or covering issue, or (c) arbiter ruling the class fails 3b-0. Stay in step-back on later stalled rounds.
 
 ## Related
 
-- `tribunal-loop` — single multi-provider review round
-- `scripts/required-checks.sh` — CI-proven green for the exact HEAD (REST check-runs)
-- `references/round-comment.md` — PR comment template + post/verify
-- `references/follow-up-issue.md` — follow-up issue body
-- `superpowers:receiving-code-review` — verify findings, don't performatively agree
+`tribunal-loop` | `scripts/required-checks.sh` | `references/loop-playbook.md` | `references/round-comment.md` | `references/follow-up-issue.md` | `superpowers:receiving-code-review`

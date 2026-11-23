@@ -43,6 +43,8 @@ def main() -> int:
 
 # Multi-line normalized block must appear in only one markdown file per plugin.
 DUPLICATE_BLOCK_MIN_LINES = 10
+# Default line ceiling for prompt-loaded markdown (skills, commands, agents).
+DEFAULT_PROMPT_MAX_LINES = 150
 
 
 def lint_plugin(plugin_dir: Path, errors: list[str], warnings: list[str]) -> None:
@@ -375,35 +377,130 @@ def lint_markdown_duplication(plugin_dir: Path, errors: list[str]) -> None:
         )
 
 
+def prompt_line_budget_paths(plugin_dir: Path) -> list[Path]:
+    """Prompt files subject to the default line-count ceiling.
+
+    Covers skills/*/SKILL.md (excluding generated *-workflow skills),
+    commands/*.md, and agents/*.md.
+    """
+    paths: list[Path] = []
+    for directory in ("agents", "commands"):
+        root = plugin_dir / directory
+        if root.is_dir():
+            paths.extend(root.glob("*.md"))
+    skills_dir = plugin_dir / "skills"
+    if skills_dir.is_dir():
+        for skill_md in skills_dir.glob("*/SKILL.md"):
+            if skill_md.parent.name.endswith("-workflow"):
+                continue
+            paths.append(skill_md)
+    return sorted(paths)
+
+
 def lint_prompt_budgets(plugin_dir: Path, errors: list[str]) -> None:
     budget_path = plugin_dir / "integrity" / "prompt-budgets.json"
-    if not budget_path.is_file():
-        # Only enforce when a baseline is committed (saas-startup-team and peers opt in).
-        return
-    try:
-        payload = json.loads(budget_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        errors.append(f"{rel(budget_path)}: invalid JSON: {exc}")
-        return
-    files = payload.get("files") if isinstance(payload, dict) else None
-    if not isinstance(files, dict):
-        errors.append(f"{rel(budget_path)}: expected object with files mapping")
-        return
+    max_lines_overrides: dict[str, int] = {}
 
-    for relative, max_bytes in sorted(files.items()):
-        if not isinstance(relative, str) or not isinstance(max_bytes, int):
-            errors.append(f"{rel(budget_path)}: invalid budget entry {relative!r}")
+    if budget_path.is_file():
+        try:
+            payload = json.loads(budget_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"{rel(budget_path)}: invalid JSON: {exc}")
+            payload = None
+
+        if payload is not None:
+            if not isinstance(payload, dict):
+                errors.append(f"{rel(budget_path)}: expected JSON object")
+            else:
+                has_files = "files" in payload
+                has_max_lines = "max_lines" in payload
+                if not has_files and not has_max_lines:
+                    errors.append(
+                        f"{rel(budget_path)}: expected object with files or max_lines mapping"
+                    )
+
+                if has_files:
+                    files = payload.get("files")
+                    if not isinstance(files, dict):
+                        errors.append(f"{rel(budget_path)}: expected object with files mapping")
+                    else:
+                        for relative, max_bytes in sorted(files.items()):
+                            if (
+                                not isinstance(relative, str)
+                                or not isinstance(max_bytes, int)
+                                or isinstance(max_bytes, bool)
+                                or max_bytes < 0
+                            ):
+                                errors.append(
+                                    f"{rel(budget_path)}: invalid budget entry {relative!r}"
+                                )
+                                continue
+                            path = plugin_dir / relative
+                            if not path.is_file():
+                                errors.append(
+                                    f"{rel(budget_path)}: budgeted file missing: {relative}"
+                                )
+                                continue
+                            size = path.stat().st_size
+                            if size > max_bytes:
+                                errors.append(
+                                    f"{rel(path)}: {size} bytes exceeds prompt budget {max_bytes} "
+                                    f"(committed in integrity/prompt-budgets.json); extract guidance "
+                                    f"or raise the baseline deliberately"
+                                )
+
+                if has_max_lines:
+                    raw_max_lines = payload.get("max_lines")
+                    if not isinstance(raw_max_lines, dict):
+                        errors.append(f"{rel(budget_path)}: max_lines must be a mapping")
+                    else:
+                        for relative, limit in sorted(raw_max_lines.items()):
+                            if (
+                                not isinstance(relative, str)
+                                or not isinstance(limit, int)
+                                or isinstance(limit, bool)
+                                or limit <= 0
+                            ):
+                                errors.append(
+                                    f"{rel(budget_path)}: invalid max_lines entry {relative!r}"
+                                )
+                                continue
+                            path = plugin_dir / relative
+                            if not path.is_file():
+                                errors.append(
+                                    f"{rel(budget_path)}: max_lines budgeted file missing: {relative}"
+                                )
+                                continue
+                            max_lines_overrides[relative] = limit
+
+    checked: set[str] = set()
+    for path in prompt_line_budget_paths(plugin_dir):
+        relative = path.relative_to(plugin_dir).as_posix()
+        checked.add(relative)
+        limit = max_lines_overrides.get(relative, DEFAULT_PROMPT_MAX_LINES)
+        line_count = len(path.read_text(encoding="utf-8").splitlines())
+        if line_count > limit:
+            if relative in max_lines_overrides:
+                errors.append(
+                    f"{rel(path)}: {line_count} lines exceeds prompt line budget {limit} "
+                    f"(committed in integrity/prompt-budgets.json); extract guidance "
+                    f"or raise the baseline deliberately"
+                )
+            else:
+                errors.append(
+                    f"{rel(path)}: {line_count} lines exceeds default prompt budget "
+                    f"{limit} lines; extract static reference material into references/ "
+                    f"loaded on demand"
+                )
+
+    for relative, limit in sorted(max_lines_overrides.items()):
+        if relative in checked:
             continue
         path = plugin_dir / relative
-        if not path.is_file():
+        line_count = len(path.read_text(encoding="utf-8").splitlines())
+        if line_count > limit:
             errors.append(
-                f"{rel(budget_path)}: budgeted file missing: {relative}"
-            )
-            continue
-        size = path.stat().st_size
-        if size > max_bytes:
-            errors.append(
-                f"{rel(path)}: {size} bytes exceeds prompt budget {max_bytes} "
+                f"{rel(path)}: {line_count} lines exceeds prompt line budget {limit} "
                 f"(committed in integrity/prompt-budgets.json); extract guidance "
                 f"or raise the baseline deliberately"
             )

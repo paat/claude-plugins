@@ -20,7 +20,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek and Qwen, at least two must succeed, with calling-context arbitration",
-      "version": "0.31.3",
+      "version": "0.31.4",
       "author": {
         "name": "Andre Paat"
       },
@@ -53,7 +53,7 @@
     {
       "name": "lawyer",
       "description": "On-demand Estonian/EU legal risk analysis for SaaS projects via est-saas-datalake and primary sources, with a law registry that flags load-bearing provisions when they change",
-      "version": "0.1.24",
+      "version": "0.1.25",
       "author": {
         "name": "Andre Paat"
       },
@@ -64,7 +64,7 @@
     {
       "name": "google-ads-strategist",
       "description": "Senior Google Ads strategist — iterative campaign design + Chrome-based creation in PAUSED state for investor review. Browser verification via Ad Preview Tool, SERP capture, and Ads Transparency Center. Enforces hypothesis discipline, buyer-intent + product-value gates, and accumulates learnings.",
-      "version": "0.7.7",
+      "version": "0.7.8",
       "author": {
         "name": "Andre Paat"
       },
@@ -130,7 +130,7 @@
     {
       "name": "multi-model-orchestrator",
       "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
-      "version": "0.32.7",
+      "version": "0.32.8",
       "author": {
         "name": "Andre Paat"
       },

@@ -212,6 +212,77 @@ class DuplicationAndBudgetTests(unittest.TestCase):
             CHECKER.lint_prompt_budgets(plugin, errors)
             self.assertEqual(errors, [])
 
+    def _make_lines(self, count: int) -> str:
+        header = ["---", "name: alpha", "description: A", "---"]
+        body = [f"line {i}" for i in range(1, count - len(header) + 1)]
+        return "\n".join(header + body) + "\n"
+
+    def test_default_line_budget_passes_at_150_lines(self) -> None:
+        content = self._make_lines(CHECKER.DEFAULT_PROMPT_MAX_LINES)
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = self._write_plugin(
+                Path(directory),
+                {
+                    "skills/alpha/SKILL.md": content,
+                    "commands/run.md": content,
+                    "agents/helper.md": content,
+                },
+            )
+            errors: list[str] = []
+            CHECKER.lint_prompt_budgets(plugin, errors)
+            self.assertEqual(errors, [])
+
+    def test_default_line_budget_fails_at_151_lines(self) -> None:
+        over = self._make_lines(CHECKER.DEFAULT_PROMPT_MAX_LINES + 1)
+        for relative in (
+            "skills/alpha/SKILL.md",
+            "commands/run.md",
+            "agents/helper.md",
+        ):
+            with self.subTest(path=relative):
+                with tempfile.TemporaryDirectory() as directory:
+                    plugin = self._write_plugin(Path(directory), {relative: over})
+                    errors: list[str] = []
+                    CHECKER.lint_prompt_budgets(plugin, errors)
+                    self.assertEqual(len(errors), 1)
+                    self.assertIn("151 lines exceeds default prompt budget 150 lines", errors[0])
+
+    def test_default_line_budget_excludes_generated_workflow_skills(self) -> None:
+        long_workflow = self._make_lines(CHECKER.DEFAULT_PROMPT_MAX_LINES + 50)
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = self._write_plugin(
+                Path(directory),
+                {"skills/fixture-run-workflow/SKILL.md": long_workflow},
+            )
+            errors: list[str] = []
+            CHECKER.lint_prompt_budgets(plugin, errors)
+            self.assertEqual(errors, [])
+
+    def test_max_lines_override_in_prompt_budgets_json(self) -> None:
+        content_180 = self._make_lines(180)
+        content_181 = self._make_lines(181)
+        budget_json = (
+            '{\n  "version": 1,\n  "max_lines": {\n'
+            '    "skills/alpha/SKILL.md": 180\n  }\n}\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = self._write_plugin(
+                Path(directory),
+                {
+                    "skills/alpha/SKILL.md": content_180,
+                    "integrity/prompt-budgets.json": budget_json,
+                },
+            )
+            errors: list[str] = []
+            CHECKER.lint_prompt_budgets(plugin, errors)
+            self.assertEqual(errors, [])
+
+            (plugin / "skills" / "alpha" / "SKILL.md").write_text(content_181, encoding="utf-8")
+            errors = []
+            CHECKER.lint_prompt_budgets(plugin, errors)
+            self.assertEqual(len(errors), 1)
+            self.assertIn("181 lines exceeds prompt line budget 180", errors[0])
+
 
 class AntigravityHooksLintTests(unittest.TestCase):
     def test_accepts_valid_root_hooks_json(self) -> None:

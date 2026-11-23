@@ -9,40 +9,11 @@ Post-launch iteration is scientific method applied to PPC. One hypothesis per it
 
 ## The Loop
 
-```
-Campaign has been live ≥ wait_days since last apply
-    │
-    ▼
-/ads-metrics → pull current numbers, compare to baseline + previous iteration
-    │
-    ▼
-Which stop condition?
-    │        │       │
-    │ met    │ not   │
-    │        │ met   │
-    ▼        │       ▼
-DONE         │    Diagnose: what is the dominant symptom?
-             │       │
-             │       ▼
-             │    Single-hypothesis branch (see decision tree below)
-             │       │
-             │       ▼
-             │    Write iterations/v_{n+1}/hypothesis.md + spec.md
-             │       │
-             │       ▼
-             │    Hand spec to human/launcher → apply → record applied_at
-             │       │
-             │       ▼
-             │    Wait for wait_days OR M conversions
-             │       │
-             │       ▼
-             │    /ads-metrics → did hypothesis hold?
-             │       │
-             │       ▼
-             │    Write result.md → update hypothesis-log.md → update learnings.md
-             │       │
-             └───────┘
-```
+1. Confirm campaign has been live `≥ wait_days` since last apply → run `/ads-metrics` and compare to baseline + previous iteration.
+2. Check stop conditions: if met → **DONE** (run `/ads-distill`).
+3. If not met → diagnose the dominant symptom via the Decision Tree below → pick a single-variable hypothesis → write `iterations/v_{n+1}/hypothesis.md` + `spec.md`.
+4. Hand spec to human/launcher → apply → record `applied_at` → wait `wait_days` OR `M` conversions.
+5. Run `/ads-metrics` → evaluate hypothesis → write `result.md` → update `hypothesis-log.md` and `learnings.md` → repeat.
 
 ## The Wait Gate (non-negotiable)
 
