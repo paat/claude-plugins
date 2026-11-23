@@ -6,7 +6,7 @@
     },
     {
       "path": "scripts/check-runner-bundle.sh",
-      "sha256": "bcf2eb86fa45517c3a0ef6b62aae39590503d6105daa0f56ae7e7435f5be14d6"
+      "sha256": "95ff74155b427f079a3f39861e447dc787dffae0ed0c802e7cc7f31a42ed3b39"
     },
     {
       "path": "scripts/collect-review-evidence.sh",
@@ -18,11 +18,15 @@
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
-      "sha256": "6be16f12a7bf73c3c1fb4c491d10bb3e9c504e0ddce3753b064e79165727d7dc"
+      "sha256": "154169a5c7c6233e64fe487550605818d7541e03cfb668f038b0e962255cdeda"
+    },
+    {
+      "path": "scripts/lib-provider.sh",
+      "sha256": "013bfda1ca015ac1362d872d81f8c1f070cb8fd1ad067754ea73def4d0319d2c"
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "48be9821f1f5348afa9dbdd4c1e50d5fedb799b0a23a0d6c6657b4de02c26626"
+      "sha256": "7845a2027d6c47cea784e31842d38fc62db5a9716121bff2a50ed545a3464b33"
     },
     {
       "path": "scripts/review-panel.tsv",
@@ -42,7 +46,7 @@
     },
     {
       "path": "scripts/run-grok-review.sh",
-      "sha256": "c0608186d387fba4752bfed9ca9a1d1ae68dbcefed3d1771b87bed6572903bfc"
+      "sha256": "6d5ed78e278669a642f3746b4f709e8d1d33b8e3d4c0107f14de26ed6bc8c068"
     },
     {
       "path": "scripts/run-muse-review.sh",

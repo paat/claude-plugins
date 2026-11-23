@@ -455,7 +455,7 @@ test_deleted_policy_paths_gate() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -656,7 +656,7 @@ test_mutation_gate() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -2470,7 +2470,7 @@ EOF
   # resolves schema when CLAUDE_PLUGIN_ROOT points at the real plugin.
   local orphan="$work/orphan-plugin/scripts"
   mkdir -p "$orphan"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$orphan/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$orphan/"
   cp "$PLUGIN_ROOT/scripts/run-grok-review.sh" "$orphan/run-grok-review.sh"
   cat > "$fake/grok" <<'EOF'
 #!/usr/bin/env bash
@@ -2521,7 +2521,7 @@ EOF
   # Scenario H: missing schema file fails before provider run (no silent empty schema).
   local bare="$work/bare-plugin"
   mkdir -p "$bare/scripts" "$bare/schemas"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$bare/scripts/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$bare/scripts/"
   cp "$PLUGIN_ROOT/scripts/run-grok-review.sh" "$bare/scripts/run-grok-review.sh"
   # Intentionally omit schemas/review-output.json
   cat > "$fake/grok" <<'EOF'
@@ -3251,7 +3251,7 @@ test_trusted_evidence_collection() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$work/tmp" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -4334,7 +4334,7 @@ test_blind_approve_guard() {
   repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -4754,7 +4754,7 @@ test_sealed_panel_quorum() {
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"
   mkdir -p "$repo" "$fake" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
   cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$plugin/scripts/"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -5390,7 +5390,8 @@ assert_grep "diffs the pinned range" "$LIB" 'git diff "$base_oid...$head_oid"'
 assert_grep "pinned range JSON is built by jq, not string interpolation" "$LIB" 'jq -Rn --arg base "$base_ref"'
 assert_grep "numstat failure is fail-closed" "$LIB" 'git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1'
 assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
-assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
+assert_grep "Claude auth probe is bounded" "scripts/lib-provider.sh" 'timeout -k 1 "$timeout_s" claude auth status --json'
+assert_grep "Claude auth timeout defaults to 20s and is overridable" "$LIB" 'TRIBUNAL_AUTH_TIMEOUT_SECONDS:-20'
 assert_grep "preflight checks Claude auth" "$PF" "tribunal_claude_authenticated"
 assert_grep "preflight checks Grok auth" "$PF" "tribunal_grok_authenticated"
 assert_grep "lib defines Grok auth write-back" "$LIB" "tribunal_grok_auth_writeback"
@@ -5636,7 +5637,7 @@ test_collector_surface_leftovers() {
   git -C "$work/repo" worktree add -q --detach "$work/review-one"
   git -C "$work/repo" worktree add -q --detach "$work/review-two"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
   bash -c '
     . "$1/collector-functions.sh"
     SURFACE_ROOT="$1/repo"
@@ -5683,7 +5684,7 @@ test_collector_reap_rescan() {
   local work ec=0
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
   mkdir -p "$work/staging/wrappers"
   mkfifo "$work/a.go" "$work/b.go" "$work/child.ready"
   cat > "$work/a.sh" <<'LEG'
@@ -5738,7 +5739,7 @@ test_collector_pid_namespace() {
   fi
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
   cat > "$work/escape.py" <<'PY'
 import os, time
 if os.fork():
@@ -5814,7 +5815,7 @@ test_collector_namespace_failure_cleanup() {
   fi
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
   git init -q "$work/repo"
   git -C "$work/repo" -c user.name=Fixture -c user.email=fixture@example.test commit -qm initial --allow-empty
   cat > "$work/blocked.sh" <<'LEG'
@@ -5878,7 +5879,7 @@ test_collector_completion_order() {
   local work ec=0
   work="$(mktemp -d)"
   sed '/^require_tools$/,$d' "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" > "$work/collector-functions.sh"
-  cp "$PLUGIN_ROOT/scripts/lib.sh" "$work/lib.sh"
+  cp "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$work/"
   mkdir -p "$work/staging/wrappers"
   mkfifo "$work/ready"
   cat > "$work/slow.sh" <<'EOF'
@@ -6470,7 +6471,7 @@ test_backup_leg_collection() {
   local -a verify_args
   work="$(mktemp -d)"; repo="$work/repo"; fake="$work/bin"; plugin="$work/plugin"; state="$work/state"
   mkdir -p "$repo" "$fake" "$state" "$plugin/scripts" "$plugin/schemas" "$plugin/.claude-plugin" "$plugin/integrity"
-  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" \
+  cp "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" "$PLUGIN_ROOT/scripts/lib.sh" "$PLUGIN_ROOT/scripts/lib-provider.sh" "$PLUGIN_ROOT/scripts/review-panel.tsv" \
     "$PLUGIN_ROOT/scripts/check-runner-bundle.sh" "$PLUGIN_ROOT/scripts/generate-runner-bundle.sh" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/scripts/dsh-review.patch.yml" "$plugin/scripts/"
   cp "$PLUGIN_ROOT/schemas/review-output.json" "$plugin/schemas/"
@@ -7361,6 +7362,7 @@ test_collector_config_includes
 test_collector_surface_leftovers
 test_collector_subdirectory_root
 test_walk_root_hides_env_files
+assert_json_field "shared provider helpers and configurable auth timeout" "bash '$PLUGIN_ROOT/tests/test-shared-provider-helpers.sh'"
 
 echo ""
 if [ "$SKIP" -ne 0 ]; then

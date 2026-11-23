@@ -6,6 +6,10 @@
 # - leg secret isolation (untracked .env* refusal, scrubbed environment)
 # - shared prompts and harness-adjustments.tsv lines
 #
+MMO_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=lib-provider.sh
+. "$MMO_LIB_DIR/lib-provider.sh"
+#
 # Verdict check: case-insensitive. A line must be either a bare APPROVE/APPROVED or
 # NEEDS_WORK / NEEDS WORK token, or the same token prefixed by VERDICT:.
 # Markdown headings and bold decoration around the prefix or token are
@@ -168,22 +172,9 @@ mmo_separate_glued_verdict() {
 # Prints "limit" (plan window or balance used up), "transient", "auth", or nothing.
 # Callers must not pass model stdout bodies.
 mmo_classify_provider_failure() {
-  local f="${1:-}" text
+  local f="${1:-}"
   [ -n "$f" ] && [ -s "$f" ] || return 0
-  # Some runners pass a whole stderr: a stack-frame position (file.js:503:12) is not a status.
-  text="$(sed -E 's/:[0-9]+:[0-9]+//g' "$f")"
-  if grep -Eiq '\b402\b|usage[[:space:]_-]?limit|hit your .*limit\b|quota|(resource|balance|credits?)[[:space:]_-]?exhausted|credit balance (is )?too low|billing_error' <<< "$text"; then
-    printf 'limit\n'
-    return 0
-  fi
-  if grep -Eiq '\b(429|529|503)\b|overloaded|rate[[:space:]_-]?limit|temporarily[[:space:]]+unavailable' <<< "$text"; then
-    printf 'transient\n'
-    return 0
-  fi
-  if grep -Eiq '\b401\b|unauthorized|not[[:space:]]+signed[[:space:]]+in|not[[:space:]]+logged[[:space:]]+in|login[[:space:]]+required|missing[[:space:]]+([[:alnum:]_-]+[[:space:]]+)?credentials|(expired|invalid)[[:space:]]+(api[[:space:]]*key|token)|(api[[:space:]]*key|token).*(expired|invalid)' <<< "$text"; then
-    printf 'auth\n'
-    return 0
-  fi
+  provider_classify_failure_stream < "$f"
 }
 
 # Provider exits must not impersonate runner validation codes; KILL/TERM mean timeout.
@@ -309,9 +300,7 @@ mmo_review_diff_close() {  # mmo_review_diff_close RUNNER REPO DIFF [OUT]...
 mmo_guard_env_files() {  # mmo_guard_env_files RUNNER REPO
   local found
   [ "${MMO_ALLOW_ENV_FILES:-0}" != 1 ] || return 0
-  found="$( { git -C "$2" ls-files -z --others --exclude-standard
-    git -C "$2" ls-files -z --others --ignored --exclude-standard --directory; } \
-    | tr '\0' '\n' | grep -E '(^|/)\.env[^/]*$' | paste -sd ' ' -)" || true
+  found="$(provider_find_untracked_env_files "$2" | paste -sd ' ' -)" || true
   [ -n "$found" ] || return 0
   printf '%s: %s holds untracked env files a leg could send to its provider: %s\n' "$1" "$2" "$found" >&2
   printf '%s: run from a git worktree without them, or set MMO_ALLOW_ENV_FILES=1\n' "$1" >&2
@@ -322,21 +311,5 @@ mmo_guard_env_files() {  # mmo_guard_env_files RUNNER REPO
 # Use a scrubbed environment: a base allowlist, the provider's own
 # variables (names, or PREFIX* patterns, before --), and the names listed in MMO_LEG_ENV.
 mmo_leg_env() {  # mmo_leg_env [NAME|PREFIX*]... -- COMMAND [ARG]...
-  local keep=(PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR
-    HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE NODE_EXTRA_CA_CERTS)
-  local pass=() names=() extra=() name
-  while [ "$1" != -- ]; do keep+=("$1"); shift; done
-  shift
-  read -r -a extra <<< "${MMO_LEG_ENV:-}"
-  for name in "${keep[@]}" ${extra[@]+"${extra[@]}"}; do
-    case "$name" in
-      *'*') mapfile -t -O "${#names[@]}" names < <(compgen -e -- "${name%\*}") ;;
-      *) names+=("$name") ;;
-    esac
-  done
-  for name in "${names[@]}"; do
-    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { printf 'mmo: invalid MMO_LEG_ENV name: %s\n' "$name" >&2; return 2; }
-    [ -z "${!name+x}" ] || pass+=("$name=${!name}")
-  done
-  exec env -i ${pass[@]+"${pass[@]}"} "$@"
+  provider_leg_env_run exec MMO_LEG_ENV fail "$@"
 }

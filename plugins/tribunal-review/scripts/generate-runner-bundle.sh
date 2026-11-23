@@ -13,6 +13,7 @@ FILES=(
   scripts/collect-review-evidence.sh
   scripts/dsh-review.patch.yml
   scripts/generate-runner-bundle.sh
+  scripts/lib-provider.sh
   scripts/lib.sh
   scripts/review-panel.tsv
   scripts/run-claude-review.sh

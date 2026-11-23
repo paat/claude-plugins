@@ -10,9 +10,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 # shellcheck source=lib-outcomes.sh
 . "$SCRIPT_DIR/lib-outcomes.sh"
+# shellcheck source=lib-catalog.sh
+. "$SCRIPT_DIR/lib-catalog.sh"
 
 usage() {
-  printf '%s\n' 'Usage: run-grok.sh --mode advise|implement|probe|research|review [--repo DIR|--dir DIR] [--base REF] [--model grok-4.7|grok-4.6|grok-4.5] [--effort low|medium|high|xhigh(grok-4.7 and grok-4.6)] [--max-turns N] [--continue-on-max-turns 0-3] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
+  local models
+  models="$(mmo_catalog_list grok '|' 2>/dev/null || printf 'MODEL')"
+  printf 'Usage: run-grok.sh --mode advise|implement|probe|research|review [--repo DIR|--dir DIR] [--base REF] [--model %s] [--effort low|medium|high|xhigh(grok-4.6+)] [--max-turns N] [--continue-on-max-turns 0-3] [--timeout SECONDS] [--out FILE] [--stream-log FILE]\n' "$models"
 }
 
 valid_effort() {
@@ -57,20 +61,20 @@ done
 
 mmo_clear_out "$output_file"
 case "$mode" in advise|implement|probe|research|review) ;; *) printf 'run-grok: --mode must be advise, implement, probe, research, or review\n' >&2; exit 2 ;; esac
+mmo_catalog_has_model grok "$model" || {
+  printf 'run-grok: unsupported model %s (current catalog: %s)\n' "$model" "$(mmo_catalog_list grok ' ' 2>/dev/null || true)" >&2
+  exit 2
+}
 case "$model" in
-  grok-4.7|grok-4.6|grok-4.5) ;;
-  *) printf 'run-grok: unsupported model %s (current catalog: grok-4.7 grok-4.6 grok-4.5)\n' "$model" >&2; exit 2 ;;
-esac
-case "$model" in
-  grok-4.7|grok-4.6)
-    valid_effort_xhigh "$effort" || {
-      printf 'run-grok: unsupported effort %s for %s (expected low|medium|high|xhigh)\n' "$effort" "$model" >&2
-      exit 2
-    }
-    ;;
   grok-4.5)
     valid_effort "$effort" || {
       printf 'run-grok: unsupported effort %s for grok-4.5 (expected low|medium|high)\n' "$effort" >&2
+      exit 2
+    }
+    ;;
+  *)
+    valid_effort_xhigh "$effort" || {
+      printf 'run-grok: unsupported effort %s for %s (expected low|medium|high|xhigh)\n' "$effort" "$model" >&2
       exit 2
     }
     ;;
@@ -111,8 +115,7 @@ debug_file="$runtime_dir/grok.debug"
 resume_debug_file="$runtime_dir/grok.resume.debug"
 isolated_home="$runtime_dir/home"
 isolated_grok_home="$isolated_home/.grok"
-host_grok_home="${GROK_HOME:-${HOME}/.grok}"
-host_auth="$host_grok_home/auth.json"
+host_auth="$(provider_grok_auth_file)"
 isolated_auth="$isolated_grok_home/auth.json"
 # Snapshot of host auth at leg start; writeback only if host still matches this
 # and the isolated copy actually changed (avoids clobbering a concurrent refresh).
@@ -136,62 +139,7 @@ if [ "$stream_log_set" -eq 1 ]; then
 fi
 
 writeback_auth() {
-  local lock_dir lock_pid auth_tmp
-  [ -s "$isolated_auth" ] || return 0
-  # No refresh in this leg → nothing to write back.
-  if [ -f "$start_auth_snapshot" ]; then
-    cmp -s "$isolated_auth" "$start_auth_snapshot" 2>/dev/null && return 0
-  fi
-  # Host was refreshed by another process while we ran → keep the newer host value.
-  if [ -f "$start_auth_snapshot" ]; then
-    if [ ! -f "$host_auth" ] || ! cmp -s "$host_auth" "$start_auth_snapshot" 2>/dev/null; then
-      return 0
-    fi
-  elif [ -f "$host_auth" ] && [ -s "$host_auth" ]; then
-    # No host auth at start; another process wrote one while we ran.
-    return 0
-  fi
-  cmp -s "$isolated_auth" "$host_auth" 2>/dev/null && return 0
-  mkdir -p "$host_grok_home"
-  lock_dir="${host_auth}.lockdir"
-  if ! mkdir "$lock_dir" 2>/dev/null; then
-    lock_pid=""
-    [ ! -f "$lock_dir/pid" ] || IFS= read -r lock_pid < "$lock_dir/pid" || true
-    # Stale: its holder is gone, or it died before writing its pid (the lock is held for milliseconds).
-    if { [[ "$lock_pid" =~ ^[1-9][0-9]*$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; } ||
-       { [ -z "$lock_pid" ] && [ -n "$(find "$lock_dir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
-      rm -rf -- "$lock_dir"
-      mkdir "$lock_dir" 2>/dev/null || {
-        printf 'run-grok: auth refresh not written back; lock busy: %s\n' "$lock_dir" >&2
-        return 0
-      }
-    else
-      printf 'run-grok: auth refresh not written back; lock busy: %s\n' "$lock_dir" >&2
-      return 0
-    fi
-  fi
-  printf '%s\n' "$$" > "$lock_dir/pid"
-  # Re-check host still matches start snapshot under the lock (TOCTOU).
-  if [ -f "$start_auth_snapshot" ]; then
-    if [ ! -f "$host_auth" ] || ! cmp -s "$host_auth" "$start_auth_snapshot" 2>/dev/null; then
-      rm -f "$lock_dir/pid"
-      rmdir "$lock_dir"
-      return 0
-    fi
-  elif [ -f "$host_auth" ] && [ -s "$host_auth" ]; then
-    rm -f "$lock_dir/pid"
-    rmdir "$lock_dir"
-    return 0
-  fi
-  auth_tmp="$(mktemp "$host_grok_home/.auth.json.XXXXXX")" || {
-    rm -f "$lock_dir/pid"
-    rmdir "$lock_dir"
-    return 0
-  }
-  cp -p "$isolated_auth" "$auth_tmp" && chmod 600 "$auth_tmp" 2>/dev/null && mv -f "$auth_tmp" "$host_auth"
-  rm -f "$auth_tmp"
-  rm -f "$lock_dir/pid"
-  rmdir "$lock_dir"
+  provider_grok_auth_writeback "$isolated_auth" "$host_auth" "$start_auth_snapshot" run-grok
 }
 
 cleanup() {
@@ -207,36 +155,7 @@ if [ -f "$host_auth" ]; then
   cp -p "$host_auth" "$isolated_auth"
   cp -p "$isolated_auth" "$start_auth_snapshot"
 fi
-cat > "$isolated_grok_home/config.toml" <<'EOF'
-[compat.claude]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-sessions = false
-
-[compat.cursor]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-sessions = false
-
-[compat.codex]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-sessions = false
-
-[features]
-telemetry = false
-feedback = false
-codebase_indexing = false
-EOF
+provider_grok_write_isolated_config "$isolated_grok_home/config.toml"
 
 cat > "$request_file"
 [ -s "$request_file" ] || { printf 'run-grok: empty prompt\n' >&2; exit 2; }

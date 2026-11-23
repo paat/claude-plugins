@@ -132,37 +132,7 @@ if [ -f "$AUTH_SRC" ]; then
   # Regular file copy only — symlink + atomic replace severs host OIDC refresh (issue #374).
   cp -a "$AUTH_SRC" "$AUTH_ISOLATED"
 fi
-cat > "$ISOLATED_HOME/.grok/config.toml" <<'EOF'
-# Tribunal Grok leg: no foreign-vendor project instructions, skills, hooks, or MCP.
-[compat.claude]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-sessions = false
-
-[compat.cursor]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-sessions = false
-
-[compat.codex]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-sessions = false
-
-[features]
-telemetry = false
-feedback = false
-codebase_indexing = false
-EOF
+provider_grok_write_isolated_config "$ISOLATED_HOME/.grok/config.toml"
 
 # Schema path via plugin root (TRIBUNAL_PLUGIN_ROOT / CLAUDE_PLUGIN_ROOT /
 # SCRIPT_DIR/..) so wrappers still resolve it; fail loud if missing/empty so

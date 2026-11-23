@@ -5078,5 +5078,6 @@ python3 "$PLUGIN_ROOT/tests/test-outcome-lifecycle.py" "$PLUGIN_ROOT/scripts" "$
 python3 "$PLUGIN_ROOT/tests/test-stop-signals.py" "$PLUGIN_ROOT/scripts" "$WORK/stop-signals"
 python3 "$PLUGIN_ROOT/tests/test-runner-preservation.py" "$PLUGIN_ROOT/scripts"
 bash "$PLUGIN_ROOT/tests/test-ask88-gates.sh"
+bash "$PLUGIN_ROOT/tests/test-catalog-unification.sh"
 
 printf 'All multi-model-orchestrator tests passed.\n'
