@@ -905,6 +905,27 @@ esac
             self.assertRegex(result.stdout, r"unrouted CLI models: .*gemini-9-test")
             self.assertNotIn("claude", calls)
 
+    def test_main_unrouted_cli_model_reaches_claude_prompt(self):
+        self.main_baseline()
+        (self.temp / "home/extra-agy-models").write_text("gemini-9-test-high\tGemini\n")
+        binaries = self.temp / "home/.local/bin"
+        (binaries / "gh").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (binaries / "git").write_text(
+            '#!/usr/bin/env bash\n'
+            'if [[ $* == *"worktree add"* ]]; then mkdir -p "$XDG_STATE_HOME/model-refresh/worktree"; fi\n'
+            'exit 0\n')
+        (binaries / "claude").write_text(
+            '#!/usr/bin/env bash\n'
+            'cat >"$XDG_STATE_HOME/prompt"\n'
+            'echo NO_CHANGES\n')
+        result, _ = self.main_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        prompt = (self.temp / "prompt").read_text()
+        trigger_rows = prompt.split("<trigger_rows>", 1)[1].split("</trigger_rows>", 1)[0]
+        self.assertIn("new_cli_model\tgemini-9-test\n", trigger_rows)
+        self.assertIn("unrouted_cli_model\tgemini-9-test\n", trigger_rows)
+        self.assertIn('"Unrouted models"', prompt)
+
     def test_main_missing_opencode_cli_skips_section_but_runs_others(self):
         self.prepare_main()
         (self.temp / "home/.local/bin/opencode").unlink()

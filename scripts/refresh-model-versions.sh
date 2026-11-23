@@ -125,7 +125,7 @@ awk '/^## / { cli = ($2 == "codex" || $2 == "grok" || $2 == "agy" || $2 == "open
     if [[ -n $id ]] && pool_family "$id"; then printf 'unrouted_cli_model\t%s\n' "$id"; fi
   done >"$STATE/unrouted-models.txt"
 [[ ! -s $STATE/unrouted-models.txt ]] ||
-  log "unrouted CLI models: $(cut -f2 "$STATE/unrouted-models.txt" | paste -sd ' ')"
+  log "unrouted CLI models: $(cut -f2 "$STATE/unrouted-models.txt" | paste -sd ' ' -)"
 
 # Recurring friction from local records: a newly flagged or newly cleared key triggers.
 friction_old="$STATE/friction-flags.txt"
