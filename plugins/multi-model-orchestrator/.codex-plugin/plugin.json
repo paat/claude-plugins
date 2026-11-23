@@ -1,14 +1,14 @@
 {
   "name": "multi-model-orchestrator",
-  "version": "0.32.9",
-  "description": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
+  "version": "0.32.12",
+  "description": "Route software tasks across Claude, Codex, Grok, Muse, Antigravity Gemini, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
   "author": {
     "name": "Andre Paat"
   },
   "interface": {
     "displayName": "Multi Model Orchestrator",
-    "shortDescription": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
-    "longDescription": "Route software tasks across Claude, Codex, Grok, Muse, Gemini Flash/Argon, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
+    "shortDescription": "Route software tasks across Claude, Codex, Grok, Muse, Antigravity Gemini, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
+    "longDescription": "Route software tasks across Claude, Codex, Grok, Muse, Antigravity Gemini, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
     "developerName": "Andre Paat",
     "category": "Development",
     "capabilities": [

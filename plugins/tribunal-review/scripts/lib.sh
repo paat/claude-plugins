@@ -3,6 +3,8 @@
 set -u
 
 TRIBUNAL_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=lib-provider.sh
+. "$TRIBUNAL_LIB_DIR/lib-provider.sh"
 
 tribunal_deepseek_model() {
   printf '%s\n' "${TRIBUNAL_DEEPSEEK_MODEL:-deepseek-v4-pro}"
@@ -366,13 +368,13 @@ tribunal_select_panel() {
 # A CLI that failed because its plan window or balance is used up. Timeouts are never
 # plan limits; only the tails are read, where CLIs print the terminal error.
 tribunal_plan_limited() {
-  local exit_code="$1" f
+  local exit_code="$1" f kind
   shift
   case "$exit_code" in 124|137) return 1 ;; esac
   for f in "$@"; do
     [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || continue
-    grep -Eiq '\b402\b|usage[[:space:]_-]?limit|quota|(resource|balance|credits?)[[:space:]_-]?exhausted' \
-      <<< "$(tail -c 4096 -- "$f" 2>/dev/null)" && return 0
+    kind="$(tail -c 4096 -- "$f" 2>/dev/null | provider_classify_failure_stream)"
+    [ "$kind" = limit ] && return 0
   done
   return 1
 }
@@ -390,9 +392,7 @@ tribunal_repo_root() {
 tribunal_walk_root() {  # tribunal_walk_root SCRATCH_DIR [PINNED_HEAD]
   local repo
   repo="$(tribunal_repo_root)"
-  if [ -z "${2:-}" ] && { [ "${TRIBUNAL_ALLOW_ENV_FILES:-0}" = 1 ] || ! { git -C "$repo" ls-files -z --others --exclude-standard
-      git -C "$repo" ls-files -z --others --ignored --exclude-standard --directory; } \
-      | tr '\0' '\n' | grep -Eq '(^|/)\.env[^/]*$'; }; then
+  if [ -z "${2:-}" ] && { [ "${TRIBUNAL_ALLOW_ENV_FILES:-0}" = 1 ] || ! provider_find_untracked_env_files "$repo" >/dev/null; }; then
     printf '%s\n' "$repo"
     return 0
   fi
@@ -406,23 +406,7 @@ tribunal_walk_root() {  # tribunal_walk_root SCRATCH_DIR [PINNED_HEAD]
 # leg's shell cannot read controller secrets. The Codex leg scrubs its shell with
 # shell_environment_policy; Grok has no shell.
 tribunal_leg_env() {  # tribunal_leg_env [NAME|PREFIX*]... -- COMMAND [ARG]...
-  local keep=(PATH HOME USER LOGNAME SHELL LANG LC_ALL TERM TMPDIR
-    HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE NODE_EXTRA_CA_CERTS)
-  local pass=() names=() extra=() name
-  while [ "$1" != -- ]; do keep+=("$1"); shift; done
-  shift
-  read -r -a extra <<< "${TRIBUNAL_LEG_ENV:-}"
-  for name in "${keep[@]}" ${extra[@]+"${extra[@]}"}; do
-    case "$name" in
-      *'*') mapfile -t -O "${#names[@]}" names < <(compgen -e -- "${name%\*}") ;;
-      *) names+=("$name") ;;
-    esac
-  done
-  for name in "${names[@]}"; do
-    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { printf 'tribunal: ignoring invalid TRIBUNAL_LEG_ENV name: %s\n' "$name" >&2; continue; }
-    [ -z "${!name+x}" ] || pass+=("$name=${!name}")
-  done
-  env -i ${pass[@]+"${pass[@]}"} "$@"
+  provider_leg_env_run run TRIBUNAL_LEG_ENV warn "$@"
 }
 
 tribunal_default_branch() {
@@ -878,94 +862,36 @@ tribunal_review_error() {
 }
 
 tribunal_claude_authenticated() {
-  local status
-  status="$(timeout -k 1 10 claude auth status --json 2>/dev/null)" || return 1
-  printf '%s\n' "$status" | jq -e '.loggedIn == true' >/dev/null 2>&1
+  provider_claude_authenticated "${TRIBUNAL_AUTH_TIMEOUT_SECONDS:-20}"
 }
 
 # Host path to Grok CLI credentials (pre-isolation GROK_HOME/HOME).
 tribunal_grok_auth_file() {
-  printf '%s\n' "${GROK_HOME:-${HOME}/.grok}/auth.json"
+  provider_grok_auth_file
 }
 
 # True when auth.json is parseable JSON with at least one non-empty access token
 # (OIDC/API session field "key", or access_token). Used for preflight + write-back.
 tribunal_grok_auth_json_usable() {
-  local f="${1:-}"
-  [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
-  jq -e '
-    type == "object" and (
-      (
-        to_entries
-        | map(.value)
-        | map(select(type == "object"))
-        | map(.key // .access_token // empty)
-        | map(select(type == "string" and length > 0))
-        | length > 0
-      )
-      or ((.key // .access_token // "") | type == "string" and length > 0)
-    )
-  ' "$f" >/dev/null 2>&1
+  provider_grok_auth_json_usable "${1:-}"
 }
 
 # Usable for autonomous Grok legs: XAI_API_KEY in env, or a live session in auth.json.
 # Max/OAuth users need a durable refresh_token in auth.json (issue #374).
 tribunal_grok_authenticated() {
-  if [ -n "${XAI_API_KEY:-}" ]; then
-    return 0
-  fi
-  tribunal_grok_auth_json_usable "$(tribunal_grok_auth_file)"
+  provider_grok_authenticated
 }
 
 # Latest expires_at string across credential objects (empty if none). Lexicographic
 # ISO-8601 compares work for the Grok CLI's Zulu timestamps.
 tribunal_grok_auth_max_expires() {
-  local f="$1"
-  jq -r '
-    [
-      (to_entries // [])[]
-      | .value
-      | select(type == "object")
-      | .expires_at // empty
-      | select(type == "string" and length > 0)
-    ]
-    | if length == 0 then empty else max end
-  ' "$f" 2>/dev/null || true
+  provider_grok_auth_max_expires "$1"
 }
 
-# Copy isolated auth.json back to the host under flock, after OAuth refresh.
-# Never clobber a host file that has a strictly newer expires_at (concurrent legs).
-# Do not symlink auth into isolation — atomic replace under the scratch home would
-# detach the host file and leave a revoked refresh_token there (issue #374).
+# Copy isolated auth.json back to the host after OAuth refresh, refusing to regress
+# a fresher host expires_at (issue #374).
 tribunal_grok_auth_writeback() {
-  local isolated="${1:-}" host="${2:-}"
-  local host_dir lock tmp host_exp iso_exp
-  [ -n "$isolated" ] && [ -n "$host" ] || return 0
-  [ -f "$isolated" ] || return 0
-  tribunal_grok_auth_json_usable "$isolated" || return 1
-
-  host_dir="$(dirname "$host")"
-  mkdir -p "$host_dir" || return 1
-  lock="${host}.lock"
-  # shellcheck disable=SC2094
-  (
-    flock 9 || exit 1
-    if [ -f "$host" ] && tribunal_grok_auth_json_usable "$host"; then
-      if cmp -s "$isolated" "$host"; then
-        exit 0
-      fi
-      host_exp="$(tribunal_grok_auth_max_expires "$host")"
-      iso_exp="$(tribunal_grok_auth_max_expires "$isolated")"
-      # Host fresher → another process already wrote a newer session; do not regress.
-      if [ -n "$host_exp" ] && [ -n "$iso_exp" ] && [[ "$iso_exp" < "$host_exp" ]]; then
-        exit 0
-      fi
-    fi
-    tmp="$(mktemp "$host_dir/.auth.json.XXXXXX")" || exit 1
-    cp -a "$isolated" "$tmp" || { rm -f "$tmp"; exit 1; }
-    chmod 600 "$tmp" 2>/dev/null || true
-    mv -f "$tmp" "$host"
-  ) 9>>"$lock"
+  provider_grok_auth_writeback "${1:-}" "${2:-}" "" tribunal-grok
 }
 
 # $4 is the range `tribunal_prepare_diff` pinned, taken by the runner. The

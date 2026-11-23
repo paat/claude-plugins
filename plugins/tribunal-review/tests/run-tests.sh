@@ -67,6 +67,10 @@ if matches_filter "prior-rejections.sh"; then
   . "$TESTS_DIR/prior-rejections.sh"
   test_prior_rejections
 fi
+if matches_filter "test-shared-provider-helpers.sh"; then
+  matched=$((matched + 1))
+  assert_json_field "shared provider helpers and configurable auth timeout" "bash '$TESTS_DIR/test-shared-provider-helpers.sh'"
+fi
 
 if [ -n "$FILTER" ] && [ "$matched" -eq 0 ]; then
   echo -e "  ${RED}FAIL${NC} no test files matched filter '$FILTER'" >&2

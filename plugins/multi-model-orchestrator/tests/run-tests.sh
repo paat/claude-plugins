@@ -51,6 +51,11 @@ if matches_filter "test-ask88-gates.sh"; then
   bash "$TESTS_DIR/test-ask88-gates.sh"
 fi
 
+if matches_filter "test-catalog-unification.sh"; then
+  matched=$((matched + 1))
+  bash "$TESTS_DIR/test-catalog-unification.sh"
+fi
+
 if [ -n "$FILTER" ] && [ "$matched" -eq 0 ]; then
   printf 'FAIL: no test files matched filter: %s\n' "$FILTER" >&2
   exit 1

@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 # shellcheck source=lib-outcomes.sh
 . "$SCRIPT_DIR/lib-outcomes.sh"
+# shellcheck source=lib-catalog.sh
+. "$SCRIPT_DIR/lib-catalog.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-codex.sh [--mode implement|research|review] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE]'
@@ -17,7 +19,7 @@ valid_effort() {
 }
 
 valid_model() {
-  case "$1" in gpt-6.2-astra|gpt-6.2-sol|gpt-6-astra|gpt-6.1-sol|gpt-6-sol|gpt-6-luna|gpt-6.1-terra|gpt-5.6-terra|gpt-5.6-luna) return 0 ;; *) return 1 ;; esac
+  mmo_catalog_has_model codex "$1"
 }
 
 repo_dir="$PWD"
@@ -57,11 +59,11 @@ valid_effort "$effort" || {
   exit 2
 }
 valid_model "$model" || {
-  printf 'run-codex: unsupported model %s (current catalog: gpt-6.2-astra|gpt-6.2-sol|gpt-6-astra|gpt-6.1-sol|gpt-6-sol|gpt-6-luna|gpt-6.1-terra|gpt-5.6-terra|gpt-5.6-luna)\n' "$model" >&2
+  printf 'run-codex: unsupported model %s (current catalog: %s)\n' "$model" "$(mmo_catalog_list codex '|' 2>/dev/null || true)" >&2
   exit 2
 }
-[ "$effort" != ultra ] || case "$model" in gpt-6.2-astra|gpt-6-astra) true ;; *) false ;; esac || {
-  printf 'run-codex: ultra is supported only with gpt-6.2-astra or gpt-6-astra\n' >&2
+[ "$effort" != ultra ] || case "$model" in *-astra) true ;; *) false ;; esac || {
+  printf 'run-codex: ultra is supported only with Astra models\n' >&2
   exit 2
 }
 [[ "$run_timeout" =~ ^[1-9][0-9]*$ ]] || { printf 'run-codex: timeout must be a positive integer\n' >&2; exit 2; }

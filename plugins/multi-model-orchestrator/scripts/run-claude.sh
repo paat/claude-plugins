@@ -6,21 +6,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-review-verdict.sh"
 # shellcheck source=lib-outcomes.sh
 . "$SCRIPT_DIR/lib-outcomes.sh"
+# shellcheck source=lib-catalog.sh
+. "$SCRIPT_DIR/lib-catalog.sh"
 
 usage() {
   printf '%s\n' 'Usage: run-claude.sh --mode advise|implement|probe|research|review [--api] [--repo DIR|--dir DIR] [--base REF] [--model MODEL] [--effort LEVEL] [--max-turns N] [--timeout SECONDS] [--out FILE] [--stream-log FILE] [--mcp NAME=URL]'
 }
 
-claude_model_catalog='claude-fable-5-2|claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-fable-5|claude-opus-5|claude-sonnet-5|claude-haiku-5-5|claude-haiku-4-5'
-
 valid_model() {
-  case "$1" in
-    *'|'*) return 1 ;;
-  esac
-  case "|$claude_model_catalog|" in
-    *"|$1|"*) return 0 ;;
-    *) return 1 ;;
-  esac
+  mmo_catalog_has_model claude "$1"
 }
 
 valid_effort() {
@@ -100,7 +94,7 @@ if [ "$api" -eq 1 ]; then
   case "$api_key_file" in /*) ;; *) api_key_file="$PWD/$api_key_file" ;; esac
 fi
 valid_model "$model" || {
-  printf 'run-claude: unsupported model %s (current catalog: %s)\n' "$model" "$claude_model_catalog" >&2
+  printf 'run-claude: unsupported model %s (current catalog: %s)\n' "$model" "$(mmo_catalog_list claude '|' 2>/dev/null || true)" >&2
   exit 2
 }
 case "$model" in claude-haiku-*) haiku=1 ;; *) haiku=0 ;; esac

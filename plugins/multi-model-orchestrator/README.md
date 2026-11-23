@@ -1,7 +1,7 @@
 # multi-model-orchestrator
 
 Route each software task to a current Claude Code, Codex, Grok Build, Muse Code, Antigravity
-(Gemini Flash/Argon), Mistral Vibe, or local Qwen worker by task fit, complexity, plan-limit headroom, and availability, then verify the
+(Gemini), Mistral Vibe, or local Qwen worker by task fit, complexity, plan-limit headroom, and availability, then verify the
 result deterministically and review it independently when the risk justifies another pass.
 
 The standalone `route-model-task` skill can return route cards without executing work, and

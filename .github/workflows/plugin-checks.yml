@@ -50,6 +50,9 @@ jobs:
           cmp plugins/saas-startup-team/scripts/pii-gate.sh plugins/saas-operations/scripts/pii-gate.sh
           cmp plugins/saas-startup-team/scripts/issue-file.sh plugins/saas-operations/scripts/issue-file.sh
 
+      - name: Check shared provider helpers match (multi-model-orchestrator, tribunal-review)
+        run: cmp plugins/multi-model-orchestrator/scripts/lib-provider.sh plugins/tribunal-review/scripts/lib-provider.sh
+
       - name: Run plugin test suites
         env:
           EVENT_NAME: ${{ github.event_name }}

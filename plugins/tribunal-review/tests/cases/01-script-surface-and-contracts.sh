@@ -59,7 +59,8 @@ assert_grep "diffs the pinned range" "$LIB" 'git diff "$base_oid...$head_oid"'
 assert_grep "pinned range JSON is built by jq, not string interpolation" "$LIB" 'jq -Rn --arg base "$base_ref"'
 assert_grep "numstat failure is fail-closed" "$LIB" 'git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1'
 assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
-assert_grep "Claude auth probe is bounded" "$LIB" "timeout -k 1 10 claude auth status --json"
+assert_grep "Claude auth probe is bounded" "scripts/lib-provider.sh" 'timeout -k 1 "$timeout_s" claude auth status --json'
+assert_grep "Claude auth timeout defaults to 20s and is overridable" "$LIB" 'TRIBUNAL_AUTH_TIMEOUT_SECONDS:-20'
 assert_grep "preflight checks Claude auth" "$PF" "tribunal_claude_authenticated"
 assert_grep "preflight checks Grok auth" "$PF" "tribunal_grok_authenticated"
 assert_grep "lib defines Grok auth write-back" "$LIB" "tribunal_grok_auth_writeback"
