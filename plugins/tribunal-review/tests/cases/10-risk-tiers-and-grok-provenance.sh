@@ -332,7 +332,7 @@ CLI
     'keys==["error","provider"] and (.error|contains("(inspect_rc=124, phase=finalize required)"))' "$work/out.json"
   tr_check "Grok strict timeout never invokes finalize" test "$(cat "$work/phases")" = inspect
   for name in validate_provider write_failed_provider grok_recovery_allowed normalize_single provider_status; do
-    sed -n "/^$name() {/,/^}/p" "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" >> "$work/helpers.sh"
+    sed -n "/^$name() {/,/^}/p" "$PLUGIN_ROOT/scripts/collector-validate.sh" "$PLUGIN_ROOT/scripts/collector-containment.sh" >> "$work/helpers.sh"
   done
   bash -c '. "$1/helpers.sh"; normalize_single grok "$1/out.json" 0 "$1/grok.json" "" "" reject
     provider_status "$1/grok.json" > "$1/status"' _ "$work"
@@ -375,7 +375,7 @@ test_grok_collector_provenance() {
   local work
   work="$(mktemp -d)"
   for name in validate_provider write_failed_provider grok_recovery_allowed normalize_single; do
-    sed -n "/^$name() {/,/^}/p" "$PLUGIN_ROOT/scripts/collect-review-evidence.sh" >> "$work/helpers.sh"
+    sed -n "/^$name() {/,/^}/p" "$PLUGIN_ROOT/scripts/collector-validate.sh" "$PLUGIN_ROOT/scripts/collector-containment.sh" >> "$work/helpers.sh"
   done
   jq -n '{provider:"grok",model:"grok-fixture",files_examined:["file.txt"],findings:[],
     summary:{total_findings:0,critical:0,high:0,medium:0,low:0,quality_score:10,verdict:"APPROVE"},

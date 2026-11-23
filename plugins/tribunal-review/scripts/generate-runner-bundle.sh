@@ -11,17 +11,25 @@ FILES=(
   schemas/review-output.json
   scripts/check-runner-bundle.sh
   scripts/collect-review-evidence.sh
+  scripts/collector-containment.sh
+  scripts/collector-git-surface.sh
+  scripts/collector-proof.sh
+  scripts/collector-validate.sh
   scripts/dsh-review.patch.yml
   scripts/generate-runner-bundle.sh
+  scripts/lib-output.sh
+  scripts/lib-panel.sh
+  scripts/lib-policy-gates.sh
+  scripts/lib-prompt.sh
   scripts/lib-provider.sh
   scripts/lib.sh
   scripts/review-panel.tsv
   scripts/run-claude-review.sh
   scripts/run-codex-review.sh
+  scripts/run-deepseek-review.sh
   scripts/run-gemini-review.sh
   scripts/run-grok-review.sh
   scripts/run-muse-review.sh
-  scripts/run-deepseek-review.sh
   scripts/run-qwen-review.sh
 )
 

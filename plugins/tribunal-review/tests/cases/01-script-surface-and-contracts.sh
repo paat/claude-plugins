@@ -9,6 +9,11 @@ PF=scripts/preflight.sh
 echo "Extracted script surface:"
 for script in \
   scripts/lib.sh \
+  scripts/lib-provider.sh \
+  scripts/lib-panel.sh \
+  scripts/lib-policy-gates.sh \
+  scripts/lib-prompt.sh \
+  scripts/lib-output.sh \
   scripts/preflight.sh \
   scripts/run-codex-review.sh \
   scripts/run-gemini-review.sh \
@@ -18,6 +23,10 @@ for script in \
   scripts/run-muse-review.sh \
   scripts/run-claude-review.sh \
   scripts/collect-review-evidence.sh \
+  scripts/collector-git-surface.sh \
+  scripts/collector-containment.sh \
+  scripts/collector-validate.sh \
+  scripts/collector-proof.sh \
   scripts/check-runner-bundle.sh \
   scripts/generate-runner-bundle.sh \
   scripts/required-checks.sh
@@ -27,7 +36,7 @@ do
   assert_bash_n "$script parses" "$script"
 done
 assert_file "review panel table exists" "scripts/review-panel.tsv"
-assert_grep "diff_stat oid schema accepts sha256 ids" "scripts/collect-review-evidence.sh" '{64}'
+assert_grep "diff_stat oid schema accepts sha256 ids" "scripts/collector-validate.sh" '{64}'
 assert_file "structured review schema exists" "schemas/review-output.json"
 assert_json_field "structured review schema is valid JSON" "jq -e '.type==\"object\" and .additionalProperties==false' '$PLUGIN_ROOT/schemas/review-output.json'"
 assert_file "static runner bundle manifest exists" "integrity/runner-bundle.json"
@@ -52,12 +61,12 @@ assert_no_grep "skill no inline provider command bloat" "$SK" "timeout -k 10 600
 assert_grep "skill default panel references review-panel.tsv" "$SK" "scripts/review-panel.tsv"
 
 echo "Preflight/base-ref behavior:"
-assert_grep "resolves GitHub default branch" "$LIB" "defaultBranchRef"
-assert_grep "supports base-ref override" "$LIB" "TRIBUNAL_BASE_REF"
-assert_grep "resolves the base ref before diffing" "$LIB" 'git rev-parse --verify "$base_ref^{commit}"'
-assert_grep "diffs the pinned range" "$LIB" 'git diff "$base_oid...$head_oid"'
-assert_grep "pinned range JSON is built by jq, not string interpolation" "$LIB" 'jq -Rn --arg base "$base_ref"'
-assert_grep "numstat failure is fail-closed" "$LIB" 'git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1'
+assert_grep "resolves GitHub default branch" "scripts/lib-policy-gates.sh" "defaultBranchRef"
+assert_grep "supports base-ref override" "scripts/lib-policy-gates.sh" "TRIBUNAL_BASE_REF"
+assert_grep "resolves the base ref before diffing" "scripts/lib-prompt.sh" 'git rev-parse --verify "$base_ref^{commit}"'
+assert_grep "diffs the pinned range" "scripts/lib-prompt.sh" 'git diff "$base_oid...$head_oid"'
+assert_grep "pinned range JSON is built by jq, not string interpolation" "scripts/lib-prompt.sh" 'jq -Rn --arg base "$base_ref"'
+assert_grep "numstat failure is fail-closed" "scripts/lib-prompt.sh" 'git diff --numstat "$base_oid...$head_oid" --no-ext-diff --no-textconv > "$out.numstat" || return 1'
 assert_grep "tracks active reviewer legs" "$PF" "zero active reviewer legs"
 assert_grep "Claude auth probe is bounded" "scripts/lib-provider.sh" 'timeout -k 1 "$timeout_s" claude auth status --json'
 assert_grep "Claude auth timeout defaults to 20s and is overridable" "$LIB" 'TRIBUNAL_AUTH_TIMEOUT_SECONDS:-20'
@@ -67,14 +76,14 @@ assert_grep "lib defines Grok auth write-back" "$LIB" "tribunal_grok_auth_writeb
 assert_grep "preflight discloses invocation limitation" "$PF" "non-interactive invocation not probed"
 assert_grep "preflight offers bounded non-interactive smoke" "$PF" "TRIBUNAL_SMOKE_PROBE"
 assert_no_grep "skill has no hardcoded origin/main" "$SK" "origin/main"
-assert_no_grep "lib has no hardcoded origin/main" "$LIB" "origin/main"
+assert_no_grep "lib has no hardcoded origin/main" "scripts/lib-policy-gates.sh" "origin/main"
 
 echo "Context and large-diff guards:"
-assert_grep "AGENTS.md capped" "$LIB" "head -c 4096"
-assert_grep "reachability.md capped" "$LIB" "head -c 8192"
-assert_no_grep "reviewer prompt has no DRY instruction" "$LIB" "DRY: flag meaningful duplication"
-assert_grep "diff limit env" "$LIB" "TRIBUNAL_DIFF_LIMIT_BYTES"
-assert_grep "large diff uses head -c" "$LIB" 'head -c "$max"'
+assert_grep "AGENTS.md capped" "scripts/lib-prompt.sh" "head -c 4096"
+assert_grep "reachability.md capped" "scripts/lib-prompt.sh" "head -c 8192"
+assert_no_grep "reviewer prompt has no DRY instruction" "scripts/lib-prompt.sh" "DRY: flag meaningful duplication"
+assert_grep "diff limit env" "scripts/lib-prompt.sh" "TRIBUNAL_DIFF_LIMIT_BYTES"
+assert_grep "large diff uses head -c" "scripts/lib-prompt.sh" 'head -c "$max"'
 assert_grep "Codex writes its final response independently of stdout" "scripts/run-codex-review.sh" "--output-last-message"
 assert_grep "Codex requests the shared output schema" "scripts/run-codex-review.sh" "--output-schema"
 assert_grep "Claude requests the shared output schema" "scripts/run-claude-review.sh" "--json-schema"
@@ -107,9 +116,9 @@ assert_grep "Grok resolves schema via plugin root helper" "scripts/lib.sh" "trib
 assert_grep "Grok finalize re-inlines the authoritative diff" "scripts/run-grok-review.sh" "Base the verdict on the unified diff"
 assert_grep "Grok clamps T3 inspect timeout upper bound" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=2400"
 assert_grep "Grok clamps non-T3 inspect timeout at 1800" "scripts/run-grok-review.sh" "INSPECT_TIMEOUT=1800"
-assert_grep "Grok extracts camelCase structuredOutput" "scripts/lib.sh" "structuredOutput"
-assert_grep "Grok payload completeness helper" "scripts/lib.sh" "tribunal_review_payload_complete"
-assert_grep "Grok payload requires enum verdict" "scripts/lib.sh" 'APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"'
+assert_grep "Grok extracts camelCase structuredOutput" "scripts/lib-output.sh" "structuredOutput"
+assert_grep "Grok payload completeness helper" "scripts/lib-output.sh" "tribunal_review_payload_complete"
+assert_grep "Grok payload requires enum verdict" "scripts/lib-output.sh" 'APPROVE" or $v == "NEEDS_WORK" or $v == "BLOCK"'
 
 echo "Disabled-provider markers:"
 assert_json_field "deepseek defaults to disabled JSON" "env -u TRIBUNAL_DEEPSEEK bash '$PLUGIN_ROOT/scripts/run-deepseek-review.sh' | jq -e ' .provider==\"deepseek\" and .status==\"disabled\"'"
@@ -120,8 +129,8 @@ assert_json_field "grok disabled JSON" "TRIBUNAL_GROK=off bash '$PLUGIN_ROOT/scr
 assert_json_field "claude disabled JSON" "TRIBUNAL_CLAUDE=off bash '$PLUGIN_ROOT/scripts/run-claude-review.sh' | jq -e '.provider==\"claude\" and .status==\"disabled\"'"
 
 echo "Finding position validation:"
-assert_grep "lib defines line-bounds validator" "$LIB" "tribunal_line_check()"
-assert_grep "line check derives NUL-delimited changed paths from pinned range" "$LIB" 'diff --name-only -z "$base_oid...$head_oid"'
+assert_grep "lib defines line-bounds validator" "scripts/lib-output.sh" "tribunal_line_check()"
+assert_grep "line check derives NUL-delimited changed paths from pinned range" "scripts/lib-output.sh" 'diff --name-only -z "$base_oid...$head_oid"'
 for runner in run-codex-review.sh run-claude-review.sh run-gemini-review.sh run-qwen-review.sh run-grok-review.sh run-muse-review.sh run-deepseek-review.sh; do
   assert_grep "$runner passes pinned range to line check" "scripts/$runner" 'tribunal_line_check "$REPO_ROOT" "$DIFF_STAT"'
   assert_grep "$runner stamps the reviewed range" "scripts/$runner" "tribunal_stamp_diff_stat"
@@ -136,8 +145,8 @@ assert_grep "zero-finding approval excludes ignored-path signals" "$SK" "sealed 
 assert_grep "deleted-path signal must become a finding" "$SK" "deleted-paths.json"
 assert_grep "deleted-path finding defaults medium" "$SK" "medium .repository-policy. finding"
 assert_grep "zero-finding approval excludes deleted-path signals" "$SK" "deleted-path signals"
-assert_grep "mutation-gate config needle" "$LIB" ".tribunal-mutation-gate"
-assert_grep "mutation-gate vacuous result needle" "$LIB" "vacuous"
+assert_grep "mutation-gate config needle" "scripts/lib-policy-gates.sh" ".tribunal-mutation-gate"
+assert_grep "mutation-gate vacuous result needle" "scripts/lib-policy-gates.sh" "vacuous"
 assert_grep "mutation-gate artifact needle" "scripts/collect-review-evidence.sh" "mutation-gate.json"
 assert_grep "vacuous mutation-gate must become a finding" "$SK" "vacuous mutation-gate results must become a finding"
 

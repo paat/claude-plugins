@@ -6,11 +6,27 @@
     },
     {
       "path": "scripts/check-runner-bundle.sh",
-      "sha256": "95ff74155b427f079a3f39861e447dc787dffae0ed0c802e7cc7f31a42ed3b39"
+      "sha256": "9d196cc5b0c248ff17ffa06fb906a39bf911a62797aa118ae532816fd7eab03f"
     },
     {
       "path": "scripts/collect-review-evidence.sh",
-      "sha256": "cbffe07cf33402559fe4980523a3328a0cf5b4690e16fcbe58111047828e03c0"
+      "sha256": "e91f242818417587fa9c99a4339f59e210027db82604c61bd0b27b53444ad031"
+    },
+    {
+      "path": "scripts/collector-containment.sh",
+      "sha256": "e04c16a3f36327da1d2436b39c7a00ff5b95a6201de862f96a6625cc083fca89"
+    },
+    {
+      "path": "scripts/collector-git-surface.sh",
+      "sha256": "e5dd6f0868adb7f7f9a4dfd0d59b05878346f1c4cc26bd18bdec63849adc46c3"
+    },
+    {
+      "path": "scripts/collector-proof.sh",
+      "sha256": "3928cca7fa97a2de0a85bec3f12208a99856c49de64dc734ffd1a82b32c25f01"
+    },
+    {
+      "path": "scripts/collector-validate.sh",
+      "sha256": "6cb471145911289da1b240a7caded294ddb0d7c17f19201610daba8f0c354639"
     },
     {
       "path": "scripts/dsh-review.patch.yml",
@@ -18,7 +34,23 @@
     },
     {
       "path": "scripts/generate-runner-bundle.sh",
-      "sha256": "154169a5c7c6233e64fe487550605818d7541e03cfb668f038b0e962255cdeda"
+      "sha256": "d9c6fa7b0dc32de2a162820f16e0afd2b0ec803370d69b50b62588173eb444b2"
+    },
+    {
+      "path": "scripts/lib-output.sh",
+      "sha256": "2009803267e7561713ea4e62c38c58f2ab6c0aa8d4b58c8754e9da3c91d76a75"
+    },
+    {
+      "path": "scripts/lib-panel.sh",
+      "sha256": "d294bd397292dee9ad0f2ed36d51a17146c3265c3ab846c76a6b15fcd8082d03"
+    },
+    {
+      "path": "scripts/lib-policy-gates.sh",
+      "sha256": "efdddb2904e462a5b8ea121c61b7b78eaca0442cf60a7a5594624f085aec1447"
+    },
+    {
+      "path": "scripts/lib-prompt.sh",
+      "sha256": "a5c92530fc2428c26a653392b96f57d970132f55c3c7962464b7cd449cd70ae0"
     },
     {
       "path": "scripts/lib-provider.sh",
@@ -26,7 +58,7 @@
     },
     {
       "path": "scripts/lib.sh",
-      "sha256": "7845a2027d6c47cea784e31842d38fc62db5a9716121bff2a50ed545a3464b33"
+      "sha256": "16b83ecbc97f83492e745e026dc4ff29778a6ffa993f2a55557636f6f385c97f"
     },
     {
       "path": "scripts/review-panel.tsv",
@@ -41,6 +73,10 @@
       "sha256": "e9ee93a0baaee1220e0e62a1ca24026a3cb02e196d4ddeb1250139b25b84d679"
     },
     {
+      "path": "scripts/run-deepseek-review.sh",
+      "sha256": "2e6e16ed7ca446ec0e7fd9775154175227cc76e5ca1de42e462692619f6e8bfd"
+    },
+    {
       "path": "scripts/run-gemini-review.sh",
       "sha256": "7c1eadbb1cbb5136d775c2a7e685d80521cdd84e55d5e9f4ad1b1f62ff1e53e6"
     },
@@ -51,10 +87,6 @@
     {
       "path": "scripts/run-muse-review.sh",
       "sha256": "215de4bc12a2e4e930ca9af2e4e87366be47ea99f3a9b8c64ce8bc1f69aec223"
-    },
-    {
-      "path": "scripts/run-deepseek-review.sh",
-      "sha256": "2e6e16ed7ca446ec0e7fd9775154175227cc76e5ca1de42e462692619f6e8bfd"
     },
     {
       "path": "scripts/run-qwen-review.sh",
