@@ -1,6 +1,6 @@
 {
   "name": "proton-bridge",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Proton Mail Bridge skills over local IMAP. reply-draft: reply drafts that carry their reply context — reply-all recipients, a \"Re:\" subject and the original mail quoted under the text — stored in Drafts and read back, never sent. emails-to-github-issues: turn emails from named senders into deduplicated GitHub issues with thread grouping, inline screenshots and scope confirmation before writes.",
   "author": {
     "name": "Andre Paat"

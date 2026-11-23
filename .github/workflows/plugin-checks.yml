@@ -50,10 +50,7 @@ jobs:
           cmp plugins/saas-startup-team/scripts/pii-gate.sh plugins/saas-operations/scripts/pii-gate.sh
           cmp plugins/saas-startup-team/scripts/issue-file.sh plugins/saas-operations/scripts/issue-file.sh
 
-      - name: saas-operations tests
-        run: bash plugins/saas-operations/tests/run-tests.sh
-
-      - name: tribunal-review tests (on a PR only when the plugin changed)
+      - name: Run plugin test suites
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
@@ -61,12 +58,10 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags origin "$BASE_REF"
-            if git diff --quiet "origin/$BASE_REF...HEAD" -- plugins/tribunal-review; then
-              echo "plugins/tribunal-review unchanged: suite skipped"
-              exit 0
-            fi
+            scripts/run-plugin-tests.sh --changed "origin/$BASE_REF"
+          else
+            scripts/run-plugin-tests.sh --all
           fi
-          bash plugins/tribunal-review/tests/run-tests.sh
 
       - name: Plugin LOC budgets
         run: |
