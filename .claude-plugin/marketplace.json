@@ -20,7 +20,7 @@
     {
       "name": "tribunal-review",
       "description": "Multi-provider code review — three legs selected per risk tier from Codex, Claude (read-only repo-walking), Gemini, Grok, Muse, DeepSeek and Qwen, at least two must succeed, with calling-context arbitration",
-      "version": "0.31.7",
+      "version": "0.31.8",
       "author": {
         "name": "Andre Paat"
       },
@@ -31,7 +31,7 @@
     {
       "name": "saas-startup-team",
       "description": "Portable SaaS delivery: Plan → Build → Independent Review with bounded maintenance and deterministic legal/PII/spend/release gates",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "author": {
         "name": "Andre Paat"
       },
@@ -130,7 +130,7 @@
     {
       "name": "multi-model-orchestrator",
       "description": "Route software tasks across Claude, Codex, Grok, Muse, Antigravity Gemini, Mistral Vibe, and local models by task fit, reasoning effort, plan-limit headroom, and availability, with independent review",
-      "version": "0.32.11",
+      "version": "0.32.12",
       "author": {
         "name": "Andre Paat"
       },
