@@ -26,14 +26,19 @@ while read local_ref local_oid remote_ref remote_oid; do
   # Get changed files in this push
   changed_files=$(git diff --name-only "$range" 2>/dev/null) || continue
 
-  # Find which plugins have changes (excluding plugin.json and marketplace.json themselves)
+  # Find which plugins have changes (excluding generated manifests synced from plugin.json)
   changed_plugins=()
   for plugin_dir in plugins/*/; do
     plugin_name=$(basename "$plugin_dir")
-    # Check if any non-metadata file changed for this plugin; the generated
-    # .codex-plugin/plugin.json is synced from plugin.json after a bump, so a
-    # sync-only push must not require another bump
-    if echo "$changed_files" | grep "^plugins/${plugin_name}/" | grep -qv "^plugins/${plugin_name}/.codex-plugin/plugin.json$"; then
+    # Check if any non-generated file changed for this plugin; generated
+    # .codex-plugin/plugin.json and .antigravity-plugin/plugin.json are synced
+    # from plugin.json after a bump, so a sync-only push must not require another bump
+    if awk -v p="plugins/${plugin_name}/" '
+      index($0, p) == 1 &&
+      $0 != p ".codex-plugin/plugin.json" &&
+      $0 != p ".antigravity-plugin/plugin.json" { found = 1 }
+      END { exit !found }
+    ' <<< "$changed_files"; then
       changed_plugins+=("$plugin_name")
     fi
   done
@@ -48,22 +53,22 @@ while read local_ref local_oid remote_ref remote_oid; do
     fi
 
     # Check if plugin.json version changed in this push
-    if ! echo "$changed_files" | grep -q "^${plugin_json}$"; then
+    if ! grep -Fxq "${plugin_json}" <<< "$changed_files"; then
       echo "ERROR: Plugin '${plugin_name}' has changes but version was not bumped."
-      echo "  Update: ${plugin_json}"
-      echo "  Update: .claude-plugin/marketplace.json"
+      echo "  Bump version in: ${plugin_json}"
+      echo "  Then run:        python3 scripts/sync-codex-marketplace.py"
       exit 1
     fi
 
     # Verify plugin.json and marketplace.json versions match
     plugin_version=$(jq -r '.version' "$plugin_json" 2>/dev/null)
-    marketplace_version=$(jq -r ".plugins[] | select(.name==\"${plugin_name}\") | .version" "$MARKETPLACE" 2>/dev/null)
+    marketplace_version=$(jq -r --arg name "$plugin_name" '.plugins[] | select(.name == $name) | .version' "$MARKETPLACE" 2>/dev/null)
 
     if [ "$plugin_version" != "$marketplace_version" ]; then
       echo "ERROR: Version mismatch for '${plugin_name}':"
       echo "  plugin.json:      ${plugin_version}"
       echo "  marketplace.json: ${marketplace_version}"
-      echo "  Both must match."
+      echo "  Bump version in ${plugin_json} and run: python3 scripts/sync-codex-marketplace.py"
       exit 1
     fi
   done
