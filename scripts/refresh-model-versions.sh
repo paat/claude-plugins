@@ -238,8 +238,9 @@ $(head -c 20000 "$2")
    checks in AGENTS.md that apply.
 5. Commit and push to origin $branch, leaving no uncommitted or untracked files. The pre-push
    hook requires, on every push that changes a plugin, a version bump over the remote branch tip
-   in both plugins/<name>/.claude-plugin/plugin.json and .claude-plugin/marketplace.json; then
-   run python3 scripts/sync-codex-marketplace.py. Never force-push, never skip hooks, never merge.
+   in plugins/<name>/.claude-plugin/plugin.json, followed by running
+   python3 scripts/sync-codex-marketplace.py (which syncs .claude-plugin/marketplace.json and the
+   Codex/Antigravity manifests). Never force-push, never skip hooks, never merge.
    The gates review the pushed commit; a gate failure you reject still needs a new commit
    (for example a test that shows the finding is wrong).
 Be token-frugal. End with a few lines saying what you fixed and what you rejected and why.

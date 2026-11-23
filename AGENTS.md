@@ -33,8 +33,9 @@ python3 scripts/check-plugin-catalog.py
 python3 scripts/check-plugin-content.py
 python3 scripts/test_check_plugin_content.py
 python3 scripts/test_check_plugin_catalog.py
+python3 scripts/test_sync_codex_marketplace.py
 python3 scripts/test_refresh_model_versions.py
-python3 scripts/sync-codex-marketplace.py          # regenerate Codex manifests + .agents/plugins/marketplace.json
+python3 scripts/sync-codex-marketplace.py          # sync .claude-plugin/marketplace.json + Codex/Antigravity manifests
 python3 scripts/sync-codex-marketplace.py --check  # what CI runs
 bash plugins/<name>/tests/run-tests.sh             # one plugin's suite (saas-startup-team, saas-operations, ...)
 ```
@@ -43,15 +44,15 @@ CI (`.github/workflows/plugin-checks.yml`) also checks the shared script copies 
 
 ## Layout
 
-- `plugins/<name>/` holds one plugin: `.claude-plugin/plugin.json`, generated `.codex-plugin/plugin.json`, `skills/`, `commands/`, `hooks/`, `agents/`, `scripts/`, `tests/`.
-- `.claude-plugin/marketplace.json` is the source of truth for the plugin list; `.agents/plugins/marketplace.json` is generated from it.
+- `plugins/<name>/` holds one plugin: `.claude-plugin/plugin.json` (single source of truth for version and author), generated `.codex-plugin/plugin.json` (and `.antigravity-plugin/plugin.json` for enabled plugins), `skills/`, `commands/`, `hooks/`, `agents/`, `scripts/`, `tests/`.
+- `.claude-plugin/marketplace.json` is the source of truth for the plugin list and marketplace fields (`category`, `homepage`, `source`, `description`); its per-plugin `version`/`author` entries, `.agents/plugins/marketplace.json`, and `.agents/plugins.json` are synced by `scripts/sync-codex-marketplace.py`.
 - `docs/` holds plans, research and runbooks; `docs/codex-plugin-behavior.md` records intentional Claude/Codex differences. Treat `docs/superpowers/` and research memos as history.
 - Per-plugin READMEs and `scripts/*` header comments hold the detail; do not duplicate them here.
 
 ## Rules
 
 - Both plugin surfaces go together: for every fix or feature, decide whether Claude Code (`commands/`, `skills/`, `agents/`, `hooks/`, README, `.claude-plugin/plugin.json`) and Codex (`.codex-plugin/plugin.json`, generated workflow skills, `.agents/plugins/marketplace.json`) both need it; keep behavior equivalent or document the difference in `docs/codex-plugin-behavior.md`.
-- Bump the plugin version in both `plugins/<name>/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` before pushing, then run `scripts/sync-codex-marketplace.py`. The pre-push hook rejects a changed plugin without a bump or with mismatched versions.
+- `plugins/<name>/.claude-plugin/plugin.json` is the single source of truth for each plugin's `version` (and `author`). Bump the version there before pushing, then run `python3 scripts/sync-codex-marketplace.py` to sync `.claude-plugin/marketplace.json`, `.codex-plugin/plugin.json`, `.antigravity-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and `.agents/plugins.json`. The pre-push hook rejects a changed plugin without a bump or with mismatched versions.
 - Plugins run on bash 4+ and standard POSIX tools; external dependencies (jq, awk, sed) go in the plugin README.
 - Every plugin README has an end-user **Installation** section with three scopes: **Install for you** (user), **Install for all collaborators on this repository** (project), **Install for you, in this repo only** (local).
 - Plugins run inside dev containers with the agent in unrestricted mode; the container is the security boundary.

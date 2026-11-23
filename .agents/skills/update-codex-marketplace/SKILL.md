@@ -1,9 +1,11 @@
 ---
 name: update-codex-marketplace
-description: Regenerate this repo's Codex plugin marketplace and manifests from the Claude plugin metadata.
+description: Sync this repo's Claude marketplace versions and regenerate Codex and Antigravity plugin manifests from each plugin's plugin.json.
 ---
 
-Use this skill when the user asks to update, refresh, sync, or verify the Codex marketplace for this repository.
+Use this skill when the user asks to update, refresh, sync, or verify plugin versions, `.claude-plugin/marketplace.json`, or the Codex/Antigravity manifests for this repository.
+
+Each `plugins/<name>/.claude-plugin/plugin.json` is the single source of truth for `version` (and `author`). `scripts/sync-codex-marketplace.py` syncs those fields into `.claude-plugin/marketplace.json` (preserving marketplace fields like `category`, `homepage`, `source`, and `description`) and regenerates `.codex-plugin/plugin.json`, `.antigravity-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `.agents/plugins.json`, and command workflow skills.
 
 Steps:
 
@@ -13,7 +15,7 @@ Steps:
    python3 scripts/sync-codex-marketplace.py
    ```
 
-2. Verify the generated files are current:
+2. Verify `.claude-plugin/marketplace.json` and all generated files are current:
 
    ```bash
    python3 scripts/sync-codex-marketplace.py --check

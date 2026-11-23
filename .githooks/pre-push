@@ -7,7 +7,7 @@ set -euo pipefail
 remote="$1"
 url="$2"
 
-MARKETPLACE="$(git rev-parse --show-toplevel)/.claude-plugin/marketplace.json"
+MARKETPLACE_REL=".claude-plugin/marketplace.json"
 
 while read local_ref local_oid remote_ref remote_oid; do
   # Skip branch deletions
@@ -26,44 +26,54 @@ while read local_ref local_oid remote_ref remote_oid; do
   # Get changed files in this push
   changed_files=$(git diff --name-only "$range" 2>/dev/null) || continue
 
-  # Find which plugins have changes (excluding plugin.json and marketplace.json themselves)
+  # Find which plugins have non-generated file changes in this push; generated
+  # .codex-plugin/plugin.json and .antigravity-plugin/plugin.json are synced
+  # from plugin.json after a bump, so a sync-only push must not require another bump
   changed_plugins=()
-  for plugin_dir in plugins/*/; do
-    plugin_name=$(basename "$plugin_dir")
-    # Check if any non-metadata file changed for this plugin; the generated
-    # .codex-plugin/plugin.json is synced from plugin.json after a bump, so a
-    # sync-only push must not require another bump
-    if echo "$changed_files" | grep "^plugins/${plugin_name}/" | grep -qv "^plugins/${plugin_name}/.codex-plugin/plugin.json$"; then
-      changed_plugins+=("$plugin_name")
-    fi
-  done
+  while IFS= read -r plugin_name; do
+    [ -n "$plugin_name" ] && changed_plugins+=("$plugin_name")
+  done < <(
+    awk -F/ '
+      $1 == "plugins" && NF >= 3 &&
+      $0 != "plugins/" $2 "/.codex-plugin/plugin.json" &&
+      $0 != "plugins/" $2 "/.antigravity-plugin/plugin.json" &&
+      !seen[$2]++ { print $2 }
+    ' <<< "$changed_files"
+  )
 
-  # For each changed plugin, verify version was bumped
+  if [ "${#changed_plugins[@]}" -eq 0 ]; then
+    continue
+  fi
+
+  # For each changed plugin, verify version was bumped in the pushed commit
   for plugin_name in "${changed_plugins[@]}"; do
     plugin_json="plugins/${plugin_name}/.claude-plugin/plugin.json"
 
-    # Check if plugin.json exists
-    if [ ! -f "$plugin_json" ]; then
+    # Check if plugin.json exists in the pushed commit
+    if ! git cat-file -e "${local_oid}:${plugin_json}" 2>/dev/null; then
       continue
     fi
 
-    # Check if plugin.json version changed in this push
-    if ! echo "$changed_files" | grep -q "^${plugin_json}$"; then
+    # Check if plugin.json changed in this push
+    if ! grep -Fxq "${plugin_json}" <<< "$changed_files"; then
       echo "ERROR: Plugin '${plugin_name}' has changes but version was not bumped."
-      echo "  Update: ${plugin_json}"
-      echo "  Update: .claude-plugin/marketplace.json"
+      echo "  Bump version in: ${plugin_json}"
+      echo "  Then run:        python3 scripts/sync-codex-marketplace.py"
       exit 1
     fi
 
-    # Verify plugin.json and marketplace.json versions match
-    plugin_version=$(jq -r '.version' "$plugin_json" 2>/dev/null)
-    marketplace_version=$(jq -r ".plugins[] | select(.name==\"${plugin_name}\") | .version" "$MARKETPLACE" 2>/dev/null)
+    # Verify plugin.json and marketplace.json versions match in the pushed commit
+    plugin_version=$(git show "${local_oid}:${plugin_json}" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
+    marketplace_version=$(git show "${local_oid}:${MARKETPLACE_REL}" 2>/dev/null | jq -r --arg name "$plugin_name" '.plugins[] | select(.name == $name) | .version // empty' 2>/dev/null || true)
 
-    if [ "$plugin_version" != "$marketplace_version" ]; then
+    plugin_version_display="${plugin_version:-<missing>}"
+    marketplace_version_display="${marketplace_version:-<missing>}"
+
+    if [ -z "$plugin_version" ] || [ -z "$marketplace_version" ] || [ "$plugin_version" != "$marketplace_version" ]; then
       echo "ERROR: Version mismatch for '${plugin_name}':"
-      echo "  plugin.json:      ${plugin_version}"
-      echo "  marketplace.json: ${marketplace_version}"
-      echo "  Both must match."
+      echo "  plugin.json:      ${plugin_version_display}"
+      echo "  marketplace.json: ${marketplace_version_display}"
+      echo "  Bump version in ${plugin_json} and run: python3 scripts/sync-codex-marketplace.py"
       exit 1
     fi
   done

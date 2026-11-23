@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Sync Codex plugin metadata from the Claude marketplace in this repo."""
+"""Sync Claude marketplace and Codex/Antigravity plugin metadata from plugin.json."""
 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 import json
 import re
 import sys
@@ -41,27 +42,41 @@ CODEX_DESCRIPTION_OVERRIDES = {
 }
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    return sync_marketplace(REPO_ROOT, check=args.check)
 
-    claude_marketplace = load_json(CLAUDE_MARKETPLACE_PATH)
-    marketplace_name = read_required_string(claude_marketplace, "name", CLAUDE_MARKETPLACE_PATH)
-    entries = read_required_list(claude_marketplace, "plugins", CLAUDE_MARKETPLACE_PATH)
+
+def sync_marketplace(
+    repo_root: Path,
+    *,
+    check: bool = False,
+    antigravity_plugins: Sequence[str] | None = None,
+) -> int:
+    claude_marketplace_path = repo_root / ".claude-plugin" / "marketplace.json"
+    codex_marketplace_path = repo_root / ".agents" / "plugins" / "marketplace.json"
+    antigravity_plugins_config_path = repo_root / ".agents" / "plugins.json"
+    agy_plugins = tuple(ANTIGRAVITY_PLUGINS if antigravity_plugins is None else antigravity_plugins)
+
+    claude_marketplace = load_json(claude_marketplace_path)
+    marketplace_name = read_required_string(claude_marketplace, "name", claude_marketplace_path)
+    entries = read_required_list(claude_marketplace, "plugins", claude_marketplace_path)
 
     planned_files: dict[Path, str] = {}
+    synced_claude_entries: list[dict[str, Any]] = []
     codex_entries: list[dict[str, Any]] = []
     errors: list[str] = []
 
     for raw_entry in entries:
         if not isinstance(raw_entry, dict):
-            errors.append(f"{CLAUDE_MARKETPLACE_PATH}: plugins[] entries must be objects")
+            errors.append(f"{claude_marketplace_path}: plugins[] entries must be objects")
             continue
 
-        plugin_name = read_required_string(raw_entry, "name", CLAUDE_MARKETPLACE_PATH)
-        plugin_dir = REPO_ROOT / "plugins" / plugin_name
+        plugin_name = read_required_string(raw_entry, "name", claude_marketplace_path)
+        plugin_dir = repo_root / "plugins" / plugin_name
         claude_manifest_path = plugin_dir / ".claude-plugin" / "plugin.json"
         if not claude_manifest_path.is_file():
-            errors.append(f"{plugin_name}: missing {claude_manifest_path.relative_to(REPO_ROOT)}")
+            errors.append(f"{plugin_name}: missing {claude_manifest_path.relative_to(repo_root)}")
             continue
 
         claude_manifest = load_json(claude_manifest_path)
@@ -75,20 +90,31 @@ def main() -> int:
             errors.append(f"{plugin_name}: plugin directory name must match plugin name")
             continue
 
-        codex_manifest = build_codex_manifest(plugin_dir, claude_manifest, raw_entry)
+        synced_entry = sync_claude_marketplace_entry(
+            raw_entry, claude_manifest, claude_manifest_path
+        )
+        synced_claude_entries.append(synced_entry)
+
+        codex_manifest = build_codex_manifest(plugin_dir, claude_manifest, synced_entry)
         planned_files[plugin_dir / ".codex-plugin" / "plugin.json"] = render_json(codex_manifest)
-        if plugin_name in ANTIGRAVITY_PLUGINS:
-            agy_manifest = build_antigravity_manifest(plugin_dir, claude_manifest, raw_entry)
+        if plugin_name in agy_plugins:
+            agy_manifest = build_antigravity_manifest(plugin_dir, claude_manifest, synced_entry)
             planned_files[plugin_dir / ".antigravity-plugin" / "plugin.json"] = render_json(
                 agy_manifest
             )
         planned_files.update(build_command_skill_files(plugin_dir, plugin_name))
-        codex_entries.append(build_marketplace_entry(plugin_name, raw_entry))
+        codex_entries.append(build_marketplace_entry(plugin_name, synced_entry))
 
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
         return 1
+
+    synced_claude_marketplace = dict(claude_marketplace)
+    synced_claude_marketplace["plugins"] = synced_claude_entries
+    planned_files[claude_marketplace_path] = render_json(
+        synced_claude_marketplace, ensure_ascii=False
+    )
 
     codex_marketplace = {
         "name": marketplace_name,
@@ -97,39 +123,59 @@ def main() -> int:
         },
         "plugins": codex_entries,
     }
-    planned_files[CODEX_MARKETPLACE_PATH] = render_json(codex_marketplace)
-    planned_files[ANTIGRAVITY_PLUGINS_CONFIG_PATH] = render_json(
+    planned_files[codex_marketplace_path] = render_json(codex_marketplace)
+    planned_files[antigravity_plugins_config_path] = render_json(
         {
             "entries": [
                 {
                     "path": "plugins",
-                    "include_only": list(ANTIGRAVITY_PLUGINS),
+                    "include_only": list(agy_plugins),
                 }
             ]
         }
     )
 
-    changed = write_or_check(planned_files, check=args.check)
-    if args.check and changed:
-        print("Codex marketplace files are out of date. Run scripts/sync-codex-marketplace.py.")
+    changed = write_or_check(planned_files, check=check, repo_root=repo_root)
+    if check and changed:
+        print("Marketplace files are out of date. Run scripts/sync-codex-marketplace.py.")
         return 1
 
-    action = "Checked" if args.check else "Synced"
+    action = "Checked" if check else "Synced"
     print(f"{action} {len(codex_entries)} Codex plugin entries.")
-    print(f"Marketplace: {CODEX_MARKETPLACE_PATH.relative_to(REPO_ROOT)}")
+    print(f"Marketplace: {codex_marketplace_path.relative_to(repo_root)}")
     return 0
 
 
-def parse_args() -> argparse.Namespace:
+def sync_claude_marketplace_entry(
+    raw_entry: dict[str, Any],
+    claude_manifest: dict[str, Any],
+    claude_manifest_path: Path,
+) -> dict[str, Any]:
+    synced = dict(raw_entry)
+    synced["version"] = read_required_string(claude_manifest, "version", claude_manifest_path)
+    manifest_author = claude_manifest.get("author")
+    if (
+        isinstance(manifest_author, dict)
+        and isinstance(manifest_author.get("name"), str)
+        and manifest_author["name"].strip()
+    ):
+        synced["author"] = build_author(claude_manifest)
+    return synced
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate Codex plugin manifests and marketplace.json from Claude metadata."
+        description=(
+            "Sync .claude-plugin/marketplace.json versions and generate Codex/Antigravity "
+            "plugin manifests from each plugin's .claude-plugin/plugin.json."
+        )
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Exit non-zero if generated Codex files differ from the current files.",
+        help="Exit non-zero if synced marketplace or manifest files differ from the current files.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -664,11 +710,13 @@ def slugify(value: str) -> str:
     return value
 
 
-def render_json(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, indent=2, ensure_ascii=True) + "\n"
+def render_json(payload: dict[str, Any], *, ensure_ascii: bool = True) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=ensure_ascii) + "\n"
 
 
-def write_or_check(planned_files: dict[Path, str], *, check: bool) -> bool:
+def write_or_check(
+    planned_files: dict[Path, str], *, check: bool, repo_root: Path = REPO_ROOT
+) -> bool:
     changed = False
     for path, payload in sorted(planned_files.items(), key=lambda item: item[0].as_posix()):
         current = path.read_text(encoding="utf-8") if path.is_file() else None
@@ -677,7 +725,7 @@ def write_or_check(planned_files: dict[Path, str], *, check: bool) -> bool:
 
         changed = True
         if check:
-            print(f"out of date: {path.relative_to(REPO_ROOT)}")
+            print(f"out of date: {path.relative_to(repo_root)}")
             continue
 
         path.parent.mkdir(parents=True, exist_ok=True)
