@@ -8,7 +8,7 @@
 
 **Tech Stack:** bash 4+, `jq`, `awk`, `sed`, `grep`, POSIX tools. No new dependencies.
 
-**Spec:** `plugins/saas-startup-team/docs/superpowers/specs/2026-04-24-handoff-naming-enforcement-design.md`
+**Spec:** `docs/superpowers/specs/2026-04-24-handoff-naming-enforcement-design.md`
 
 ---
 

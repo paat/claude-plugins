@@ -8,7 +8,7 @@
 
 **Tech Stack:** Claude Code plugin (markdown agents/skills/commands), bash + jq + curl for registry ops and datalake calls, `gh` CLI for issue creation, `AskUserQuestion` tool for the confirmation prompt, `ripgrep`/`grep` for marker scanning. Standalone bash test scripts for automated checks.
 
-**Design doc:** `plugins/saas-startup-team/docs/plans/2026-04-23-lawyer-law-registry-design.md`
+**Design doc:** `docs/plans/2026-04-23-lawyer-law-registry-design.md`
 
 ---
 
