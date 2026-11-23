@@ -888,6 +888,23 @@ esac
         self.assertIn("new_cli_model\tclaude-fable-5-1", (self.state / "catalog-changes.txt").read_text())
         self.assert_resumed_without_authoring(result, calls)
 
+    def test_main_unrouted_cli_model_is_reported_on_every_run(self):
+        self.main_baseline()
+        # A live agy model already in the last catalog (seen before, left unrouted): no trigger.
+        (self.temp / "home/extra-agy-models").write_text("gemini-9-test-high\tGemini\n")
+        catalog = self.state / "catalog.txt"
+        catalog.write_text(catalog.read_text().replace("gemini-3.8-flash\n", "gemini-3.8-flash\ngemini-9-test\n"))
+        for _ in range(2):
+            result, calls = self.main_script()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no material model change; zero model calls", result.stdout)
+            unrouted = (self.state / "unrouted-models.txt").read_text().splitlines()
+            self.assertIn("unrouted_cli_model\tgemini-9-test", unrouted)
+            self.assertNotIn("unrouted_cli_model\tgemini-3.8-flash", unrouted)
+            self.assertNotIn("unrouted_cli_model\tgrok-4.7", unrouted)
+            self.assertRegex(result.stdout, r"unrouted CLI models: .*gemini-9-test")
+            self.assertNotIn("claude", calls)
+
     def test_main_missing_opencode_cli_skips_section_but_runs_others(self):
         self.prepare_main()
         (self.temp / "home/.local/bin/opencode").unlink()
