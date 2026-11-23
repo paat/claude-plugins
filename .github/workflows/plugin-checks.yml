@@ -30,6 +30,9 @@ jobs:
       - name: Test plugin catalog checker
         run: python3 scripts/test_check_plugin_catalog.py
 
+      - name: Test marketplace sync
+        run: python3 scripts/test_sync_codex_marketplace.py
+
       - name: Test model refresh feeds (offline fixtures)
         run: python3 scripts/test_refresh_model_versions.py
 

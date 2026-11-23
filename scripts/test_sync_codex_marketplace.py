@@ -453,6 +453,109 @@ class PrePushHookTests(unittest.TestCase):
             res = self._run_hook(root, base_oid, synced_oid)
             self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
+    def test_requires_bump_when_antigravity_manifest_and_plugin_file_both_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_oid = self._init_repo(root)
+
+            agy_manifest = root / "plugins" / "tribunal-review" / ".antigravity-plugin" / "plugin.json"
+            data = read_json(agy_manifest)
+            data["description"] = "Updated generated description"
+            write_json(agy_manifest, data)
+            (root / "plugins" / "tribunal-review" / "README.md").write_text(
+                "# Real plugin edit\n", encoding="utf-8"
+            )
+            self._git(root, "add", ".")
+            self._git(root, "commit", "-m", "edit antigravity manifest and README without bump")
+            head_oid = self._git(root, "rev-parse", "HEAD")
+
+            res = self._run_hook(root, base_oid, head_oid)
+            self.assertEqual(res.returncode, 1)
+            self.assertIn("plugins/tribunal-review/.claude-plugin/plugin.json", res.stdout)
+            self.assertIn("python3 scripts/sync-codex-marketplace.py", res.stdout)
+
+    def test_new_branch_push_diffs_against_origin_main(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_oid = self._init_repo(root)
+            self._git(root, "update-ref", "refs/remotes/origin/main", base_oid)
+            self._git(root, "checkout", "-b", "feat/new-branch")
+
+            (root / "plugins" / "tribunal-review" / "README.md").write_text(
+                "# New branch change\n", encoding="utf-8"
+            )
+            self._git(root, "add", ".")
+            self._git(root, "commit", "-m", "unbumped change on new branch")
+            unbumped_oid = self._git(root, "rev-parse", "HEAD")
+
+            zero_oid = "0" * 40
+            res = self._run_hook(root, zero_oid, unbumped_oid)
+            self.assertEqual(res.returncode, 1)
+            self.assertIn("plugins/tribunal-review/.claude-plugin/plugin.json", res.stdout)
+
+            pj_path = root / "plugins" / "tribunal-review" / ".claude-plugin" / "plugin.json"
+            pj = read_json(pj_path)
+            pj["version"] = "1.0.1"
+            write_json(pj_path, pj)
+            rc, _, stderr = run_sync(root, check=False)
+            self.assertEqual(rc, 0, stderr)
+            self._git(root, "add", ".")
+            self._git(root, "commit", "-m", "bump and sync on new branch")
+            synced_oid = self._git(root, "rev-parse", "HEAD")
+
+            res = self._run_hook(root, zero_oid, synced_oid)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_uncommitted_working_tree_sync_does_not_bypass_committed_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_oid = self._init_repo(root)
+
+            pj_path = root / "plugins" / "tribunal-review" / ".claude-plugin" / "plugin.json"
+            pj = read_json(pj_path)
+            pj["version"] = "1.0.1"
+            write_json(pj_path, pj)
+            self._git(root, "add", str(pj_path))
+            self._git(root, "commit", "-m", "bump plugin.json without committing marketplace sync")
+            committed_oid = self._git(root, "rev-parse", "HEAD")
+
+            # Sync only in the working tree (uncommitted).
+            rc, _, stderr = run_sync(root, check=False)
+            self.assertEqual(rc, 0, stderr)
+            self.assertEqual(
+                read_json(root / ".claude-plugin" / "marketplace.json")["plugins"][0]["version"],
+                "1.0.1",
+            )
+
+            res = self._run_hook(root, base_oid, committed_oid)
+            self.assertEqual(res.returncode, 1)
+            self.assertIn("Version mismatch", res.stdout)
+            self.assertIn("plugin.json:      1.0.1", res.stdout)
+            self.assertIn("marketplace.json: 1.0.0", res.stdout)
+
+    def test_missing_marketplace_entry_reports_missing_placeholder(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_oid = self._init_repo(root)
+
+            # Remove the plugin from marketplace.json while bumping plugin.json.
+            pj_path = root / "plugins" / "tribunal-review" / ".claude-plugin" / "plugin.json"
+            pj = read_json(pj_path)
+            pj["version"] = "1.0.1"
+            write_json(pj_path, pj)
+            mp_path = root / ".claude-plugin" / "marketplace.json"
+            mp = read_json(mp_path)
+            mp["plugins"] = []
+            write_json(mp_path, mp)
+            self._git(root, "add", ".")
+            self._git(root, "commit", "-m", "drop marketplace entry")
+            head_oid = self._git(root, "rev-parse", "HEAD")
+
+            res = self._run_hook(root, base_oid, head_oid)
+            self.assertEqual(res.returncode, 1)
+            self.assertIn("plugin.json:      1.0.1", res.stdout)
+            self.assertIn("marketplace.json: <missing>", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
