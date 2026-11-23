@@ -8,30 +8,23 @@ argument-hint: [campaign-name]
 
 # /ads-iterate — Run one iteration of a campaign
 
-This command delegates the iteration loop to the **ads-strategist** agent. The agent reads the current state, runs verification, diagnoses, and proposes the next iteration. You (the user) then confirm or redirect before the next iteration is committed.
+Delegates the iteration loop to the **ads-strategist** agent. The agent reads state, verifies, diagnoses, and proposes the next hypothesis; the user confirms or redirects before `spec.md` is written.
 
 ## Step 0: Determine the campaign
 
-If the user passed a campaign argument, use it. Otherwise, list `docs/ads/*/brief.md` and ask which campaign to iterate on. If there's only one, use it.
-
-If no brief exists for the specified campaign, STOP and direct the user to run `/ads-brief` first.
+Use the passed campaign argument; otherwise list `docs/ads/*/brief.md` (auto-select if only one, else ask). If no brief exists, **STOP** and direct the user to run `/ads-brief` first.
 
 ## Step 1: Detect the loop (pre-launch or post-launch)
-
-Check for the marker file `docs/ads/<campaign>/launched_at`:
 
 ```bash
 [ -f "docs/ads/<campaign>/launched_at" ] && echo post-launch || echo pre-launch
 ```
 
-- **Marker absent** → pre-launch loop
-- **Marker present** → post-launch loop
-
-The marker file is plain text with an ISO timestamp as its contents. Written either manually by the human on launch, or automatically by `/ads-metrics` on the first successful post-launch metric read.
+- **Marker absent** → pre-launch loop | **Marker present** → post-launch loop (ISO timestamp written manually on launch or by `/ads-metrics` on first post-launch read).
 
 ## Step 2: Dispatch the ads-strategist
 
-Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
+Spawn `ads-strategist` via Task tool (`subagent_type: "general-purpose"`):
 
 ### For pre-launch iteration:
 
@@ -39,85 +32,26 @@ Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 >
 > **Task: Run one pre-launch iteration on campaign `<campaign>`.**
 >
-> Be token-frugal: read only what each step needs (targeted ranges, not full files) and never re-read content already in context.
+> Be token-frugal: read only what each step needs (targeted ranges, never re-read) and exit early if nothing changed. Load skills only when needed (a verify-only cycle loads only `browser-verification`):
+> - `google-ads-strategist:buyer-intent-targeting` (v1 or keyword-change hypothesis)
+> - `google-ads-strategist:iterative-campaign-design` (v1 or diagnosing gaps for `v_{n+1}`)
+> - `google-ads-strategist:browser-verification` (Ad Preview / SERP capture)
+> - `google-ads-strategist:hypothesis-journaling` (writing `v1` or `v_{n+1}` hypothesis)
+> - `google-ads-strategist:competitor-intel` (building/refreshing differentiation matrix)
+> - `google-ads-strategist:clickable-copy` (writing/revising RSA copy)
 >
-> Load each skill only when the cycle reaches a step that needs it — a verify-only cycle on an existing iteration loads only `browser-verification`:
-> - `google-ads-strategist:buyer-intent-targeting` — when classifying candidate keywords (v1 or any keyword-change hypothesis)
-> - `google-ads-strategist:iterative-campaign-design` — when generating v1 or diagnosing gaps to propose v_{n+1}
-> - `google-ads-strategist:browser-verification` — when running Ad Preview / SERP capture in the browser
-> - `google-ads-strategist:hypothesis-journaling` — when writing a hypothesis (v1 or v_{n+1})
-> - `google-ads-strategist:competitor-intel` — when building or refreshing the differentiation matrix
-> - `google-ads-strategist:clickable-copy` — when writing or revising RSA copy
+> Read in order: `docs/ads/<campaign>/brief.md`, `learnings.md`, `hypothesis-log.md`, and `current/spec.md` (if it exists).
 >
-> Read in order:
-> - `docs/ads/<campaign>/brief.md` — campaign context
-> - `docs/ads/<campaign>/learnings.md` — prior patterns
-> - `docs/ads/<campaign>/hypothesis-log.md` — prior iterations
-> - `docs/ads/<campaign>/current/spec.md` if it exists — the active iteration
+> **If no current iteration exists**: follow `${CLAUDE_PLUGIN_ROOT}/references/v1-generation-playbook.md` (steps 1–10: seed keywords, intent classification, product-value gate, mandatory SERP evidence, competitor Transparency Center pull, `AG_branded_defensive`, UTM tagging, forecast sanity check, Day-1 negatives, `iterations/v1/hypothesis.md`) and **STOP after `hypothesis.md` for user approval — do NOT write `spec.md` in this call**.
 >
-> **If no current iteration exists**: generate v1 — but STOP after hypothesis.md for user approval (same checkpoint discipline as v_{n+1}).
+> **If a current iteration exists**:
+> 1. Read `current/spec.md` and `current/hypothesis.md`.
+> 2. Run Ad Preview Tool for every keyword and compare against `verification/`.
+> 3. Diagnose gaps per `iterative-campaign-design`.
+> 4. If stop conditions are met → write `current/result.md` with `"READY TO LAUNCH"` and STOP.
+> 5. Otherwise → write `iterations/v_{n+1}/hypothesis.md` with ONE variable-class change, then **STOP without writing `spec.md`** (checkpoint for user approval).
 >
-> **1. Seed the candidate keyword list.** You do NOT have Google Ads API access. Source candidates from, in priority order:
->    a. The `buyer_modifier_keywords` list + product category term from `brief.md`
->    b. WebFetch of the commercial landing pages listed in `brief.md` — extract recurring nouns and value-prop phrases from H1, H2, CTA buttons, pricing labels
->    c. Competitor ad headlines — run the Transparency Center pull for the top 3 competitors in brief.md first, then harvest terms from their RSAs
->    d. Google Suggest via Chrome: navigate to `google.com`, type the seed term + space, capture the autocomplete suggestions via `get_page_text`. Repeat with commercial modifiers ("pricing", "service", "hire", "buy", "near me")
->    e. Only after a-d, optionally use Google Trends via Chrome for volume signal (not forecasting — just relative interest)
->
-> **2. Classify EACH candidate by buyer intent** per the `buyer-intent-targeting` skill. Drop every informational query. Separate commercial investigation from transactional into different ad groups. Record the classification in a keyword table.
->
-> **2b. Run the product-value gate on each ad group.** For each candidate ad group, confirm that the product delivers paid-worthy value for that segment — i.e., that a click from this keyword can lead to a paid conversion, not just a free alternative. Record the gate decision per ad group in `iterations/v1/hypothesis.md` under a `## Product-value gate` section. Any ad group that fails the gate gets dropped before entering the spec, and the dropped keywords go to `## Dropped keywords` with reason "product-value gate: [explanation]".
->
-> **3. Verify each candidate in the real SERP** via Chrome incognito — capture evidence to `iterations/v1/verification/serp-<keyword>.png` (screenshot) or `serp-<keyword>.md` (structured extraction). Confirm commercial signals (paid ads above fold, shopping widgets, absence of dominant People Also Ask). Any keyword whose SERP is informational-dominant gets dropped and added to the negatives list. **This is mandatory — keywords without SERP evidence (.png or .md) cannot enter the spec.**
->
-> **4. Pull competitor ads** from the Transparency Center for the top 3 competitors. Save structured matrix to `iterations/v1/verification/transparency-*.md`. Build the differentiation matrix per the `competitor-intel` skill.
->
-> **5. Auto-generate the defensive branded ad group.** If `brand_name` is set in brief.md, v1 MUST include an ad group named `AG_branded_defensive` containing:
->    - Brand name on `[exact]` match
->    - Every brand variant from brief.md on `[exact]` match
->    - Brand + category combos on `"phrase"` match (e.g., `"<brand> service"`, `"<brand> pricing"`)
->    - One RSA with H1 = `"<Brand> — Official Site"`, H2 = product category, H3 = primary CTA
->    - Final URL = the official site URL from brief.md + full UTM tagging
->    - Bidding = manual CPC capped at `brand_defensive_bid_cap` from brief.md
->    This is non-negotiable when a brand exists — competitor brand-conquesting costs more than the defensive cost.
->
-> **6. Apply UTMs to every final URL in the spec.** Read the `final_url_template` from brief.md and substitute `{campaign_slug}`, `{iteration}=v1`, `{adgroup}=<ad group slug>`. Keep Google's `{keyword}` ValueTrack parameter literal — Google substitutes it at click time. Every row in every ad group's keyword table gets a fully-formed final URL with UTMs. No UTMs = the hook will refuse the spec write.
->
-> **7. Forecast a sanity check BEFORE writing the hypothesis.** Estimate:
->    - Average CPC from SERP competitive pressure (rough: look at competitor ad count + keyword commerciality)
->    - Daily click volume = daily_budget / avg_CPC
->    - Expected conversions/day = daily_clicks × CVR baseline
->    If daily_clicks < 10, the campaign cannot produce statistically significant signal in a reasonable window — STOP and report back asking to either raise budget, expand keywords, or acknowledge slow-learning mode.
->    Write the forecast into `iterations/v1/forecast.md` — this is part of the v1 artifact set.
->
-> **8. Preload aggressive Day-1 negatives.** Write `iterations/v1/negatives.md` with:
->    - The full informational-modifier list (English + target-language variants) from `buyer-intent-targeting`
->    - Any negatives from brief.md `exclusions`
->    - Any keywords dropped in step 3 (informational-dominant SERP) with their root term
->    - Brand terms of your own competitors if the user wants to avoid competing for them
->
-> **9. Write `iterations/v1/hypothesis.md`** — v1 hypothesis typically: "Initial commercial-intent targeting with a defensive branded ad group, forecast-validated budget, and aggressive day-1 negatives will produce top-3 preview position on ≥ 80% of target non-branded keywords plus 100% coverage on branded." Declare `**Variable class**: keywords`. Include the forecast summary (expected daily clicks + spend + conversions).
->
-> **10. STOP.** Report the proposed keyword list (with intent classifications), product-value gate results, competitor matrix, SERP verification count, defensive branded ad group summary, forecast sanity check results, preloaded negatives count, and the v1 hypothesis. Do NOT write `spec.md` in this call — the user approves the hypothesis first.
->
-> On approval in a follow-up call: write `spec.md` per the approved hypothesis (all final URLs UTM-tagged, branded defensive AG included, negatives attached, extensions per ad group), write `iterations/vN/flags-for-investor.md` listing all investor-decision items discovered during this iteration (use the template in `templates/flags-for-investor.md`), run Ad Preview Tool verification for every keyword, write `result.md`, update the `current` symlink (`ln -sfn iterations/v1 docs/ads/<campaign>/current`).
->
-> **Dropped keywords reconciliation**: If any keywords from the keyword exploration phase were dropped before entering spec.md (product-value gate failures, SERP reclassification, duplicate removal), include a `## Dropped keywords` section at the end of spec.md listing each dropped keyword with the reason.
->
-> **If a current iteration exists**: verify it, diagnose, propose v_{n+1}.
-> 1. Read `current/spec.md` and `current/hypothesis.md`
-> 2. Run Ad Preview Tool for every keyword → compare to the current verification/ state
-> 3. Diagnose any gaps per the `iterative-campaign-design` decision tree
-> 4. If stop conditions are met → write `current/result.md` with "READY TO LAUNCH" and STOP
-> 5. If not met → write `iterations/v_{n+1}/hypothesis.md` with ONE variable-class change, then STOP without writing spec.md yet
->
-> **Do NOT write v_{n+1}/spec.md in the same call** — stop after the hypothesis is written, so the user can review and approve before the spec is produced. This is the checkpoint.
->
-> After writing, report to the team lead:
-> - Current iteration version
-> - Whether stop conditions are met (yes/no/partial with details)
-> - The proposed next hypothesis (or "READY TO LAUNCH")
-> - Artifacts written (list)
+> Report: current iteration version, stop-condition status (yes/no/partial + details), proposed next hypothesis (or `"READY TO LAUNCH"`), and artifacts written.
 
 ### For post-launch iteration:
 
@@ -125,53 +59,27 @@ Spawn the ads-strategist via Task tool with `subagent_type: "general-purpose"`:
 >
 > **Task: Run one post-launch iteration on campaign `<campaign>`.**
 >
-> Load skills:
-> 1. `google-ads-strategist:iterative-optimization`
-> 2. `google-ads-strategist:hypothesis-journaling`
-> 3. `google-ads-strategist:browser-verification`
-> 4. `google-ads-strategist:buyer-intent-targeting`
-> 5. `google-ads-strategist:clickable-copy` (if copy hypothesis)
-> 6. `google-ads-strategist:competitor-intel` (if competitive pressure hypothesis)
+> Load skills as needed: `iterative-optimization`, `hypothesis-journaling`, `browser-verification`, `buyer-intent-targeting`, plus `clickable-copy` (copy hypothesis) or `competitor-intel` (competitive pressure).
 >
-> Check the wait gate first:
-> - Read `current/applied_at` (plain text ISO timestamp marker file)
-> - Compare to `docs/ads/<campaign>/wait_days` (default 7)
-> - If gate is closed, STOP and report when it opens — do NOT attempt to write a hypothesis yet
+> Check the wait gate first: compare `current/applied_at` against `docs/ads/<campaign>/wait_days` (default 7). If closed, **STOP** and report when it opens — do not write a hypothesis yet.
 >
-> If gate is open:
-> 1. Pull metrics via `browser-verification` Tool 5 (Google Ads UI)
-> 2. Compare to baseline (brief.md targets) + previous iteration result.md
-> 3. Run the decision tree in `iterative-optimization` to identify the dominant symptom
-> 4. Write `iterations/v_{n+1}/hypothesis.md` with a single-variable change
-> 5. STOP before writing spec.md — user confirms hypothesis first
+> If open:
+> 1. Pull metrics via `browser-verification` Tool 5 (Google Ads UI) and compare to `brief.md` targets + prior `result.md`.
+> 2. Run the `iterative-optimization` decision tree to identify the dominant symptom.
+> 3. Write `iterations/v_{n+1}/hypothesis.md` with ONE variable-class change, then **STOP before writing `spec.md`**.
 >
-> After writing, report:
-> - Current metrics vs targets
-> - Dominant symptom identified
-> - Proposed next hypothesis
-> - Wait gate status for next iteration
+> Report: current metrics vs targets, dominant symptom, proposed next hypothesis, and next wait-gate status.
 
-## Step 3: Present the agent's report to the user
+## Step 3: Present the agent's report & handle approval
 
-Show the user what the agent produced and ask:
+Show the user the summary for `<campaign> v_{n+1}` and ask whether to **Approve** (write `spec.md` + verify), **Redirect**, or **Stop**.
 
-> **Next hypothesis for `<campaign>` v_{n+1}**:
->
-> [summary from agent]
->
-> - Approve this hypothesis? I'll delegate spec.md writing + verification next.
-> - Redirect? Tell me what to change.
-> - Stop here?
+On approval, dispatch the agent again:
 
-On approval, dispatch the agent again with:
-
-> Write `iterations/v_{n+1}/spec.md` based on the approved hypothesis in `iterations/v_{n+1}/hypothesis.md`. Then update the `current` symlink, run verification, and write `result.md`.
+> Write `iterations/v_{n+1}/spec.md` based on the approved `iterations/v_{n+1}/hypothesis.md` (for `v1`, also follow the post-approval checklist in `${CLAUDE_PLUGIN_ROOT}/references/v1-generation-playbook.md`: `## Dropped keywords` reconciliation and `flags-for-investor.md`). Then update the `current` symlink, run verification, and write `result.md`.
 
 ## Notes
 
-- The iteration is NEVER auto-applied to a live account. The ads-strategist is design-only. After `result.md` says "READY TO LAUNCH", the human (or `growth-hacker` from saas-startup-team) handles the actual launch.
-- If the agent gets stuck (e.g., Chrome failure, auth failure, missing browser MCP), it MUST stop and report — do not let it fabricate results.
-
-### Force-override for the wait gate
-
-The wait-gate rule and its rationale live in the `iterative-optimization` skill ("The Wait Gate"). To bypass in a genuine emergency (tracking breakage, policy violation, budget emergency, competitor crisis — never impatience): write `force-wait-override` in the new `hypothesis.md` with a written justification, and `check-wait-gate.sh` allows the spec write.
+- Design-only: iterations are NEVER auto-applied to a live account. After `result.md` says `"READY TO LAUNCH"`, the human or `growth-hacker` launches it.
+- If Chrome, auth, or browser MCP fails, the agent MUST stop and report — never fabricate results.
+- **Force-override for the wait gate**: per `iterative-optimization` ("The Wait Gate"), only in a genuine emergency (tracking breakage, policy violation, budget emergency, competitor crisis — never impatience), include `force-wait-override` with written justification in `hypothesis.md` so `check-wait-gate.sh` permits the spec write.

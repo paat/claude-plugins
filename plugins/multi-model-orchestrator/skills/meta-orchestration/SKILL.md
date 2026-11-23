@@ -5,11 +5,7 @@ description: "Use when running the show over a queue of work — an epic, an iss
 
 # Meta Orchestration
 
-The brief describes WHAT to achieve — outcomes, priorities,
-autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: the rules
-below. You coordinate; you never edit source. Route every worker and reviewer leg with
-`../route-model-task/SKILL.md` — do not restate its catalog. Do not load
-`../multi-model-orchestration/SKILL.md`.
+The brief describes WHAT to achieve — outcomes, priorities, autonomy bounds, stop conditions — and is authoritative on all of it. HOW is yours: the rules below. You coordinate; you never edit source. Route every worker and reviewer leg with `../route-model-task/SKILL.md` — do not restate its catalog. Do not load `../multi-model-orchestration/SKILL.md`.
 
 ## Autonomy
 
@@ -138,14 +134,10 @@ logs, diffs: a leg or subagent returns a verdict. Be token-frugal.
 ## Reliability rules
 
 - Prior leg done per `references/leg-liveness.md` (mtime + exit marker; never `pgrep` — not a liveness check; failure exits 75/77).
-- Exits 124 (timeout), 55 (partly edited) or 76 (max turns) may follow work: never discard any of them — check
-  `git status`, rerun suites, and salvage or redispatch on evidence.
-- You never edit source while any worker is live. `git checkout` is a write. Never
-  `gh pr merge --delete-branch` under a live worker.
+- Exits 124 (timeout), 55 (partly edited) or 76 (max turns) may follow work: never discard any of them — check `git status`, rerun suites, and salvage or redispatch on evidence.
+- You never edit source while any worker is live. `git checkout` is a write. Never `gh pr merge --delete-branch` under a live worker.
 - Start every turn by reading any unread dispatched-leg output, then resume at the gate.
-- Dispatch legs via a host mechanism whose completion re-invokes the orchestrator (Claude:
-  `run_in_background: true`; agy: `WaitMsBeforeAsync`; Codex/Grok/Muse async); never use bare shell `&`.
-- Ending a turn with an unarranged live leg is a defect, not a wait. Follow Preflight's handoff
-  write — announcing a dispatch without that written handoff is a defect.
+- Dispatch legs via a host mechanism whose completion re-invokes the orchestrator (Claude: `run_in_background: true`; agy: `WaitMsBeforeAsync`; Codex/Grok/Muse async); never use bare shell `&`.
+- Ending a turn with an unarranged live leg is a defect, not a wait. Follow Preflight's handoff write — announcing a dispatch without that written handoff is a defect.
 - Workers never push. You own push and PR creation.
 - When a worker pushes back on your instructions, treat it as signal: verify before overruling.
