@@ -22,7 +22,7 @@
     },
     {
       "path": "scripts/lib-provider.sh",
-      "sha256": "013bfda1ca015ac1362d872d81f8c1f070cb8fd1ad067754ea73def4d0319d2c"
+      "sha256": "d38816ea307d5e6bed7f247350f814aeaa5961d807119830d002260e5c72599c"
     },
     {
       "path": "scripts/lib.sh",

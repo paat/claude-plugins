@@ -58,6 +58,50 @@ else
   pass 'missing MMO_MODEL_CATALOG fails closed'
 fi
 
+# 2b. Empty MMO_POOL_TIERS must not break FILENAME parsing of model-catalog.tsv.
+: > "$WORK/empty-tiers.tsv"
+empty_claude="$(MMO_POOL_TIERS="$WORK/empty-tiers.tsv" mmo_catalog_list claude '|')"
+[ "$empty_claude" = "$claude_list" ] \
+  && pass 'empty MMO_POOL_TIERS preserves all direct-pin and compat models from model-catalog.tsv' \
+  || fail "empty MMO_POOL_TIERS broke catalog: $empty_claude"
+empty_grok="$(MMO_POOL_TIERS="$WORK/empty-tiers.tsv" mmo_catalog_list grok ' ')"
+[ "$empty_grok" = "$grok_list" ] \
+  && pass 'empty MMO_POOL_TIERS preserves grok compat models' \
+  || fail "empty MMO_POOL_TIERS broke grok catalog: $empty_grok"
+
+# 2c. Flag-like or whitespace model IDs in overridden TSVs are ignored and rejected.
+cat > "$WORK/malformed-tiers.tsv" <<'EOF'
+T3	agy	--dangerously-skip-permissions	high
+T3	agy	-bad-flag	high
+T3	agy	bad model with spaces	high
+T3	agy	valid/model:v1	high
+EOF
+cat > "$WORK/malformed-catalog.tsv" <<'EOF'
+claude	--evil-flag	direct-pin
+claude	space model	compat
+claude	*	pool
+EOF
+for bad_id in '--dangerously-skip-permissions' '-bad-flag' 'bad model with spaces'; do
+  if MMO_POOL_TIERS="$WORK/malformed-tiers.tsv" mmo_catalog_has_model agy "$bad_id"; then
+    fail "malformed model id '$bad_id' was accepted from MMO_POOL_TIERS"
+  fi
+done
+if MMO_POOL_TIERS="$WORK/malformed-tiers.tsv" mmo_catalog_has_model agy 'valid/model:v1'; then
+  pass 'valid namespaced model id accepted while flag-like/whitespace ids in MMO_POOL_TIERS are rejected'
+else
+  fail 'valid/model:v1 was rejected'
+fi
+for bad_id in '--evil-flag' 'space model'; do
+  if MMO_MODEL_CATALOG="$WORK/malformed-catalog.tsv" mmo_catalog_has_model claude "$bad_id"; then
+    fail "malformed model id '$bad_id' was accepted from MMO_MODEL_CATALOG"
+  fi
+done
+if MMO_MODEL_CATALOG="$WORK/malformed-catalog.tsv" mmo_catalog_list claude '|' | grep -qE -- '--evil-flag|space model'; then
+  fail 'malformed model ids leaked into mmo_catalog_list output'
+else
+  pass 'malformed model ids in MMO_MODEL_CATALOG are filtered out of catalog list'
+fi
+
 # 3. Adding a new model to MMO_POOL_TIERS makes all four runners accept it with zero runner edits.
 REPO="$WORK/repo"
 BIN="$WORK/bin"

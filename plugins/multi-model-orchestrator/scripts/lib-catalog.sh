@@ -31,10 +31,11 @@ mmo_catalog_models() {  # mmo_catalog_models PROVIDER
   if [ -n "$extra_tiers" ] && [ "$extra_tiers" != "$shipped_tiers" ]; then
     tier_files+=("$extra_tiers")
   fi
-  awk -F'\t' -v provider="$provider" -v tier_file_count="${#tier_files[@]}" '
+  awk -F'\t' -v provider="$provider" -v catalog_file="$catalog_file" '
     function trim_cr(s) { sub(/\r$/, "", s); return s }
+    function valid_id(m) { return (m ~ /^[A-Za-z0-9][A-Za-z0-9._:\/-]*$/) }
     function emit(m) {
-      if (m != "" && m != "*" && !(m in emitted)) {
+      if (valid_id(m) && !(m in emitted)) {
         emitted[m] = 1
         print m
       }
@@ -58,14 +59,13 @@ mmo_catalog_models() {  # mmo_catalog_models PROVIDER
         }
       }
     }
-    FNR == 1 { file_idx++ }
-    file_idx <= tier_file_count {
+    FILENAME != catalog_file {
       line = trim_cr($0)
       if (line ~ /^[[:space:]]*(#|$)/) next
       split(line, f, "\t")
       t = f[1]; p = f[2]; m = f[3]
       if (p == provider || (provider == "claude" && p == "claude-api")) {
-        if (m != "" && m != "*") {
+        if (valid_id(m)) {
           if (!(t in known_other) && t != "T1" && t != "T2" && t != "T3" && t != "T4") {
             known_other[t] = 1
             other_tiers[++other_tier_count] = t
@@ -81,7 +81,7 @@ mmo_catalog_models() {  # mmo_catalog_models PROVIDER
       if (line ~ /^[[:space:]]*(#|$)/) next
       split(line, f, "\t")
       p = f[1]; m = f[2]
-      if (p == provider && m != "") {
+      if (p == provider && (m == "*" || valid_id(m))) {
         cat_count++
         cat_entries[cat_count] = m
         if (m == "*") has_star = 1
@@ -114,9 +114,7 @@ mmo_catalog_list() {  # mmo_catalog_list PROVIDER [SEP]
 # Return 0 iff MODEL is an exact entry in PROVIDER catalog.
 mmo_catalog_has_model() {  # mmo_catalog_has_model PROVIDER MODEL
   local provider="$1" model="${2:-}" raw entry
-  case "$model" in
-    ''|'*'|*'|'*|*$'\n'*|*$'\t'*) return 1 ;;
-  esac
+  [[ "$model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || return 1
   raw="$(mmo_catalog_models "$provider")" || return 1
   while IFS= read -r entry; do
     [ "$entry" = "$model" ] && return 0

@@ -165,12 +165,16 @@ EOF
 }
 
 # Write back an isolated Grok auth.json to the host atomically under a lockdir.
+# Retries acquiring the lockdir up to PROVIDER_GROK_LOCK_WAIT_SECONDS (default 10)
+# and reclaims stale lockdirs atomically under a reclaim guard.
 # When START_SNAPSHOT is provided, skips if isolated did not change or host changed
 # since leg start. When jq is available, also refuses to regress a fresher host expires_at.
 # Usage: provider_grok_auth_writeback ISOLATED HOST [START_SNAPSHOT] [LOG_PREFIX]
 provider_grok_auth_writeback() {
   local isolated="${1:-}" host="${2:-}" start_snapshot="${3:-}" log_prefix="${4:-provider}"
-  local host_dir lock_dir lock_pid auth_tmp host_exp iso_exp write_rc=0
+  local host_dir lock_dir reclaim_lock stale_dir lock_pid auth_tmp host_exp iso_exp write_rc=0
+  local wait_s="${PROVIDER_GROK_LOCK_WAIT_SECONDS:-10}" deadline acquired=0 reclaimed=0
+  [[ "$wait_s" =~ ^[0-9]+$ ]] || wait_s=10
   [ -n "$isolated" ] && [ -n "$host" ] || return 0
   if [ -n "$start_snapshot" ]; then
     [ -s "$isolated" ] || return 0
@@ -192,21 +196,48 @@ provider_grok_auth_writeback() {
   host_dir="$(dirname "$host")"
   mkdir -p "$host_dir" || return 1
   lock_dir="${host}.lockdir"
-  if ! mkdir "$lock_dir" 2>/dev/null; then
+  reclaim_lock="${lock_dir}.reclaim"
+  deadline=$((SECONDS + wait_s))
+  while :; do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      acquired=1
+      break
+    fi
     lock_pid=""
     [ ! -f "$lock_dir/pid" ] || IFS= read -r lock_pid < "$lock_dir/pid" || true
     # Stale: its holder is gone, or it died before writing its pid (the lock is held for milliseconds).
     if { [[ "$lock_pid" =~ ^[1-9][0-9]*$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; } ||
        { [ -z "$lock_pid" ] && [ -n "$(find "$lock_dir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
-      rm -rf -- "$lock_dir"
-      mkdir "$lock_dir" 2>/dev/null || {
-        printf '%s: auth refresh not written back; lock busy: %s\n' "$log_prefix" "$lock_dir" >&2
-        return 0
-      }
-    else
-      printf '%s: auth refresh not written back; lock busy: %s\n' "$log_prefix" "$lock_dir" >&2
-      return 0
+      if [ -d "$reclaim_lock" ] && [ -n "$(find "$reclaim_lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+        rmdir "$reclaim_lock" 2>/dev/null || true
+      fi
+      if mkdir "$reclaim_lock" 2>/dev/null; then
+        reclaimed=0
+        lock_pid=""
+        [ ! -f "$lock_dir/pid" ] || IFS= read -r lock_pid < "$lock_dir/pid" || true
+        if { [[ "$lock_pid" =~ ^[1-9][0-9]*$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; } ||
+           { [ -z "$lock_pid" ] && [ -n "$(find "$lock_dir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
+          stale_dir="${lock_dir}.stale.$$.${RANDOM:-0}"
+          if mv "$lock_dir" "$stale_dir" 2>/dev/null; then
+            rm -rf -- "$stale_dir"
+            reclaimed=1
+          fi
+        fi
+        rmdir "$reclaim_lock" 2>/dev/null || true
+        if [ "$reclaimed" -eq 1 ] && mkdir "$lock_dir" 2>/dev/null; then
+          acquired=1
+          break
+        fi
+      fi
     fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      break
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+  if [ "$acquired" -ne 1 ]; then
+    printf '%s: auth refresh not written back; lock busy: %s\n' "$log_prefix" "$lock_dir" >&2
+    return 0
   fi
   printf '%s\n' "$$" > "$lock_dir/pid"
   # Re-check host freshness under the lock (TOCTOU).
@@ -242,7 +273,12 @@ provider_grok_auth_writeback() {
     rmdir "$lock_dir" 2>/dev/null || true
     return 1
   }
-  cp -p "$isolated" "$auth_tmp" && chmod 600 "$auth_tmp" 2>/dev/null && mv -f "$auth_tmp" "$host" || write_rc=$?
+  if cp -p "$isolated" "$auth_tmp"; then
+    chmod 600 "$auth_tmp" 2>/dev/null || true
+    mv -f "$auth_tmp" "$host" || write_rc=$?
+  else
+    write_rc=$?
+  fi
   rm -f "$auth_tmp" "$lock_dir/pid"
   rmdir "$lock_dir" 2>/dev/null || true
   return "$write_rc"
